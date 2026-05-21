@@ -39,7 +39,10 @@ const searchResults = ref<SearchResponse | null>(null);
 const searching = ref(false);
 const printerPing = ref<PingResult | null | undefined>(undefined);
 
-const queryInput = useTemplateRef<HTMLInputElement>("queryInput");
+// PrimeVue InputText wraps a native <input>; the template ref points
+// at the component instance, so reach through `$el` to focus the real
+// element.
+const queryInput = useTemplateRef<{ $el: HTMLInputElement }>("queryInput");
 
 onMounted(async () => {
   await Promise.all([
@@ -49,7 +52,7 @@ onMounted(async () => {
     cart.fetch(),
   ]);
   // Auto-focus the search box so a kiosk operator can just start typing.
-  queryInput.value?.focus();
+  queryInput.value?.$el?.focus();
 });
 
 watch(selectedProject, async (pid) => {
@@ -105,7 +108,7 @@ async function doSearch() {
 function clearQuery() {
   query.value = "";
   searchResults.value = null;
-  queryInput.value?.focus();
+  queryInput.value?.$el?.focus();
 }
 
 async function onPrintOne(labelId: number) {

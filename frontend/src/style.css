@@ -1,4 +1,13 @@
-@import "tailwindcss";
+/* Split Tailwind v4 into its three sub-imports so we can inject
+   PrimeVue's `primevue` layer between Tailwind's preflight (`base`)
+   and `utilities`. Without this split, Safari ends up applying
+   preflight on top of PrimeVue's overlay styles (Dialog, Toast,
+   ConfirmDialog) and they render unpositioned. */
+@layer theme, base, primevue, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
 @import "primeicons/primeicons.css";
 
 /* Sensible defaults for kiosk landscape display */

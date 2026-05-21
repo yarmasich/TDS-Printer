@@ -17,6 +17,14 @@ app.use(PrimeVue, {
     preset: Aura,
     options: {
       darkModeSelector: ".never-dark", // disable dark mode for kiosk
+      // Put PrimeVue's generated CSS into its own cascade layer so
+      // Tailwind v4's preflight (in `base`) can't strip Dialog's
+      // position:fixed etc. Order matches the @layer declaration in
+      // style.css; utilities still win over PrimeVue defaults.
+      cssLayer: {
+        name: "primevue",
+        order: "theme, base, primevue, utilities",
+      },
     },
   },
   ripple: false,
