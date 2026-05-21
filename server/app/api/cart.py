@@ -7,6 +7,7 @@ gets printed.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,7 @@ from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..printer import PrintError, render_and_send
 
+logger = logging.getLogger("tds.cart")
 router = APIRouter(prefix="/api/cart", tags=["cart"])
 
 
@@ -196,10 +198,20 @@ def print_all(
         printed_item_ids.append(item.id)
         ok += 1
 
+    logger.info(
+        "print_all sid=%s: ok=%d, errors=%d, printed_ids=%s, clear_after=%s",
+        req.sid, ok, len(errors), printed_item_ids, req.clear_after,
+    )
+
     # Drop only the items we actually printed — keeps failures in the cart so
     # the operator can retry / remove them without re-printing what worked.
     if req.clear_after and printed_item_ids:
-        db.exec(delete(CartItem).where(CartItem.id.in_(printed_item_ids)))
+        result = db.exec(
+            delete(CartItem).where(CartItem.id.in_(printed_item_ids))
+        )
         db.commit()
+        logger.info(
+            "print_all sid=%s: deleted %d cart items", req.sid, result.rowcount or 0
+        )
 
     return PrintAllResult(ok=ok, errors=errors, log_ids=log_ids)

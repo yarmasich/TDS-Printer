@@ -12,6 +12,12 @@ const props = defineProps<{
   reason: string;
 }>();
 
+const emit = defineEmits<{
+  /** Fired after every successful print_all so the host page can reset
+   * its workflow (clear search, re-focus the query box, etc). */
+  printed: [count: number];
+}>();
+
 const cart = useCart();
 const toast = useToast();
 const confirm = useConfirm();
@@ -30,6 +36,7 @@ async function printAll() {
         life: 3000,
       });
       drawerOpen.value = false;
+      emit("printed", res.ok);
     } else {
       toast.add({
         severity: "warn",
@@ -37,6 +44,9 @@ async function printAll() {
         detail: res.errors.map((e) => e.error).join("; "),
         life: 6000,
       });
+      // Still emit on partial success — the printed items left the cart
+      // and the operator typically wants to start a fresh search.
+      if (res.ok > 0) emit("printed", res.ok);
     }
   } catch (e: unknown) {
     toast.add({

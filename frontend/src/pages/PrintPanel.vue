@@ -111,6 +111,14 @@ function clearQuery() {
   queryInput.value?.$el?.focus();
 }
 
+// Called by StickyCart after a successful Print all — reset the search
+// so the next batch starts from a clean screen with the cursor in the
+// search box. Saves the operator from clearing the previous results by
+// hand between cable runs.
+function onPrinted() {
+  clearQuery();
+}
+
 async function onPrintOne(labelId: number) {
   try {
     const res = await api.post<{ ok: boolean; log_id: number }>("/api/print", {
@@ -290,7 +298,7 @@ async function onAddToCart(labelId: number) {
     </section>
 
     <!-- ============ Sticky cart ============ -->
-    <StickyCart :operator="operator" :reason="reason" />
+    <StickyCart :operator="operator" :reason="reason" @printed="onPrinted" />
   </div>
 </template>
 

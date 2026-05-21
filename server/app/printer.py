@@ -61,6 +61,36 @@ def _load_font(name: str, style: str, size_pt: float) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(FONTS_DIR / fname), max(6, int(round(size_pt * PT_TO_PX))))
 
 
+def _wrap_to_width(
+    text: str, font: ImageFont.FreeTypeFont, max_width: float
+) -> list[str]:
+    """Greedy word-wrap inside ``max_width`` pixels.
+
+    Hard ``\\n`` breaks are always honoured (so Excel cells with real
+    line breaks keep their layout). Within each paragraph we pack words
+    one by one and break to a new line as soon as the next word would
+    overflow. A single word that's already too wide is left on its own
+    line (printer will just overflow — matches the Android renderer).
+    """
+    out: list[str] = []
+    for paragraph in text.split("\n"):
+        if not paragraph:
+            out.append("")
+            continue
+        words = paragraph.split(" ")
+        cur = ""
+        for word in words:
+            candidate = f"{cur} {word}" if cur else word
+            if font.getlength(candidate) <= max_width or not cur:
+                cur = candidate
+            else:
+                out.append(cur)
+                cur = word
+        if cur:
+            out.append(cur)
+    return out
+
+
 def _draw_text_block(
     img: Image.Image,
     text: str,
@@ -74,11 +104,14 @@ def _draw_text_block(
     """Render multi-line ``text`` inside ``(x0,y0)-(x1,y1)`` with the given
     alignment. When ``mirror`` is True, the block is drawn upside-down
     (rotated 180° around its own centre) — matches Android's drawMirrorText.
+
+    Auto-wraps long lines by word to the rectangle width.
     """
     if not text:
         return
 
-    lines = text.split("\n")
+    rect_w = x1 - x0
+    lines = _wrap_to_width(text, font, rect_w)
     # measure each line — use textbbox so descenders are included
     measured = []
     for line in lines:
@@ -88,7 +121,6 @@ def _draw_text_block(
     line_gap = max(2, int(font.size * 0.15))
     total_h = sum(h for _, _, h in measured) + line_gap * (len(measured) - 1)
 
-    rect_w = x1 - x0
     rect_h = y1 - y0
 
     if v_align == "TOP":
@@ -260,9 +292,28 @@ def render_and_send(
     send_to_printer(printer.ip, printer.port, payload)
 
 
-def render_label_png(template: Template, left_text: str, right_text: str) -> bytes:
-    """Render the same bitmap and return PNG bytes — for the preview endpoint."""
+def render_label_png(
+    template: Template,
+    left_text: str,
+    right_text: str,
+    *,
+    crop: bool = False,
+) -> bytes:
+    """Render the same bitmap and return PNG bytes — for the preview endpoint.
+
+    When ``crop=True`` the bitmap is trimmed to the bounding box of the
+    left/right text rectangles. The label form's live preview uses this
+    so the tiny text region isn't drowned out by the surrounding blank
+    canvas when the bitmap is scaled down to fit a Print-On Area swatch.
+    """
     img = render_label_bitmap(template, left_text, right_text)
+    if crop:
+        x0 = max(0, int(min(template.left_left, template.right_left)))
+        y0 = max(0, int(min(template.left_top, template.right_top)))
+        x1 = min(img.width, int(max(template.left_right, template.right_right)))
+        y1 = min(img.height, int(max(template.left_bottom, template.right_bottom)))
+        if x1 > x0 and y1 > y0:
+            img = img.crop((x0, y0, x1, y1))
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

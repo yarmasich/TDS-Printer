@@ -9,6 +9,7 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Dialog from "primevue/dialog";
+import ColorPicker from "primevue/colorpicker";
 
 const toast = useToast();
 const confirm = useConfirm();
@@ -116,6 +117,22 @@ async function bindTemplate(d: Discipline, templateId: number | null) {
   }
 }
 
+async function updateColor(d: Discipline, color: string) {
+  // PrimeVue's ColorPicker (format=hex) returns the colour without the
+  // leading '#', which matches what the DB stores.
+  if (!color || color.toUpperCase() === d.color.toUpperCase()) return;
+  try {
+    await api.put(`/api/disciplines/${d.id}`, { color: color.toUpperCase() });
+    d.color = color.toUpperCase(); // optimistic — avoid full refresh flash
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Color save failed",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 function del(url: string, label: string) {
   confirm.require({
     message: `Delete ${label}?`,
@@ -202,9 +219,11 @@ function del(url: string, label: string) {
           class="ml-5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex justify-between items-center gap-2"
         >
           <div class="flex items-center gap-2 min-w-0">
-            <span
-              class="inline-block w-4 h-4 rounded border border-slate-300"
-              :style="{ background: '#' + d.color }"
+            <ColorPicker
+              :model-value="d.color"
+              format="hex"
+              :pt="{ preview: { 'aria-label': `Color for ${d.name}` } }"
+              @update:model-value="(v) => updateColor(d, String(v))"
             />
             <span class="font-semibold">{{ d.name }}</span>
             <span class="text-xs text-slate-400">
@@ -286,8 +305,11 @@ function del(url: string, label: string) {
           />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Color (hex, no #)</label>
-          <InputText v-model="newDisc.color" class="w-full" />
+          <label class="block text-xs font-bold text-slate-600 mb-1">Color</label>
+          <div class="flex items-center gap-2">
+            <ColorPicker v-model="newDisc.color" format="hex" />
+            <code class="text-xs text-slate-500">#{{ newDisc.color }}</code>
+          </div>
         </div>
       </div>
       <template #footer>

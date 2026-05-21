@@ -12,6 +12,33 @@ from ..printer import PrintError, render_and_send, render_label_png
 router = APIRouter(prefix="/api/print", tags=["print"])
 
 
+class DraftPreviewRequest(BaseModel):
+    """Render a template that hasn't been saved yet.
+
+    Used by the admin form's live preview — at edit time we don't have
+    a stable ``template_id`` we could pass to the GET endpoint, and we
+    don't want to round-trip through ``PUT /api/templates``.
+
+    ``crop=True`` trims the bitmap to the text rectangles' bounding
+    box — useful when the preview is being scaled into a small UI
+    swatch and would otherwise be dominated by empty canvas.
+    """
+    template: Template
+    left_text: str = ""
+    right_text: str = ""
+    crop: bool = False
+
+
+class TestPrintRequest(BaseModel):
+    """Send a one-off draft print to a real printer — for the 'Test'
+    button on the template form. ``printer_id`` is required because the
+    inline template may be brand-new (no FK persisted yet)."""
+    template: Template
+    printer_id: int
+    operator: str = ""
+    reason: str = "TEST"
+
+
 @router.get("/preview")
 def preview(
     template_id: Optional[int] = Query(None),
@@ -47,6 +74,50 @@ def preview(
         raise HTTPException(400, "Provide label_id or template_id")
     png = render_label_png(tmpl, left, right)
     return Response(content=png, media_type="image/png")
+
+
+@router.post("/preview-draft")
+def preview_draft(req: DraftPreviewRequest):
+    """Render an unsaved template — same renderer as the printer path,
+    so what you see here is what comes out of the printer."""
+    left = req.left_text or req.template.left_text
+    right = req.right_text or req.template.right_text
+    png = render_label_png(req.template, left, right, crop=req.crop)
+    return Response(content=png, media_type="image/png")
+
+
+@router.post("/test")
+def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -> dict:
+    """Print a draft template right now — used by the template editor's
+    'Test' button. We still log it (status='ok', reason='TEST' by default)
+    so the operator can see test prints in history."""
+    printer = session.get(Printer, req.printer_id)
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+
+    left = req.template.left_text
+    right = req.template.right_text
+    log = PrintLog(
+        template_name=req.template.name or "(draft)",
+        printer_ip=f"{printer.ip}:{printer.port}",
+        operator=req.operator,
+        reason=req.reason or "TEST",
+        left_text=left,
+        right_text=right,
+    )
+    try:
+        render_and_send(req.template, printer, left, right, req.operator, req.reason)
+    except PrintError as e:
+        log.status = "error"
+        log.error = str(e)
+        session.add(log)
+        session.commit()
+        raise HTTPException(502, f"Test print failed: {e}")
+
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return {"ok": True, "log_id": log.id}
 
 
 class PrintRequest(BaseModel):

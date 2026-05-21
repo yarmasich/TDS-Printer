@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
-import { api } from "@/api/client";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { api, apiUrl } from "@/api/client";
 import type { Template } from "@/api/types";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
@@ -12,8 +12,12 @@ import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
+import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import ToggleSwitch from "primevue/toggleswitch";
+import ProgressSpinner from "primevue/progressspinner";
+import LabelShape from "@/components/admin/LabelShape.vue";
+import { parsePanduitSku } from "@/data/panduit";
 
 const printers = usePrinters();
 const toast = useToast();
@@ -22,6 +26,16 @@ const confirm = useConfirm();
 const templates = ref<Template[]>([]);
 const dialogOpen = ref(false);
 const editId = ref<number | null>(null);
+
+// Live preview state — Blob URL refreshed on each form change (debounced).
+const previewSrc = ref<string | null>(null);
+const previewLoading = ref(false);
+const previewError = ref<string | null>(null);
+const testing = ref(false);
+
+// Click-to-zoom: opens a full-screen Dialog with the same preview at
+// max size so the operator can actually read the small text.
+const zoomOpen = ref(false);
 
 const blank = (): Omit<Template, "id"> => ({
   name: "",
@@ -80,6 +94,20 @@ function openEdit(t: Template) {
   dialogOpen.value = true;
 }
 
+function openDuplicate(t: Template) {
+  editId.value = null; // saving will POST a new row
+  const { id: _id, ...rest } = t;
+  void _id;
+  Object.assign(form, rest);
+  // Auto-suffix until the name is unique among existing templates.
+  const taken = new Set(templates.value.map((x) => x.name));
+  let candidate = `${t.name} copy`;
+  let n = 2;
+  while (taken.has(candidate)) candidate = `${t.name} copy ${n++}`;
+  form.name = candidate;
+  dialogOpen.value = true;
+}
+
 async function save() {
   try {
     if (editId.value) {
@@ -111,16 +139,135 @@ function remove(t: Template) {
 
 function previewUrl(t: Template) {
   return (
-    `/api/print/preview?template_id=${t.id}` +
+    apiUrl("/api/print/preview") +
+    `?template_id=${t.id}` +
     `&left_text=${encodeURIComponent(t.left_text)}` +
     `&right_text=${encodeURIComponent(t.right_text)}`
   );
+}
+
+// ──────────────── live preview ────────────────
+
+// Held outside reactive state so the watcher's debounce token doesn't
+// itself trigger re-runs.
+let previewTimer: number | null = null;
+let previewSeq = 0;
+
+function clearPreview() {
+  if (previewSrc.value) {
+    URL.revokeObjectURL(previewSrc.value);
+    previewSrc.value = null;
+  }
+  previewError.value = null;
+}
+
+async function refreshPreview() {
+  // Skip if the form is half-filled — printer must be picked for the
+  // template to even validate server-side.
+  if (!form.printer_id) {
+    clearPreview();
+    return;
+  }
+  const seq = ++previewSeq;
+  previewLoading.value = true;
+  previewError.value = null;
+  try {
+    const res = await fetch(apiUrl("/api/print/preview-draft"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // crop=true so the preview is the text-bbox only — without
+      // it the bitmap is mostly blank canvas and the actual text
+      // shrinks to dots when scaled into the small Print-On swatch.
+      body: JSON.stringify({ template: form, crop: true }),
+    });
+    if (seq !== previewSeq) return; // a newer call already ran
+    if (!res.ok) {
+      const detail = await res.text();
+      previewError.value = `${res.status}: ${detail.slice(0, 200)}`;
+      return;
+    }
+    const blob = await res.blob();
+    if (seq !== previewSeq) return;
+    const url = URL.createObjectURL(blob);
+    if (previewSrc.value) URL.revokeObjectURL(previewSrc.value);
+    previewSrc.value = url;
+  } catch (e) {
+    if (seq === previewSeq) {
+      previewError.value = e instanceof Error ? e.message : String(e);
+    }
+  } finally {
+    if (seq === previewSeq) previewLoading.value = false;
+  }
+}
+
+watch(
+  () => ({ ...form }),
+  () => {
+    if (!dialogOpen.value) return;
+    if (previewTimer !== null) window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      previewTimer = null;
+      refreshPreview();
+    }, 350);
+  },
+  { deep: true },
+);
+
+watch(dialogOpen, (open) => {
+  if (open) {
+    refreshPreview();
+  } else {
+    if (previewTimer !== null) {
+      window.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    clearPreview();
+  }
+});
+
+onUnmounted(clearPreview);
+
+// ──────────────── test print ────────────────
+
+async function testPrint() {
+  if (!form.printer_id) {
+    toast.add({
+      severity: "warn",
+      summary: "Pick a printer first",
+      life: 2500,
+    });
+    return;
+  }
+  testing.value = true;
+  try {
+    const res = await api.post<{ ok: boolean; log_id: number }>(
+      "/api/print/test",
+      { template: form, printer_id: form.printer_id, reason: "TEST" },
+    );
+    toast.add({
+      severity: "success",
+      summary: `Test printed (log #${res.log_id})`,
+      life: 2500,
+    });
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Test print failed",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  } finally {
+    testing.value = false;
+  }
 }
 
 const ALIGN_H = ["LEFT", "CENTER", "RIGHT"];
 const ALIGN_V = ["TOP", "CENTER", "BOTTOM"];
 const FONTS = ["Microsoft Sans Serif", "Calibri"];
 const STYLES = ["Bold", "Regular"];
+
+// Recognised PANDUIT SKU at the start of the template name (e.g.
+// 'R200X225+mirror' → R200X225V1T). Null when the name doesn't match.
+const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
 </script>
 
 <template>
@@ -176,7 +323,7 @@ const STYLES = ["Bold", "Regular"];
       <Column header="Mirror">
         <template #body="{ data }">{{ data.mirror_mode ? "yes" : "no" }}</template>
       </Column>
-      <Column header="" :style="{ width: '180px' }">
+      <Column header="" :style="{ width: '220px' }">
         <template #body="{ data }">
           <div class="flex gap-1 justify-end">
             <a :href="previewUrl(data)" target="_blank" rel="noopener">
@@ -194,6 +341,14 @@ const STYLES = ["Bold", "Regular"];
               text
               aria-label="Edit"
               @click="openEdit(data)"
+            />
+            <Button
+              icon="pi pi-copy"
+              size="small"
+              text
+              severity="secondary"
+              aria-label="Duplicate"
+              @click="openDuplicate(data)"
             />
             <Button
               icon="pi pi-trash"
@@ -216,6 +371,70 @@ const STYLES = ["Bold", "Regular"];
       content-class="template-dialog"
     >
       <div class="space-y-4">
+        <fieldset class="preview-pane">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1">
+            Preview
+            <span class="text-slate-400 font-normal normal-case">
+              ({{ form.bytes_per_row * 8 }}×{{ form.height }}px,
+              mirror {{ form.mirror_mode ? "on" : "off" }})
+            </span>
+          </legend>
+          <!-- When we recognise the SKU, render the label silhouette
+               with the live bitmap embedded inside its Print-On Area.
+               Otherwise fall back to the plain bitmap frame. Click
+               anywhere on the preview to open it full-size. -->
+          <div
+            v-if="panduitSpec"
+            class="shape-frame zoomable"
+            role="button"
+            tabindex="0"
+            aria-label="Zoom preview"
+            @click="zoomOpen = true"
+            @keydown.enter="zoomOpen = true"
+            @keydown.space.prevent="zoomOpen = true"
+          >
+            <LabelShape
+              :spec="panduitSpec"
+              :preview-src="previewSrc"
+              :loading="previewLoading"
+              :mirror="form.mirror_mode"
+            />
+            <i class="pi pi-search-plus zoom-hint" aria-hidden="true" />
+            <p v-if="previewError" class="preview-msg text-red-600 text-xs mt-2">
+              {{ previewError }}
+            </p>
+          </div>
+          <div
+            v-else
+            class="preview-frame zoomable"
+            role="button"
+            tabindex="0"
+            aria-label="Zoom preview"
+            @click="previewSrc && (zoomOpen = true)"
+            @keydown.enter="previewSrc && (zoomOpen = true)"
+            @keydown.space.prevent="previewSrc && (zoomOpen = true)"
+          >
+            <ProgressSpinner
+              v-if="previewLoading"
+              class="preview-spinner"
+              stroke-width="4"
+            />
+            <img
+              v-if="previewSrc"
+              :src="previewSrc"
+              :alt="`Preview of ${form.name || 'draft'}`"
+              class="preview-img"
+            />
+            <div v-else-if="previewError" class="preview-msg text-red-600">
+              {{ previewError }}
+            </div>
+            <div v-else-if="!previewLoading" class="preview-msg text-slate-400">
+              No preview yet
+            </div>
+            <i v-if="previewSrc" class="pi pi-search-plus zoom-hint" aria-hidden="true" />
+          </div>
+        </fieldset>
+
         <fieldset class="grid grid-cols-2 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
             Identity
@@ -299,11 +518,28 @@ const STYLES = ["Bold", "Regular"];
         <fieldset class="grid grid-cols-2 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
             Default text
+            <span class="text-slate-400 font-normal normal-case">
+              — press Enter for a new line; the preview updates live
+            </span>
           </legend>
-          <div><label class="block text-xs text-slate-600">Left</label>
-            <InputText v-model="form.left_text" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Right</label>
-            <InputText v-model="form.right_text" class="w-full" /></div>
+          <div>
+            <label class="block text-xs text-slate-600">Left</label>
+            <Textarea
+              v-model="form.left_text"
+              :rows="4"
+              auto-resize
+              class="w-full font-mono"
+            />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-600">Right</label>
+            <Textarea
+              v-model="form.right_text"
+              :rows="4"
+              auto-resize
+              class="w-full font-mono"
+            />
+          </div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -330,9 +566,52 @@ const STYLES = ["Bold", "Regular"];
       </div>
 
       <template #footer>
-        <Button label="Cancel" severity="secondary" @click="dialogOpen = false" />
-        <Button :label="editId ? 'Save' : 'Create'" @click="save" />
+        <div class="flex justify-between w-full">
+          <Button
+            label="Send test print"
+            icon="pi pi-bolt"
+            severity="secondary"
+            :loading="testing"
+            :disabled="!form.printer_id"
+            @click="testPrint"
+          />
+          <div class="flex gap-2">
+            <Button label="Cancel" severity="secondary" @click="dialogOpen = false" />
+            <Button :label="editId ? 'Save' : 'Create'" @click="save" />
+          </div>
+        </div>
       </template>
+    </Dialog>
+
+    <!-- Full-size preview zoom. Renders on top of the template editor
+         (PrimeVue handles nested Dialog stacking via teleport). -->
+    <Dialog
+      v-model:visible="zoomOpen"
+      modal
+      dismissable-mask
+      :header="form.name || 'Preview'"
+      :style="{ width: '92vw', maxWidth: '1400px' }"
+      content-class="zoom-dialog"
+    >
+      <div v-if="panduitSpec" class="zoom-shape">
+        <LabelShape
+          :spec="panduitSpec"
+          :preview-src="previewSrc"
+          :loading="previewLoading"
+        />
+      </div>
+      <div v-else class="zoom-bitmap">
+        <ProgressSpinner
+          v-if="previewLoading"
+          class="preview-spinner"
+          stroke-width="4"
+        />
+        <img
+          v-if="previewSrc"
+          :src="previewSrc"
+          :alt="`Preview of ${form.name || 'draft'}`"
+        />
+      </div>
     </Dialog>
   </section>
 </template>
@@ -344,9 +623,14 @@ const STYLES = ["Bold", "Regular"];
 .template-dialog .p-inputtext,
 .template-dialog .p-inputnumber,
 .template-dialog .p-inputnumber-input,
+.template-dialog .p-textarea,
 .template-dialog .p-select,
 .template-dialog .p-iconfield {
   width: 100% !important;
+}
+.template-dialog .p-textarea {
+  resize: vertical;
+  min-height: 5.5rem;
 }
 .template-dialog fieldset {
   border: 0;
@@ -355,5 +639,108 @@ const STYLES = ["Bold", "Regular"];
 }
 .template-dialog legend {
   padding: 0;
+}
+
+.template-dialog .preview-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.template-dialog .shape-frame {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  /* Two labels per row need more breathing room than one. Centred so
+     the schematic doesn't crowd the form fields below. */
+  max-width: 620px;
+  margin: 0 auto;
+}
+.template-dialog .zoomable {
+  position: relative;
+  cursor: zoom-in;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.template-dialog .zoomable:hover,
+.template-dialog .zoomable:focus-visible {
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35);
+  outline: none;
+}
+.template-dialog .zoom-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* ─── full-screen zoom modal ─── */
+.zoom-dialog {
+  padding: 16px !important;
+}
+.zoom-shape {
+  /* Let LabelShape stretch to the full dialog width. */
+  width: 100%;
+}
+.zoom-bitmap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-conic-gradient(#f1f5f9 0 25%, #ffffff 0 50%) 0 0/24px 24px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 60vh;
+  position: relative;
+}
+.zoom-bitmap img {
+  max-width: 100%;
+  max-height: 80vh;
+  image-rendering: pixelated;
+  background: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+.template-dialog .preview-frame {
+  position: relative;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-conic-gradient(#f1f5f9 0 25%, #ffffff 0 50%) 0 0/16px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 8px;
+}
+.template-dialog .preview-img {
+  /* Scale to whatever the dialog gives us, preserve aspect ratio.
+     The dialog is ~52rem wide, so a 1248×862 label renders ~720×500 — big
+     enough to actually see what's on it without scrolling the page. */
+  width: 100%;
+  height: auto;
+  /* Keep printed pixels crisp at any zoom — these are 1-bit thermal rasters. */
+  image-rendering: pixelated;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.template-dialog .preview-spinner {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+}
+.template-dialog .preview-msg {
+  font-size: 13px;
+  padding: 24px 12px;
+  text-align: center;
 }
 </style>
