@@ -12,11 +12,16 @@ given label. Labels are owned by a Discipline.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC ``now`` — replaces deprecated ``datetime.utcnow``."""
+    return datetime.now(timezone.utc)
 
 
 class HAlign(str, Enum):
@@ -127,7 +132,7 @@ class Import(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     discipline_id: int = Field(foreign_key="discipline.id", index=True)
     filename: str
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    uploaded_at: datetime = Field(default_factory=_utcnow, index=True)
     sheets: int = 0
     rows: int = 0
     skipped: int = 0
@@ -164,14 +169,14 @@ class CartItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     session_id: str = Field(index=True)
     label_id: Optional[int] = Field(default=None, foreign_key="label.id")
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: datetime = Field(default_factory=_utcnow)
     left_text: str = ""
     right_text: str = ""
 
 
 class PrintLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    ts: datetime = Field(default_factory=datetime.utcnow, index=True)
+    ts: datetime = Field(default_factory=_utcnow, index=True)
     template_name: str = ""
     printer_ip: str = ""
     operator: str = ""

@@ -2,12 +2,9 @@
 import { onMounted, ref } from "vue";
 import { api } from "@/api/client";
 import type { AuthName, Reason } from "@/api/types";
-import { useToast } from "primevue/usetoast";
 
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
-
-const toast = useToast();
 
 const reasons = ref<Reason[]>([]);
 const ops = ref<AuthName[]>([]);
@@ -43,8 +40,6 @@ async function removeOp(id: number) {
   await api.delete(`/api/auth-names/${id}`);
   await refresh();
 }
-
-void toast;
 </script>
 
 <template>

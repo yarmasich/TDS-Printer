@@ -44,6 +44,26 @@ class PrintAllRequest(BaseModel):
     clear_after: bool = True
 
 
+def _item_to_dto(item: CartItem, db: Session) -> CartItemDTO:
+    """Build a CartItemDTO for a single cart item using its FK chain."""
+    label = db.get(Label, item.label_id) if item.label_id else None
+    disc = db.get(Discipline, label.discipline_id) if label else None
+    hall = db.get(DataHall, disc.data_hall_id) if disc else None
+    proj = db.get(Project, hall.project_id) if hall else None
+    tmpl = db.get(Template, disc.template_id) if disc and disc.template_id else None
+    return CartItemDTO(
+        id=item.id,
+        label_id=label.id if label else None,
+        discipline_name=disc.name if disc else "?",
+        project_name=proj.name if proj else "?",
+        data_hall_name=hall.name if hall else "?",
+        left_text=item.left_text,
+        right_text=item.right_text,
+        template_name=tmpl.name if tmpl else None,
+        added_at=item.added_at.isoformat(timespec="seconds"),
+    )
+
+
 @router.get("", response_model=List[CartItemDTO])
 def list_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> List[CartItemDTO]:
     rows = db.exec(
@@ -53,7 +73,7 @@ def list_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> List
         .join(DataHall, Discipline.data_hall_id == DataHall.id)
         .join(Project, DataHall.project_id == Project.id)
         .where(CartItem.session_id == sid)
-        .order_by(CartItem.added_at)
+        .order_by(CartItem.added_at, CartItem.id)
     ).all()
 
     out: List[CartItemDTO] = []
@@ -65,8 +85,8 @@ def list_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> List
             discipline_name=disc.name,
             project_name=proj.name,
             data_hall_name=hall.name,
-            left_text=label.left_text,
-            right_text=label.right_text,
+            left_text=item.left_text,
+            right_text=item.right_text,
             template_name=tmpl.name if tmpl else None,
             added_at=item.added_at.isoformat(timespec="seconds"),
         ))
@@ -88,7 +108,7 @@ def add_to_cart(req: AddRequest, db: Session = Depends(get_session)) -> CartItem
     db.add(item)
     db.commit()
     db.refresh(item)
-    return list_cart(sid=req.sid, db=db)[-1]
+    return _item_to_dto(item, db)
 
 
 @router.delete("/{item_id}")
@@ -130,6 +150,7 @@ def print_all(
     ok = 0
     errors: List[dict] = []
     log_ids: List[int] = []
+    printed_item_ids: List[int] = []
 
     for item in items:
         label = db.get(Label, item.label_id) if item.label_id else None
@@ -146,30 +167,39 @@ def print_all(
             errors.append({"item_id": item.id, "error": "template or printer missing"})
             continue
 
+        # Use the snapshotted text from the cart item, not the live label.
+        left = item.left_text
+        right = item.right_text
         log = PrintLog(
             template_name=tmpl.name,
             printer_ip=f"{printer.ip}:{printer.port}",
             operator=req.operator,
             reason=req.reason,
-            left_text=label.left_text,
-            right_text=label.right_text,
+            left_text=left,
+            right_text=right,
         )
         try:
-            render_and_send(tmpl, printer, label.left_text, label.right_text,
-                            req.operator, req.reason)
+            render_and_send(tmpl, printer, left, right, req.operator, req.reason)
         except PrintError as e:
             log.status = "error"
             log.error = str(e)
             errors.append({"item_id": item.id, "error": str(e)})
-            db.add(log); db.commit(); db.refresh(log)
+            db.add(log)
+            db.commit()
+            db.refresh(log)
             log_ids.append(log.id)
             continue
-        db.add(log); db.commit(); db.refresh(log)
+        db.add(log)
+        db.commit()
+        db.refresh(log)
         log_ids.append(log.id)
+        printed_item_ids.append(item.id)
         ok += 1
 
-    if req.clear_after and ok and not errors:
-        db.exec(delete(CartItem).where(CartItem.session_id == req.sid))
+    # Drop only the items we actually printed — keeps failures in the cart so
+    # the operator can retry / remove them without re-printing what worked.
+    if req.clear_after and printed_item_ids:
+        db.exec(delete(CartItem).where(CartItem.id.in_(printed_item_ids)))
         db.commit()
 
     return PrintAllResult(ok=ok, errors=errors, log_ids=log_ids)

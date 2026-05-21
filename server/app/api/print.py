@@ -33,6 +33,8 @@ def preview(
         if not disc or not disc.template_id:
             raise HTTPException(400, "Discipline has no template assigned")
         tmpl = session.get(Template, disc.template_id)
+        if not tmpl:
+            raise HTTPException(500, "Discipline points at a missing template")
         left = left_text or label.left_text
         right = right_text or label.right_text
     elif template_id is not None:
