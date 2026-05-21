@@ -1,0 +1,35 @@
+# ──────────────── Python / FastAPI ────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.python-version
+.pytest_cache/
+
+# Local DB (SQLite) — instance data, not source
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# ──────────────── Node / Vite ────────────────
+node_modules/
+frontend/dist/
+.vite/
+*.log
+.npm/
+
+# ──────────────── Editors / OS ────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.env
+.env.local
+
+# ──────────────── Build / generated ────────────────
+# OpenAPI client is regenerated via `npm run gen:api`; keep it in tree only
+# if you want type-check to pass on a fresh clone without the backend up.
+# Uncomment to ignore:
+# frontend/src/api/schema.d.ts

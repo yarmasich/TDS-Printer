@@ -1,0 +1,22 @@
+[project]
+name = "tds-printer-server"
+version = "0.1.0"
+description = "TDS Printer central backend — replaces per-tablet SharedPreferences with one API for all tablets."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "sqlmodel>=0.0.16",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "pillow>=10.0",
+    "openpyxl>=3.1",
+    "alembic>=1.13",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
