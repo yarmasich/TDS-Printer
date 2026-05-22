@@ -1,0 +1,28 @@
+[Unit]
+Description=TDS Printer FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tds
+Group=tds
+WorkingDirectory=/opt/tds-printer/server
+Environment="PATH=/opt/tds-printer/server/.venv/bin"
+# alembic upgrade на старте — гарантирует свежую схему после деплоя
+ExecStartPre=/opt/tds-printer/server/.venv/bin/alembic upgrade head
+ExecStart=/opt/tds-printer/server/.venv/bin/uvicorn app.main:app \
+    --host 0.0.0.0 --port 8000 \
+    --proxy-headers --forwarded-allow-ips='*'
+Restart=on-failure
+RestartSec=5
+
+# Лимиты + изоляция
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tds-printer
+
+[Install]
+WantedBy=multi-user.target

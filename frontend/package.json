@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/copy-primeicons-fonts.mjs",
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "node scripts/copy-primeicons-fonts.mjs && vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --noEmit",
     "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o src/api/schema.d.ts"
