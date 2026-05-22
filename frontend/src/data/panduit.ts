@@ -72,7 +72,7 @@ const R_GEOM: Record<string, Geom> = {
 
 /**
  * Try to recognise a PANDUIT SKU at the start of a template name.
- * Accepts loose variants like ``R200X225+mirror`` or ``R100x150V2T``;
+ * Accepts loose variants like ``R200X225V1T`` or ``R100x150V2T``;
  * everything after the matched prefix is ignored.
  *
  * Returns ``null`` if we can't make sense of it — caller should fall
@@ -129,46 +129,83 @@ export interface TemplatePreset {
   gap_left: number; gap_right: number;
 }
 
+/** 4.25″×2.125″ Turn-Tell row @ 300 DPI (EasyMark ``Thermal`` page). */
+const TURN_TELL_300_PAGE = { bytes_per_row: 160, height: 638 } as const;
+
+/** White print-on strip in printer raster dots (~0.5″ @ 300 DPI).
+ * Text is drawn as in EasyMark (no legacy mirror/rotate). */
+const TURN_TELL_300_TEXT_Y = { top: 545, bottom: 632 } as const;
+
+/** Build left/right text rects from EasyMark page margins (inches). */
+function turnTellRects300(opts: {
+  marginLeftIn: number;
+  labelWidthIn: number;
+  gapIn?: number;
+  offsetXIn?: number;
+}): Pick<
+  TemplatePreset,
+  | "left_left" | "left_right" | "right_left" | "right_right"
+> {
+  const dpi = 300;
+  const inch = (v: number) => Math.round(v * dpi);
+  const gap = inch(opts.gapIn ?? 0.125);
+  const offsetX = inch(opts.offsetXIn ?? -0.05);
+  const left = inch(opts.marginLeftIn);
+  const w = inch(opts.labelWidthIn);
+  const leftRight = left + w;
+  const rightLeft = leftRight + gap + offsetX;
+  return {
+    left_left: left,
+    left_right: leftRight,
+    right_left: rightLeft,
+    right_right: rightLeft + w,
+  };
+}
+
 // Keyed by canonical SKU. Colour code is ignored for lookup — geometry
 // is identical across V1/V2/V3/V7/V8 of the same width×length.
 const TEMPLATE_PRESETS: Record<string, TemplatePreset> = {
-  // From default_templates.txt: R200X225+mirror
+  // Legacy Android export (203 DPI page geometry)
   "R200X225": {
     bytes_per_row: 156, height: 862,
     left_top: 480, left_bottom: 670, left_left: 20, left_right: 600,
     right_top: 480, right_bottom: 670, right_left: 648, right_right: 1228,
     gap_top: 20, gap_bottom: 20, gap_left: 20, gap_right: 20,
   },
-  // From default_templates.txt: R200x150+{4pt,6pt}+mirror
+  // R200X150V1T / R200X150V1T_Legs — EasyMark Turn-Tell 2.0″×0.5″ print,
+  // 2×1 on 4.25″×2.125″ page; margins top 0.563″ left 0.125″, OffsetX −0.05″.
   "R200X150": {
-    bytes_per_row: 156, height: 800,
-    left_top: 550, left_bottom: 680, left_left: 40, left_right: 600,
-    right_top: 550, right_bottom: 680, right_left: 580, right_right: 1228,
-    gap_top: 10, gap_bottom: 10, gap_left: 10, gap_right: 10,
+    ...TURN_TELL_300_PAGE,
+    ...turnTellRects300({
+      marginLeftIn: 0.125,
+      labelWidthIn: 2.0,
+      offsetXIn: -0.05,
+    }),
+    left_top: TURN_TELL_300_TEXT_Y.top,
+    left_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    right_top: TURN_TELL_300_TEXT_Y.top,
+    right_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    gap_top: 0,
+    gap_bottom: 0,
+    gap_left: 0,
+    gap_right: 0,
   },
-  // R150X150V1T — 300 DPI thermal printer, 2 labels per row.
-  // Derived from operator-supplied ZPL (^PW1275 ^LL638 → bytes_per_row 160).
-  // Print area per label 1.5" x 0.5" = 450 x 150 dots; 2 columns with a
-  // 0.125" gap + -0.051" offsetX between them.
-  // NB our renderer hardcodes 203 DPI, so font_pt has to be picked
-  // separately to land at the right visual size on this 300 DPI head.
+  // R150X150V1T — same page/row as R200X150; label width 1.5″, left 0.625″.
   "R150X150": {
-    // Lifted verbatim from PANDUIT EasyMark's R150X150V1T document
-    // (loadDocumentToEditor dump):
-    //   page 4.25" × 2.125", 2 cols × 1 row, gap 0.125",
-    //   top margin 0.563", left margin 0.625", offsetX -0.051",
-    //   label print area 1.5" × 0.5", textOrientation=0, rotationAngle=0.
-    // Converted to dots @ 300 DPI:
-    //   page = 1275 × 638  →  bytes_per_row = 160 (1280 dots, +5 pad)
-    //   left rect  = (188, 169) … (638, 319)
-    //   right rect = (660, 169) … (1110, 319)
-    bytes_per_row: 160, height: 638,
-    // Exact values from EasyMark's R150X150V1T setup:
-    // top margin 0.563″, left margin 0.625″, label 1.5″×0.5″,
-    // gap 0.125″ + OffsetX -0.051″, all × 300 DPI.
-    left_top: 169, left_bottom: 319, left_left: 188, left_right: 638,
-    right_top: 169, right_bottom: 319, right_left: 660, right_right: 1110,
-    gap_top: 0, gap_bottom: 0, gap_left: 0, gap_right: 0,
+    ...TURN_TELL_300_PAGE,
+    ...turnTellRects300({
+      marginLeftIn: 0.625,
+      labelWidthIn: 1.5,
+      offsetXIn: -0.051,
+    }),
+    left_top: TURN_TELL_300_TEXT_Y.top,
+    left_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    right_top: TURN_TELL_300_TEXT_Y.top,
+    right_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    gap_top: 0,
+    gap_bottom: 0,
+    gap_left: 0,
+    gap_right: 0,
   },
   // From default_templates.txt: S200x400 (S-series, no PANDUIT R parser
   // hit, but the operator may still use it for a self-laminating tag).
@@ -181,7 +218,7 @@ const TEMPLATE_PRESETS: Record<string, TemplatePreset> = {
 };
 
 /** Find a bitmap-layout preset for a template name like
- * ``R200X225V1T``, ``R200x150+4pt+mirror`` or ``S200x400``.
+ * ``R200X225V1T``, ``R200X150V1T`` or ``S200x400``.
  * Returns ``null`` if we don't have one — caller should leave the
  * form alone (no half-applied geometry). */
 export function findTemplatePreset(name: string): TemplatePreset | null {

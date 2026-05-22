@@ -268,7 +268,7 @@ const FONTS = ["Microsoft Sans Serif", "Calibri"];
 const STYLES = ["Bold", "Regular"];
 
 // Recognised PANDUIT SKU at the start of the template name (e.g.
-// 'R200X225+mirror' → R200X225V1T). Null when the name doesn't match.
+// 'R200X225V1T' → R200X225 preset). Null when the name doesn't match.
 const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
 
 // Available bitmap preset for this template name (R200X225 / R200X150

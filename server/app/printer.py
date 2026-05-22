@@ -50,6 +50,21 @@ class PrintError(Exception):
     pass
 
 
+def _is_turn_tell_300_row(template: Template) -> bool:
+    """4.25″×2.125″ Turn-Tell @ 300 DPI (1275×638 dots, 160 bytes/row)."""
+    return template.bytes_per_row == 160 and template.height == 638
+
+
+def _template_swap_columns(template: Template) -> bool:
+    """Turn-Tell raw TCP row prints columns in reverse vs EasyMark — swap
+    which text is drawn into the left/right bitmap columns."""
+    return _is_turn_tell_300_row(template)
+
+
+# Fine vertical shift for Turn-Tell @ 300 DPI (printer raster coords).
+_TURN_TELL_Y_NUDGE = 10
+
+
 # ────────────────────────── rendering ────────────────────────────────
 
 def _load_font(name: str, style: str, size_pt: float) -> ImageFont.FreeTypeFont:
@@ -90,6 +105,44 @@ def _wrap_to_width(
     return out
 
 
+def _paint_measured_lines(
+    draw: ImageDraw.ImageDraw,
+    measured: list[tuple[str, tuple[int, int, int, int]]],
+    *,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    rect_w: float,
+    rect_h: float,
+    font: ImageFont.FreeTypeFont,
+    h_align: str,
+    v_align: str,
+    y_offset: float,
+    line_gap: int,
+    total_h: float,
+) -> None:
+    if v_align == "TOP":
+        cur_y = y0
+    elif v_align == "BOTTOM":
+        cur_y = y1 - total_h
+    else:
+        cur_y = y0 + (rect_h - total_h) / 2
+    cur_y += y_offset
+
+    for line, bbox in measured:
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        if h_align == "LEFT":
+            cur_x = x0
+        elif h_align == "RIGHT":
+            cur_x = x1 - w
+        else:
+            cur_x = x0 + (rect_w - w) / 2
+        draw.text((cur_x, cur_y), line, font=font, fill=0, anchor="lt")
+        cur_y += h + line_gap
+
+
 def _draw_text_block(
     img: Image.Image,
     text: str,
@@ -99,8 +152,9 @@ def _draw_text_block(
     h_align: str, v_align: str,
     y_offset: float,
 ) -> None:
-    """Render multi-line ``text`` inside ``(x0,y0)-(x1,y1)`` with the given
-    alignment. Auto-wraps long lines by word to the rectangle width.
+    """Render multi-line ``text`` inside ``(x0,y0)-(x1,y1)``.
+    Coordinates are printer raster dots — same frame EasyMark uses at
+    orientation 0 (no extra mirror/rotate; that was legacy Android).
     """
     if not text:
         return
@@ -111,46 +165,44 @@ def _draw_text_block(
     measured = []
     for line in lines:
         bbox = font.getbbox(line)
-        measured.append((line, bbox[2] - bbox[0], bbox[3] - bbox[1]))
+        measured.append((line, bbox))
 
+    line_heights = sum(bbox[3] - bbox[1] for _, bbox in measured)
+    n_lines = len(measured)
     line_gap = max(2, int(font.size * 0.15))
-    total_h = sum(h for _, _, h in measured) + line_gap * (len(measured) - 1)
-
     rect_h = y1 - y0
+    if n_lines > 1 and line_heights < rect_h:
+        line_gap = min(line_gap, max(1, int((rect_h - line_heights) / (n_lines - 1))))
+    total_h = line_heights + line_gap * (n_lines - 1)
+    if total_h > rect_h and n_lines > 1:
+        line_gap = max(1, int((rect_h - line_heights) / (n_lines - 1)))
+        total_h = line_heights + line_gap * (n_lines - 1)
 
-    if v_align == "TOP":
-        cur_y = y0
-    elif v_align == "BOTTOM":
-        cur_y = y1 - total_h
-    else:
-        cur_y = y0 + (rect_h - total_h) / 2
-    cur_y += y_offset
-
-    draw = ImageDraw.Draw(img)
-    for line, w, h in measured:
-        if h_align == "LEFT":
-            cur_x = x0
-        elif h_align == "RIGHT":
-            cur_x = x1 - w
-        else:
-            cur_x = x0 + (rect_w - w) / 2
-        draw.text((cur_x, cur_y), line, font=font, fill=0)
-        cur_y += h + line_gap
+    _paint_measured_lines(
+        ImageDraw.Draw(img),
+        measured,
+        x0=x0, y0=y0, x1=x1, y1=y1,
+        rect_w=rect_w, rect_h=rect_h,
+        font=font, h_align=h_align, v_align=v_align,
+        y_offset=y_offset, line_gap=line_gap, total_h=total_h,
+    )
 
 
-def _render_unrotated(
+def render_label_bitmap(
     template: Template, left_text: str, right_text: str
 ) -> Image.Image:
-    """Internal: render in the template's native coordinate frame.
-    Use :func:`render_label_bitmap` for the printer-facing version
-    (which is rotated 180° at the end). Kept separate so preview-crop
-    maths can run before the rotate."""
+    """Render the printable bitmap in the template's native frame."""
     width = template.bytes_per_row * 8
     height = template.height
     img = Image.new("L", (width, height), 255)
 
     h_align = template.h_align.value if hasattr(template.h_align, "value") else str(template.h_align)
     v_align = template.v_align.value if hasattr(template.v_align, "value") else str(template.v_align)
+    if _is_turn_tell_300_row(template):
+        v_align = "CENTER"
+    if _template_swap_columns(template):
+        left_text, right_text = right_text, left_text
+    y_nudge = _TURN_TELL_Y_NUDGE if _is_turn_tell_300_row(template) else 0
 
     _draw_text_block(
         img, left_text,
@@ -160,7 +212,7 @@ def _render_unrotated(
         y1=template.left_bottom - template.gap_bottom,
         font=_load_font(template.font_name, template.font_style, template.left_pt),
         h_align=h_align, v_align=v_align,
-        y_offset=template.left_offset,
+        y_offset=template.left_offset + y_nudge,
     )
     _draw_text_block(
         img, right_text,
@@ -170,18 +222,9 @@ def _render_unrotated(
         y1=template.right_bottom - template.gap_bottom,
         font=_load_font(template.font_name, template.font_style, template.right_pt),
         h_align=h_align, v_align=v_align,
-        y_offset=template.right_offset,
+        y_offset=template.right_offset + y_nudge,
     )
     return img
-
-
-def render_label_bitmap(
-    template: Template, left_text: str, right_text: str
-) -> Image.Image:
-    """Render the printable bitmap with the wrap-around 180° rotation
-    applied. Preview and printer both see this rotated image so what's
-    on screen is what's on the ribbon."""
-    return _render_unrotated(template, left_text, right_text).rotate(180)
 
 
 # ────────────────────────── raster pack ──────────────────────────────
@@ -219,8 +262,7 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
 
 
 def build_print_job(template: Template, left_text: str, right_text: str) -> bytes:
-    """End-to-end: render (already rotated 180°) → mono raster → wrap
-    with Panduit header/footer."""
+    """End-to-end: render → mono raster → wrap with Panduit header/footer."""
     bitmap = render_label_bitmap(template, left_text, right_text)
     raster = bitmap_to_mono_raster(bitmap, template.bytes_per_row, template.height)
     header = _HEADER_TMPL.format(bpr=template.bytes_per_row, h=template.height).encode("ascii")
@@ -289,19 +331,16 @@ def render_label_png(
     so the tiny text region isn't drowned out by the surrounding blank
     canvas when the bitmap is scaled down to fit a Print-On Area swatch.
 
-    Crop math runs on the unrotated bitmap (because template coords
-    are in the unrotated frame), then the result is rotated to match
-    what the printer prints.
+    Crop trims to the text rectangles' bounding box when requested.
     """
-    img = _render_unrotated(template, left_text, right_text)
+    img = render_label_bitmap(template, left_text, right_text)
     if crop:
         x0 = max(0, int(min(template.left_left, template.right_left)))
-        y0 = max(0, int(min(template.left_top, template.right_top)))
         x1 = min(img.width, int(max(template.left_right, template.right_right)))
+        y0 = max(0, int(min(template.left_top, template.right_top)))
         y1 = min(img.height, int(max(template.left_bottom, template.right_bottom)))
         if x1 > x0 and y1 > y0:
             img = img.crop((x0, y0, x1, y1))
-    img = img.rotate(180)
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
