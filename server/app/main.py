@@ -8,7 +8,6 @@ Run:
         --reload --reload-dir app --reload-dir alembic
 """
 import logging
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +25,6 @@ from .api import (
     reasons,
     templates,
 )
-from .db import engine
-from .seed import seed_defaults_if_empty
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,15 +32,7 @@ logging.basicConfig(
 )
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    # Bootstrap default printers + templates on a virgin DB. No-op if
-    # the Template table already has any rows.
-    seed_defaults_if_empty(engine)
-    yield
-
-
-app = FastAPI(title="TDS Printer Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="TDS Printer Server", version="0.1.0")
 
 # CORS — wide-open is fine for the LAN-only deployment. Tighten to the
 # frontend's exact origin(s) when you move to a real prod environment.

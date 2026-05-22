@@ -23,11 +23,6 @@ const props = defineProps<{
   previewSrc?: string | null;
   /** Show a spinner overlay while a new preview is being fetched. */
   loading?: boolean;
-  /** When the template uses mirror_mode the printer flips the text 180°
-   * so it reads right-side-up after the label is wrapped around a
-   * cable. The schematic counter-rotates the preview bitmap so the
-   * operator can actually read it on screen. */
-  mirror?: boolean;
 }>();
 
 // 96 user units = 1 inch — gives crisp numbers in the SVG.
@@ -148,10 +143,7 @@ function labelX(n: number): number {
              the entire row, then clipped to this one label's Print-On
              Area. That way the left label sees the left half of the
              bitmap, the right label sees the right half — same as how
-             the bitmap is physically laid out by the printer.
-             When mirror_mode is on the printer flips the bitmap 180°
-             (so the wrapped label reads right-side-up); we counter-
-             rotate it here so the schematic stays readable. -->
+             the bitmap is physically laid out by the printer. -->
         <image
           v-if="previewSrc"
           :href="previewSrc"
@@ -161,9 +153,6 @@ function labelX(n: number): number {
           :height="printH"
           preserveAspectRatio="none"
           :clip-path="`url(#label-clip-${n - 1})`"
-          :transform="mirror
-            ? `rotate(180, ${labelX(n - 1) + labelW / 2}, ${PAD_T + topTail + printH / 2})`
-            : undefined"
           style="image-rendering: pixelated"
         />
         <!-- Dashed outline of the Print-On Area, drawn on top so it

@@ -96,8 +96,6 @@ class Template(SQLModel, table=True):
     left_offset: float = 0
     right_offset: float = 0
 
-    mirror_mode: bool = False
-
 
 # ──────────────────────────── project hierarchy ────────────────────────────
 

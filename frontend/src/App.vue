@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from "vue-router";
 import Toast from "primevue/toast";
+import ConfirmDialog from "primevue/confirmdialog";
 </script>
 
 <template>
@@ -41,5 +42,9 @@ import Toast from "primevue/toast";
     </main>
 
     <Toast position="bottom-right" />
+    <!-- Global confirm dialog so any component calling
+         `useConfirm().require(...)` actually pops up. Without this in
+         the DOM PrimeVue silently no-ops the call. -->
+    <ConfirmDialog />
   </div>
 </template>

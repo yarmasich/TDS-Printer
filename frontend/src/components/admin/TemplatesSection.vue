@@ -14,10 +14,13 @@ import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
-import ToggleSwitch from "primevue/toggleswitch";
 import ProgressSpinner from "primevue/progressspinner";
 import LabelShape from "@/components/admin/LabelShape.vue";
-import { parsePanduitSku } from "@/data/panduit";
+import {
+  parsePanduitSku,
+  findTemplatePreset,
+  TEMPLATE_PRESET_SKUS,
+} from "@/data/panduit";
 
 const printers = usePrinters();
 const toast = useToast();
@@ -64,7 +67,6 @@ const blank = (): Omit<Template, "id"> => ({
   font_style: "Bold",
   left_offset: 0,
   right_offset: 0,
-  mirror_mode: false,
 });
 
 const form = reactive<Omit<Template, "id">>(blank());
@@ -268,6 +270,39 @@ const STYLES = ["Bold", "Regular"];
 // Recognised PANDUIT SKU at the start of the template name (e.g.
 // 'R200X225+mirror' → R200X225V1T). Null when the name doesn't match.
 const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
+
+// Available bitmap preset for this template name (R200X225 / R200X150
+// / S200X400 today). Null → form keeps whatever geometry it has.
+const availablePreset = computed(() => findTemplatePreset(form.name || ""));
+
+function applyPreset() {
+  const preset = availablePreset.value;
+  if (!preset) return;
+  // Only touch raster/geometry fields — leave typography, text,
+  // printer, name untouched.
+  Object.assign(form, preset);
+  toast.add({
+    severity: "success",
+    summary: "Preset applied",
+    detail: `Geometry set for ${form.name}. Adjust pt / font as needed.`,
+    life: 3500,
+  });
+}
+
+// Auto-apply the SKU preset while the operator is *creating* a new
+// template — that's when blank()'s default geometry is irrelevant and
+// is almost certainly wrong for the SKU they just named. In edit mode
+// we never touch the geometry automatically (the row already has its
+// own tuned values; the Load-preset button stays available as an
+// explicit opt-in).
+watch(
+  () => form.name,
+  (newName) => {
+    if (editId.value !== null) return;
+    const preset = findTemplatePreset(newName);
+    if (preset) Object.assign(form, preset);
+  },
+);
 </script>
 
 <template>
@@ -319,9 +354,6 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
         <template #body="{ data }">
           {{ data.font_name }} {{ data.font_style }}
         </template>
-      </Column>
-      <Column header="Mirror">
-        <template #body="{ data }">{{ data.mirror_mode ? "yes" : "no" }}</template>
       </Column>
       <Column header="" :style="{ width: '220px' }">
         <template #body="{ data }">
@@ -375,8 +407,7 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1">
             Preview
             <span class="text-slate-400 font-normal normal-case">
-              ({{ form.bytes_per_row * 8 }}×{{ form.height }}px,
-              mirror {{ form.mirror_mode ? "on" : "off" }})
+              ({{ form.bytes_per_row * 8 }}×{{ form.height }}px)
             </span>
           </legend>
           <!-- When we recognise the SKU, render the label silhouette
@@ -397,7 +428,6 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
               :spec="panduitSpec"
               :preview-src="previewSrc"
               :loading="previewLoading"
-              :mirror="form.mirror_mode"
             />
             <i class="pi pi-search-plus zoom-hint" aria-hidden="true" />
             <p v-if="previewError" class="preview-msg text-red-600 text-xs mt-2">
@@ -442,6 +472,21 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Name</label>
             <InputText v-model="form.name" class="w-full" />
+            <div class="mt-1 text-xs">
+              <Button
+                v-if="availablePreset"
+                :label="`Load ${form.name.match(/^[RS]\\d{3}[xX]\\d{3}/)?.[0]} preset`"
+                icon="pi pi-download"
+                size="small"
+                text
+                @click="applyPreset"
+              />
+              <span v-else class="text-slate-400">
+                Built-in presets: {{ TEMPLATE_PRESET_SKUS.join(", ") }}.
+                Name your template starting with one of these to load
+                its bitmap geometry.
+              </span>
+            </div>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Printer</label>
@@ -455,8 +500,8 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
           </div>
         </fieldset>
 
-        <fieldset class="grid grid-cols-3 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-3">
+        <fieldset class="grid grid-cols-2 gap-3">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
             Bitmap
           </legend>
           <div>
@@ -466,10 +511,6 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Height (px)</label>
             <InputNumber v-model="form.height" :use-grouping="false" class="w-full" />
-          </div>
-          <div class="flex items-end gap-2">
-            <label class="text-xs font-bold text-slate-600">Mirror</label>
-            <ToggleSwitch v-model="form.mirror_mode" />
           </div>
         </fieldset>
 

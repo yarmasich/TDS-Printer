@@ -5,7 +5,6 @@ import Button from "primevue/button";
 defineProps<{ hit: SearchHit }>();
 
 defineEmits<{
-  print: [labelId: number];
   cart: [labelId: number];
 }>();
 </script>
@@ -53,18 +52,15 @@ defineEmits<{
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Actions — all printing flows through the cart, so a single
+           "Add" button is enough. Use Print all in the sticky cart to
+           actually send labels to the printer. -->
       <div class="flex flex-col gap-2 justify-center">
         <Button
-          label="+ Cart"
-          severity="secondary"
+          label="+ Add"
+          icon="pi pi-plus"
           size="small"
           @click="$emit('cart', hit.label_id)"
-        />
-        <Button
-          label="Print"
-          size="small"
-          @click="$emit('print', hit.label_id)"
         />
       </div>
     </div>

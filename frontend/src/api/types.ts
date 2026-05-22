@@ -53,7 +53,6 @@ export interface Template {
   font_style: string;
   left_offset: number;
   right_offset: number;
-  mirror_mode: boolean;
 }
 
 export interface Project {

@@ -7,7 +7,6 @@ gives equivalent results for the bundled TTFs):
 
     template + left/right text
         ↓ PIL renders bitmap (white bg, black text)
-        ↓ optional mirror_mode → rotate 180°
         ↓ bitmap_to_mono_raster → 1-bit MSB-first bytes, bytes_per_row × height
         ↓ wrap with Panduit header `^Q73,3 …\nQ0,0,<bpr>,<h>\n` and footer `\nE\n`
         ↓ raw TCP send to printer.ip:printer.port
@@ -99,13 +98,9 @@ def _draw_text_block(
     font: ImageFont.FreeTypeFont,
     h_align: str, v_align: str,
     y_offset: float,
-    mirror: bool,
 ) -> None:
     """Render multi-line ``text`` inside ``(x0,y0)-(x1,y1)`` with the given
-    alignment. When ``mirror`` is True, the block is drawn upside-down
-    (rotated 180° around its own centre) — matches Android's drawMirrorText.
-
-    Auto-wraps long lines by word to the rectangle width.
+    alignment. Auto-wraps long lines by word to the rectangle width.
     """
     if not text:
         return
@@ -131,51 +126,32 @@ def _draw_text_block(
         cur_y = y0 + (rect_h - total_h) / 2
     cur_y += y_offset
 
-    if not mirror:
-        draw = ImageDraw.Draw(img)
-        for line, w, h in measured:
-            if h_align == "LEFT":
-                cur_x = x0
-            elif h_align == "RIGHT":
-                cur_x = x1 - w
-            else:
-                cur_x = x0 + (rect_w - w) / 2
-            draw.text((cur_x, cur_y), line, font=font, fill=0)
-            cur_y += h + line_gap
-        return
-
-    # Mirror: render the whole block to a side-buffer, rotate 180°,
-    # paste onto the main canvas at the rect origin.
-    pad = 4
-    buf = Image.new("L", (max(1, int(rect_w)) + pad * 2,
-                          max(1, int(rect_h)) + pad * 2), 255)
-    bdraw = ImageDraw.Draw(buf)
-    by = pad + (cur_y - y0)  # mirror within the block's own coord frame
+    draw = ImageDraw.Draw(img)
     for line, w, h in measured:
         if h_align == "LEFT":
-            bx = pad
+            cur_x = x0
         elif h_align == "RIGHT":
-            bx = pad + (rect_w - w)
+            cur_x = x1 - w
         else:
-            bx = pad + (rect_w - w) / 2
-        bdraw.text((bx, by), line, font=font, fill=0)
-        by += h + line_gap
-    buf = buf.rotate(180)
-    img.paste(buf, (int(x0) - pad, int(y0) - pad), mask=Image.eval(buf, lambda v: 255 - v))
+            cur_x = x0 + (rect_w - w) / 2
+        draw.text((cur_x, cur_y), line, font=font, fill=0)
+        cur_y += h + line_gap
 
 
-def render_label_bitmap(
+def _render_unrotated(
     template: Template, left_text: str, right_text: str
 ) -> Image.Image:
-    """Render the printable bitmap. Returns a 1-bit-ready ``L`` mode PIL image."""
+    """Internal: render in the template's native coordinate frame.
+    Use :func:`render_label_bitmap` for the printer-facing version
+    (which is rotated 180° at the end). Kept separate so preview-crop
+    maths can run before the rotate."""
     width = template.bytes_per_row * 8
     height = template.height
-    img = Image.new("L", (width, height), 255)  # white
+    img = Image.new("L", (width, height), 255)
 
     h_align = template.h_align.value if hasattr(template.h_align, "value") else str(template.h_align)
     v_align = template.v_align.value if hasattr(template.v_align, "value") else str(template.v_align)
 
-    # Left block
     _draw_text_block(
         img, left_text,
         x0=template.left_left + template.gap_left,
@@ -185,9 +161,7 @@ def render_label_bitmap(
         font=_load_font(template.font_name, template.font_style, template.left_pt),
         h_align=h_align, v_align=v_align,
         y_offset=template.left_offset,
-        mirror=template.mirror_mode,
     )
-    # Right block
     _draw_text_block(
         img, right_text,
         x0=template.right_left + template.gap_left,
@@ -197,9 +171,17 @@ def render_label_bitmap(
         font=_load_font(template.font_name, template.font_style, template.right_pt),
         h_align=h_align, v_align=v_align,
         y_offset=template.right_offset,
-        mirror=template.mirror_mode,
     )
     return img
+
+
+def render_label_bitmap(
+    template: Template, left_text: str, right_text: str
+) -> Image.Image:
+    """Render the printable bitmap with the wrap-around 180° rotation
+    applied. Preview and printer both see this rotated image so what's
+    on screen is what's on the ribbon."""
+    return _render_unrotated(template, left_text, right_text).rotate(180)
 
 
 # ────────────────────────── raster pack ──────────────────────────────
@@ -237,7 +219,8 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
 
 
 def build_print_job(template: Template, left_text: str, right_text: str) -> bytes:
-    """End-to-end: render → mono raster → wrap with Panduit header/footer."""
+    """End-to-end: render (already rotated 180°) → mono raster → wrap
+    with Panduit header/footer."""
     bitmap = render_label_bitmap(template, left_text, right_text)
     raster = bitmap_to_mono_raster(bitmap, template.bytes_per_row, template.height)
     header = _HEADER_TMPL.format(bpr=template.bytes_per_row, h=template.height).encode("ascii")
@@ -305,8 +288,12 @@ def render_label_png(
     left/right text rectangles. The label form's live preview uses this
     so the tiny text region isn't drowned out by the surrounding blank
     canvas when the bitmap is scaled down to fit a Print-On Area swatch.
+
+    Crop math runs on the unrotated bitmap (because template coords
+    are in the unrotated frame), then the result is rotated to match
+    what the printer prints.
     """
-    img = render_label_bitmap(template, left_text, right_text)
+    img = _render_unrotated(template, left_text, right_text)
     if crop:
         x0 = max(0, int(min(template.left_left, template.right_left)))
         y0 = max(0, int(min(template.left_top, template.right_top)))
@@ -314,6 +301,7 @@ def render_label_png(
         y1 = min(img.height, int(max(template.left_bottom, template.right_bottom)))
         if x1 > x0 and y1 > y0:
             img = img.crop((x0, y0, x1, y1))
+    img = img.rotate(180)
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

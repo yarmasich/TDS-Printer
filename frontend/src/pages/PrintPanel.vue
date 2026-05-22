@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
-import { api, ApiError } from "@/api/client";
+import { api } from "@/api/client";
 import type {
   AuthName,
   Discipline,
@@ -117,29 +117,6 @@ function clearQuery() {
 // hand between cable runs.
 function onPrinted() {
   clearQuery();
-}
-
-async function onPrintOne(labelId: number) {
-  try {
-    const res = await api.post<{ ok: boolean; log_id: number }>("/api/print", {
-      label_id: labelId,
-      operator: operator.value || "",
-      reason: reason.value || "",
-    });
-    toast.add({
-      severity: "success",
-      summary: `Printed (log #${res.log_id})`,
-      life: 2500,
-    });
-  } catch (e: unknown) {
-    const msg =
-      e instanceof ApiError
-        ? e.message
-        : e instanceof Error
-          ? e.message
-          : String(e);
-    toast.add({ severity: "error", summary: "Print failed", detail: msg });
-  }
 }
 
 async function onAddToCart(labelId: number) {
@@ -278,7 +255,6 @@ async function onAddToCart(labelId: number) {
           v-for="h in searchResults.hits"
           :key="h.label_id"
           :hit="h"
-          @print="onPrintOne"
           @cart="onAddToCart"
         />
       </div>
