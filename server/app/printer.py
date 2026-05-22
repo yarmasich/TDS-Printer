@@ -1,15 +1,11 @@
-"""Print engine — port of ``PandaRawPrinter.buildPrintJob`` from the Android
-smali to Python.
+"""Panduit raw-TCP print engine.
 
-Pipeline (matches the existing app byte-for-byte except for the small bits
-that depended on Android Graphics specifics — text metrics use PIL which
-gives equivalent results for the bundled TTFs):
+Pipeline:
 
     template + left/right text
-        ↓ PIL renders bitmap (white bg, black text)
-        ↓ bitmap_to_mono_raster → 1-bit MSB-first bytes, bytes_per_row × height
-        ↓ wrap with Panduit header `^Q73,3 …\nQ0,0,<bpr>,<h>\n` and footer `\nE\n`
-        ↓ raw TCP send to printer.ip:printer.port
+        → PIL bitmap (printer raster coordinates)
+        → 1-bit MSB-first raster
+        → Panduit job header + TCP
 """
 from __future__ import annotations
 
@@ -21,13 +17,13 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .label_geometry import is_turn_tell_300, text_rect
 from .models import Printer, Template
 
 log = logging.getLogger("tds.printer")
 
 FONTS_DIR = Path(__file__).parent / "fonts"
 
-# Mapping (name, style) → bundled TTF filename.
 _FONT_FILES: dict[tuple[str, str], str] = {
     ("Microsoft Sans Serif", "Bold"): "microsoft_sans_serif_bold.ttf",
     ("Microsoft Sans Serif", "Regular"): "microsoft_sans_serif_regular.ttf",
@@ -35,57 +31,37 @@ _FONT_FILES: dict[tuple[str, str], str] = {
     ("Calibri", "Regular"): "calibri_regular.ttf",
 }
 
-DPI = 203                  # Panduit MP-series thermal print head, typical
-PT_TO_PX = DPI / 72.0      # 1 pt at 203 dpi ≈ 2.82 px
-
-# Panduit print-code preamble; copied verbatim from PandaRawPrinter.smali.
 _HEADER_TMPL = (
     "^Q73,3\n^W106\n^AT\n^H17\n^S2\n^E16\n^M0\n^B0\n^O0\n^R15\n"
     "~Q+0\n^D0\n^P1\n^L\nQ0,0,{bpr},{h}\n"
 )
 _FOOTER = b"\nE\n"
 
+# EasyMark page is 300 DPI; thermal head uses 203 DPI for point sizes.
+_FONT_DPI = 203
+
 
 class PrintError(Exception):
     pass
 
 
-def _is_turn_tell_300_row(template: Template) -> bool:
-    """4.25″×2.125″ Turn-Tell @ 300 DPI (1275×638 dots, 160 bytes/row)."""
-    return template.bytes_per_row == 160 and template.height == 638
+def _align_value(field) -> str:
+    return field.value if hasattr(field, "value") else str(field)
 
-
-def _template_swap_columns(template: Template) -> bool:
-    """Turn-Tell raw TCP row prints columns in reverse vs EasyMark — swap
-    which text is drawn into the left/right bitmap columns."""
-    return _is_turn_tell_300_row(template)
-
-
-# Fine vertical shift for Turn-Tell @ 300 DPI (printer raster coords).
-_TURN_TELL_Y_NUDGE = 10
-
-
-# ────────────────────────── rendering ────────────────────────────────
 
 def _load_font(name: str, style: str, size_pt: float) -> ImageFont.FreeTypeFont:
     fname = _FONT_FILES.get((name, style)) or _FONT_FILES.get((name, "Regular"))
+    pt_to_px = _FONT_DPI / 72.0
     if not fname:
-        # last resort — DejaVu ships with Pillow on most systems
         return ImageFont.load_default()
-    return ImageFont.truetype(str(FONTS_DIR / fname), max(6, int(round(size_pt * PT_TO_PX))))
+    return ImageFont.truetype(
+        str(FONTS_DIR / fname), max(6, int(round(size_pt * pt_to_px)))
+    )
 
 
 def _wrap_to_width(
     text: str, font: ImageFont.FreeTypeFont, max_width: float
 ) -> list[str]:
-    """Greedy word-wrap inside ``max_width`` pixels.
-
-    Hard ``\\n`` breaks are always honoured (so Excel cells with real
-    line breaks keep their layout). Within each paragraph we pack words
-    one by one and break to a new line as soon as the next word would
-    overflow. A single word that's already too wide is left on its own
-    line (printer will just overflow — matches the Android renderer).
-    """
     out: list[str] = []
     for paragraph in text.split("\n"):
         if not paragraph:
@@ -103,6 +79,42 @@ def _wrap_to_width(
         if cur:
             out.append(cur)
     return out
+
+
+def _line_heights(
+    font: ImageFont.FreeTypeFont,
+    measured: list[tuple[str, tuple[int, int, int, int]]],
+) -> list[int]:
+    ascent, descent = font.getmetrics()
+    min_h = max(ascent + descent, int(font.size * 0.85))
+    return [max(bbox[3] - bbox[1], min_h) for _, bbox in measured]
+
+
+def _measure_block(
+    font: ImageFont.FreeTypeFont, text: str, rect_w: float, rect_h: float
+) -> tuple[list[tuple[str, tuple[int, int, int, int]]], int, float]:
+    lines = _wrap_to_width(text, font, rect_w)
+    probe = ImageDraw.Draw(Image.new("L", (1, 1)))
+    measured = [
+        (line, probe.textbbox((0, 0), line, font=font, anchor="lt"))
+        for line in lines
+    ]
+    if not measured:
+        return measured, 0, 0.0
+
+    heights = _line_heights(font, measured)
+    line_gap = max(2, int(font.size * 0.15))
+    ink_h = sum(heights)
+    n_lines = len(measured)
+    if rect_h < 100 and n_lines > 1:
+        line_gap = max(1, min(line_gap, 2))
+    if n_lines > 1 and ink_h < rect_h:
+        line_gap = min(line_gap, max(1, int((rect_h - ink_h) / (n_lines - 1))))
+    total_h = ink_h + line_gap * (n_lines - 1)
+    if total_h > rect_h and n_lines > 1:
+        line_gap = max(1, int((rect_h - ink_h) / (n_lines - 1)))
+        total_h = ink_h + line_gap * (n_lines - 1)
+    return measured, line_gap, total_h
 
 
 def _paint_measured_lines(
@@ -127,12 +139,12 @@ def _paint_measured_lines(
     elif v_align == "BOTTOM":
         cur_y = y1 - total_h
     else:
-        cur_y = y0 + (rect_h - total_h) / 2
+        cur_y = y0 + max(0.0, (rect_h - total_h) / 2)
     cur_y += y_offset
 
-    for line, bbox in measured:
+    heights = _line_heights(font, measured)
+    for (line, bbox), line_h in zip(measured, heights):
         w = bbox[2] - bbox[0]
-        h = bbox[3] - bbox[1]
         if h_align == "LEFT":
             cur_x = x0
         elif h_align == "RIGHT":
@@ -140,106 +152,124 @@ def _paint_measured_lines(
         else:
             cur_x = x0 + (rect_w - w) / 2
         draw.text((cur_x, cur_y), line, font=font, fill=0, anchor="lt")
-        cur_y += h + line_gap
+        cur_y += line_h + line_gap
 
 
 def _draw_text_block(
     img: Image.Image,
     text: str,
     *,
-    x0: float, y0: float, x1: float, y1: float,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
     font: ImageFont.FreeTypeFont,
-    h_align: str, v_align: str,
+    h_align: str,
+    v_align: str,
     y_offset: float,
+    rotate_180: bool = False,
 ) -> None:
-    """Render multi-line ``text`` inside ``(x0,y0)-(x1,y1)``.
-    Coordinates are printer raster dots — same frame EasyMark uses at
-    orientation 0 (no extra mirror/rotate; that was legacy Android).
-    """
     if not text:
         return
 
     rect_w = x1 - x0
-    lines = _wrap_to_width(text, font, rect_w)
-    # measure each line — use textbbox so descenders are included
-    measured = []
-    for line in lines:
-        bbox = font.getbbox(line)
-        measured.append((line, bbox))
-
-    line_heights = sum(bbox[3] - bbox[1] for _, bbox in measured)
-    n_lines = len(measured)
-    line_gap = max(2, int(font.size * 0.15))
     rect_h = y1 - y0
-    if n_lines > 1 and line_heights < rect_h:
-        line_gap = min(line_gap, max(1, int((rect_h - line_heights) / (n_lines - 1))))
-    total_h = line_heights + line_gap * (n_lines - 1)
-    if total_h > rect_h and n_lines > 1:
-        line_gap = max(1, int((rect_h - line_heights) / (n_lines - 1)))
-        total_h = line_heights + line_gap * (n_lines - 1)
+    measured, line_gap, total_h = _measure_block(font, text, rect_w, rect_h)
 
-    _paint_measured_lines(
-        ImageDraw.Draw(img),
-        measured,
-        x0=x0, y0=y0, x1=x1, y1=y1,
-        rect_w=rect_w, rect_h=rect_h,
-        font=font, h_align=h_align, v_align=v_align,
-        y_offset=y_offset, line_gap=line_gap, total_h=total_h,
+    if not rotate_180:
+        _paint_measured_lines(
+            ImageDraw.Draw(img),
+            measured,
+            x0=x0,
+            y0=y0,
+            x1=x1,
+            y1=y1,
+            rect_w=rect_w,
+            rect_h=rect_h,
+            font=font,
+            h_align=h_align,
+            v_align=v_align,
+            y_offset=y_offset,
+            line_gap=line_gap,
+            total_h=total_h,
+        )
+        return
+
+    pad = 4
+    buf = Image.new(
+        "L",
+        (max(1, int(rect_w)) + pad * 2, max(1, int(round(rect_h))) + pad * 2),
+        255,
+    )
+    if v_align == "TOP":
+        cur_y = y0
+    elif v_align == "BOTTOM":
+        cur_y = y1 - total_h
+    else:
+        cur_y = y0 + max(0.0, (rect_h - total_h) / 2)
+    cur_y += y_offset
+
+    bdraw = ImageDraw.Draw(buf)
+    by = pad + (cur_y - y0)
+    for line, bbox in measured:
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        if h_align == "LEFT":
+            bx = pad
+        elif h_align == "RIGHT":
+            bx = pad + (rect_w - w)
+        else:
+            bx = pad + (rect_w - w) / 2
+        bdraw.text((bx, by), line, font=font, fill=0)
+        by += h + line_gap
+
+    block = buf.transpose(Image.Transpose.ROTATE_180)
+    img.paste(
+        block,
+        (int(round(x0)) - pad, int(round(y0)) - pad),
+        mask=Image.eval(block, lambda v: 255 - v),
     )
 
 
 def render_label_bitmap(
     template: Template, left_text: str, right_text: str
 ) -> Image.Image:
-    """Render the printable bitmap in the template's native frame."""
+    """Bitmap in printer raster space (preview == print)."""
     width = template.bytes_per_row * 8
     height = template.height
     img = Image.new("L", (width, height), 255)
+    h_align = _align_value(template.h_align)
+    v_align = _align_value(template.v_align)
+    rotate_180 = is_turn_tell_300(template)
 
-    h_align = template.h_align.value if hasattr(template.h_align, "value") else str(template.h_align)
-    v_align = template.v_align.value if hasattr(template.v_align, "value") else str(template.v_align)
-    if _is_turn_tell_300_row(template):
-        v_align = "CENTER"
-    if _template_swap_columns(template):
-        left_text, right_text = right_text, left_text
-    y_nudge = _TURN_TELL_Y_NUDGE if _is_turn_tell_300_row(template) else 0
+    for cable_left, text, pt, y_offset in (
+        (True, left_text, template.left_pt, template.left_offset),
+        (False, right_text, template.right_pt, template.right_offset),
+    ):
+        x0, y0, x1, y1 = text_rect(template, cable_left=cable_left)
+        _draw_text_block(
+            img,
+            text,
+            x0=x0,
+            y0=y0,
+            x1=x1,
+            y1=y1,
+            font=_load_font(template.font_name, template.font_style, pt),
+            h_align=h_align,
+            v_align=v_align,
+            y_offset=y_offset,
+            rotate_180=rotate_180,
+        )
 
-    _draw_text_block(
-        img, left_text,
-        x0=template.left_left + template.gap_left,
-        y0=template.left_top + template.gap_top,
-        x1=template.left_right - template.gap_right,
-        y1=template.left_bottom - template.gap_bottom,
-        font=_load_font(template.font_name, template.font_style, template.left_pt),
-        h_align=h_align, v_align=v_align,
-        y_offset=template.left_offset + y_nudge,
-    )
-    _draw_text_block(
-        img, right_text,
-        x0=template.right_left + template.gap_left,
-        y0=template.right_top + template.gap_top,
-        x1=template.right_right - template.gap_right,
-        y1=template.right_bottom - template.gap_bottom,
-        font=_load_font(template.font_name, template.font_style, template.right_pt),
-        h_align=h_align, v_align=v_align,
-        y_offset=template.right_offset + y_nudge,
-    )
     return img
 
 
-# ────────────────────────── raster pack ──────────────────────────────
-
 def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> bytes:
-    """Pack a grayscale PIL image into 1-bit MSB-first raster bytes.
-
-    Threshold at mid-grey: pixels darker than 128 print (bit=1), lighter
-    are blank (bit=0). Output is exactly ``bytes_per_row * height`` bytes.
-    """
+    """Pack PIL bitmap → 1-bit MSB-first raster (row 0 = top of image)."""
     width = bytes_per_row * 8
     if img.mode != "L":
         img = img.convert("L")
     if img.size != (width, height):
-        # resize if mismatch (shouldn't happen if template is consistent)
         img = img.resize((width, height))
 
     px = img.load()
@@ -250,7 +280,7 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
         bit_pos = 7
         col_byte = 0
         for x in range(width):
-            if px[x, y] < 128:  # dark → print
+            if px[x, y] < 128:
                 byte |= 1 << bit_pos
             bit_pos -= 1
             if bit_pos < 0:
@@ -262,14 +292,13 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
 
 
 def build_print_job(template: Template, left_text: str, right_text: str) -> bytes:
-    """End-to-end: render → mono raster → wrap with Panduit header/footer."""
     bitmap = render_label_bitmap(template, left_text, right_text)
     raster = bitmap_to_mono_raster(bitmap, template.bytes_per_row, template.height)
-    header = _HEADER_TMPL.format(bpr=template.bytes_per_row, h=template.height).encode("ascii")
+    header = _HEADER_TMPL.format(
+        bpr=template.bytes_per_row, h=template.height
+    ).encode("ascii")
     return header + raster + _FOOTER
 
-
-# ────────────────────────── send ─────────────────────────────────────
 
 def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0) -> None:
     try:
@@ -280,14 +309,8 @@ def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0
 
 
 def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Optional[float], str]:
-    """Quick TCP-connect reachability check.
-
-    Returns ``(ok, latency_ms, error_message)``. A successful connect means
-    the printer is on the network and has port ``port`` open — for raw-9100
-    printers that's a solid "online" signal. We don't send any bytes so the
-    printer state isn't disturbed.
-    """
     import time
+
     start = time.perf_counter()
     try:
         with socket.create_connection((ip, port), timeout=timeout):
@@ -297,8 +320,6 @@ def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Opt
     return True, round((time.perf_counter() - start) * 1000, 1), ""
 
 
-# ────────────────────────── public API ───────────────────────────────
-
 def render_and_send(
     template: Template,
     printer: Printer,
@@ -307,12 +328,20 @@ def render_and_send(
     operator: str,
     reason: str,
 ) -> None:
-    """Real implementation — formerly a stub. Raises ``PrintError`` on failure."""
     payload = build_print_job(template, left_text, right_text)
     log.info(
-        "print %s → %s:%d (%d bytes) L=%r R=%r op=%r reason=%r",
-        template.name, printer.ip, printer.port, len(payload),
-        left_text[:40], right_text[:40], operator, reason,
+        "print %s → %s:%d (%d bytes) %dx%d turn_tell=%s L=%r R=%r op=%r reason=%r",
+        template.name,
+        printer.ip,
+        printer.port,
+        len(payload),
+        template.bytes_per_row * 8,
+        template.height,
+        is_turn_tell_300(template),
+        left_text[:40],
+        right_text[:40],
+        operator,
+        reason,
     )
     send_to_printer(printer.ip, printer.port, payload)
 
@@ -324,21 +353,14 @@ def render_label_png(
     *,
     crop: bool = False,
 ) -> bytes:
-    """Render the same bitmap and return PNG bytes — for the preview endpoint.
-
-    When ``crop=True`` the bitmap is trimmed to the bounding box of the
-    left/right text rectangles. The label form's live preview uses this
-    so the tiny text region isn't drowned out by the surrounding blank
-    canvas when the bitmap is scaled down to fit a Print-On Area swatch.
-
-    Crop trims to the text rectangles' bounding box when requested.
-    """
     img = render_label_bitmap(template, left_text, right_text)
     if crop:
-        x0 = max(0, int(min(template.left_left, template.right_left)))
-        x1 = min(img.width, int(max(template.left_right, template.right_right)))
-        y0 = max(0, int(min(template.left_top, template.right_top)))
-        y1 = min(img.height, int(max(template.left_bottom, template.right_bottom)))
+        l = text_rect(template, cable_left=True)
+        r = text_rect(template, cable_left=False)
+        x0 = max(0, int(min(l[0], r[0])))
+        x1 = min(img.width, int(max(l[2], r[2])))
+        y0 = max(0, int(min(l[1], r[1])))
+        y1 = min(img.height, int(max(l[3], r[3])))
         if x1 > x0 and y1 > y0:
             img = img.crop((x0, y0, x1, y1))
     buf = BytesIO()

@@ -132,9 +132,9 @@ export interface TemplatePreset {
 /** 4.25″×2.125″ Turn-Tell row @ 300 DPI (EasyMark ``Thermal`` page). */
 const TURN_TELL_300_PAGE = { bytes_per_row: 160, height: 638 } as const;
 
-/** White print-on strip in printer raster dots (~0.5″ @ 300 DPI).
- * Text is drawn as in EasyMark (no legacy mirror/rotate). */
-const TURN_TELL_300_TEXT_Y = { top: 545, bottom: 632 } as const;
+/** EasyMark white print-on strip (margin 0.563″ + 0.5″ @ 300 DPI).
+ * Server maps Y to printer feed in ``label_geometry.text_rect``. */
+const TURN_TELL_EASYMARK_Y = { top: 169, bottom: 319 } as const;
 
 /** Build left/right text rects from EasyMark page margins (inches). */
 function turnTellRects300(opts: {
@@ -181,10 +181,10 @@ const TEMPLATE_PRESETS: Record<string, TemplatePreset> = {
       labelWidthIn: 2.0,
       offsetXIn: -0.05,
     }),
-    left_top: TURN_TELL_300_TEXT_Y.top,
-    left_bottom: TURN_TELL_300_TEXT_Y.bottom,
-    right_top: TURN_TELL_300_TEXT_Y.top,
-    right_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    left_top: TURN_TELL_EASYMARK_Y.top,
+    left_bottom: TURN_TELL_EASYMARK_Y.bottom,
+    right_top: TURN_TELL_EASYMARK_Y.top,
+    right_bottom: TURN_TELL_EASYMARK_Y.bottom,
     gap_top: 0,
     gap_bottom: 0,
     gap_left: 0,
@@ -198,10 +198,10 @@ const TEMPLATE_PRESETS: Record<string, TemplatePreset> = {
       labelWidthIn: 1.5,
       offsetXIn: -0.051,
     }),
-    left_top: TURN_TELL_300_TEXT_Y.top,
-    left_bottom: TURN_TELL_300_TEXT_Y.bottom,
-    right_top: TURN_TELL_300_TEXT_Y.top,
-    right_bottom: TURN_TELL_300_TEXT_Y.bottom,
+    left_top: TURN_TELL_EASYMARK_Y.top,
+    left_bottom: TURN_TELL_EASYMARK_Y.bottom,
+    right_top: TURN_TELL_EASYMARK_Y.top,
+    right_bottom: TURN_TELL_EASYMARK_Y.bottom,
     gap_top: 0,
     gap_bottom: 0,
     gap_left: 0,
