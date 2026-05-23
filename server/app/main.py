@@ -8,8 +8,13 @@ Run:
         --reload --reload-dir app --reload-dir alembic
 """
 import logging
+from pathlib import Path
 
-from fastapi import FastAPI
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI
+
+# ``server/.env`` — uvicorn does not load it automatically.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import (

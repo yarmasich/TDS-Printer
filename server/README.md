@@ -29,7 +29,6 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 cp .env.example .env              # задайте ADMIN_* (см. ниже)
-set -a && source .env && set +a   # или export вручную
 alembic upgrade head              # создаёт / мигрирует БД
 uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     --reload --reload-dir app --reload-dir alembic
@@ -40,13 +39,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 \
 Панель `/admin` и изменяющие API (шаблоны, импорт, CRUD проектов и т.д.)
 требуют JWT после `POST /api/auth/login`. **Print** и **Kiosk** без пароля.
 
-Переменные окружения (см. `.env.example`):
+Файл `server/.env` (см. `.env.example`) подхватывается при старте uvicorn
+автоматически:
 
 - `ADMIN_USERNAME` — логин
 - `ADMIN_PASSWORD` — пароль
 - `ADMIN_JWT_SECRET` — случайная длинная строка для подписи токена
 
-Без этих переменных вход в админку отключён (`503` на login).
+Без этих переменных вход в админку отключён (на экране login будет предупреждение).
+После правки `.env` перезапустите uvicorn.
 
 Чтобы посмотреть UI — поднимите фронт отдельно: `cd ../frontend && npm run dev`,
 откройте `http://localhost:5173`.

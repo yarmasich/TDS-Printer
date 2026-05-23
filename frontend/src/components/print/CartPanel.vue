@@ -15,7 +15,10 @@ defineProps<{
 
 async function onClear() {
   confirm.require({
-    message: "Clear the cart?",
+    header: "Clear cart",
+    message: "Remove all labels from the cart?",
+    rejectLabel: "Cancel",
+    acceptLabel: "Clear",
     accept: async () => {
       await cart.clear();
       toast.add({

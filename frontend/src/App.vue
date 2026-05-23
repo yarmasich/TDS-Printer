@@ -71,12 +71,6 @@ function logoutAdmin() {
             class="!text-white hover:!bg-white/10"
             @click="logoutAdmin"
           />
-          <a
-            href="/docs"
-            target="_blank"
-            class="px-4 py-2 rounded-lg text-sm font-semibold transition hover:bg-white/10"
-            >API</a
-          >
         </nav>
       </div>
     </header>
@@ -86,7 +80,7 @@ function logoutAdmin() {
     </main>
 
     <Toast :position="isKiosk ? 'top-center' : 'bottom-right'" />
-    <ConfirmDialog />
+    <ConfirmDialog class="tds-confirm-dialog" />
   </div>
 </template>
 

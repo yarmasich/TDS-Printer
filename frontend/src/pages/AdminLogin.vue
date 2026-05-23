@@ -2,7 +2,6 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import InputText from "primevue/inputtext";
-import Password from "primevue/password";
 import Button from "primevue/button";
 import { useAuth } from "@/stores/auth";
 import { ApiError } from "@/api/client";
@@ -28,7 +27,12 @@ async function submit() {
   error.value = null;
   loading.value = true;
   try {
-    await auth.login(username.value, password.value);
+    const user = username.value.trim();
+    const pass =
+      typeof password.value === "string"
+        ? password.value
+        : String(password.value ?? "");
+    await auth.login(user, pass);
     await router.replace((route.query.redirect as string) || "/admin");
   } catch (e: unknown) {
     error.value =
@@ -63,18 +67,16 @@ async function submit() {
         :disabled="!auth.configured"
       />
 
-      <label class="login-label" for="admin-pass">Password</label>
-      <Password
-        id="admin-pass"
-        v-model="password"
-        :feedback="false"
-        toggle-mask
-        autocomplete="current-password"
-        class="w-full"
-        input-class="w-full"
-        :disabled="!auth.configured"
-        @keyup.enter="submit"
-      />
+        <label class="login-label" for="admin-pass">Password</label>
+        <InputText
+          id="admin-pass"
+          v-model="password"
+          type="password"
+          autocomplete="current-password"
+          class="w-full"
+          :disabled="!auth.configured"
+          @keyup.enter="submit"
+        />
 
       <p v-if="error" class="login-error">{{ error }}</p>
 
@@ -168,8 +170,4 @@ async function submit() {
   text-decoration: underline;
 }
 
-.login-card :deep(.p-password),
-.login-card :deep(.p-password-input) {
-  width: 100%;
-}
 </style>

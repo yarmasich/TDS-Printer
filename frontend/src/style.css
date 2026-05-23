@@ -60,4 +60,28 @@ body {
   pointer-events: auto !important;
 }
 
+/* ConfirmDialog shrinks to button width without a min-width. */
+.p-confirmdialog,
+.p-dialog.tds-confirm-dialog,
+.tds-confirm-dialog.p-dialog {
+  width: min(26rem, 92vw) !important;
+  max-width: 92vw;
+}
+
+.p-confirmdialog .p-dialog-content,
+.p-dialog.tds-confirm-dialog .p-dialog-content {
+  padding: 1.25rem 1.5rem 0.75rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.p-confirmdialog .p-dialog-footer,
+.p-dialog.tds-confirm-dialog .p-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding: 0 1.5rem 1.25rem;
+}
+
 /* PrimeVue's preset styling will live alongside Tailwind utilities. */

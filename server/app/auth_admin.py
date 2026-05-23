@@ -16,13 +16,33 @@ TOKEN_HOURS = 12
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _env_value(key: str, *, strip_outer: bool = True) -> str:
+    """Read env; strip accidental quotes from ``.env`` copy-paste."""
+    raw = os.getenv(key, "")
+    if not raw:
+        return ""
+    val = raw.strip() if strip_outer else raw
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+        val = val[1:-1]
+    return val
+
+
 def _credentials() -> Optional[tuple[str, str, str]]:
-    user = os.getenv("ADMIN_USERNAME", "").strip()
-    password = os.getenv("ADMIN_PASSWORD", "")
-    secret = os.getenv("ADMIN_JWT_SECRET", "").strip()
+    user = _env_value("ADMIN_USERNAME")
+    # Do not strip spaces inside passwords — only CR/LF from the line end.
+    password = os.getenv("ADMIN_PASSWORD", "").strip("\r\n")
+    if password.startswith('"') and password.endswith('"') and len(password) >= 2:
+        password = password[1:-1]
+    elif password.startswith("'") and password.endswith("'") and len(password) >= 2:
+        password = password[1:-1]
+    secret = _env_value("ADMIN_JWT_SECRET")
     if not user or not password or not secret:
         return None
     return user, password, secret
+
+
+def _eq_str(a: str, b: str) -> bool:
+    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 def admin_auth_configured() -> bool:
@@ -34,9 +54,7 @@ def verify_admin_login(username: str, password: str) -> bool:
     if not cfg:
         return False
     expected_user, expected_pass, _ = cfg
-    user_ok = secrets.compare_digest(username.strip(), expected_user)
-    pass_ok = secrets.compare_digest(password, expected_pass)
-    return user_ok and pass_ok
+    return _eq_str(username.strip(), expected_user) and _eq_str(password, expected_pass)
 
 
 def create_admin_token(username: str) -> str:
