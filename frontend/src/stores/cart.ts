@@ -30,6 +30,14 @@ export const useCart = defineStore("cart", {
       await api.post<CartItem>("/api/cart", { sid, label_id: labelId });
       await this.fetch();
     },
+    async addMany(labelIds: number[]) {
+      if (!labelIds.length) return;
+      const sid = useSession().ensure();
+      for (const label_id of labelIds) {
+        await api.post<CartItem>("/api/cart", { sid, label_id });
+      }
+      await this.fetch();
+    },
     async remove(itemId: number) {
       const sid = useSession().ensure();
       await api.delete(

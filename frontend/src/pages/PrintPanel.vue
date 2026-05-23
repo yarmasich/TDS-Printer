@@ -37,7 +37,23 @@ const operators = ref<AuthName[]>([]);
 
 const searchResults = ref<SearchResponse | null>(null);
 const searching = ref(false);
+const addingAll = ref(false);
 const printerPing = ref<PingResult | null | undefined>(undefined);
+
+const cartLabelIds = computed(
+  () => new Set(cart.items.map((i) => i.label_id).filter((id) => id != null)),
+);
+
+const pendingAddIds = computed(() => {
+  if (!searchResults.value?.hits.length) return [];
+  return searchResults.value.hits
+    .map((h) => h.label_id)
+    .filter((id) => !cartLabelIds.value.has(id));
+});
+
+const showAddAll = computed(
+  () => (searchResults.value?.hits.length ?? 0) > 1,
+);
 
 // PrimeVue InputText wraps a native <input>; the template ref points
 // at the component instance, so reach through `$el` to focus the real
@@ -129,6 +145,35 @@ async function onAddToCart(labelId: number) {
       summary: "Could not add",
       detail: e instanceof Error ? e.message : String(e),
     });
+  }
+}
+
+async function onAddAllToCart() {
+  const ids = pendingAddIds.value;
+  if (!ids.length) {
+    toast.add({
+      severity: "info",
+      summary: "Already in cart",
+      life: 2000,
+    });
+    return;
+  }
+  addingAll.value = true;
+  try {
+    await cart.addMany(ids);
+    toast.add({
+      severity: "success",
+      summary: `Added ${ids.length} to cart`,
+      life: 2500,
+    });
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Could not add all",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  } finally {
+    addingAll.value = false;
   }
 }
 </script>
@@ -236,17 +281,32 @@ async function onAddToCart(labelId: number) {
       v-if="searchResults"
       class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
     >
-      <h2 class="text-lg font-bold mb-3">
-        <i class="pi pi-list-check text-sky-600 mr-1"></i>
-        Results
-        <span class="text-slate-400">({{ searchResults.total }})</span>
-        <span
-          v-if="searchResults.expanded.length > 1"
-          class="text-sm font-normal text-slate-500 ml-2"
-        >
-          for {{ searchResults.expanded.join(", ") }}
-        </span>
-      </h2>
+      <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <h2 class="text-lg font-bold">
+          <i class="pi pi-list-check text-sky-600 mr-1"></i>
+          Results
+          <span class="text-slate-400">({{ searchResults.total }})</span>
+          <span
+            v-if="searchResults.expanded.length > 1"
+            class="text-sm font-normal text-slate-500 ml-2"
+          >
+            for {{ searchResults.expanded.join(", ") }}
+          </span>
+        </h2>
+        <Button
+          v-if="showAddAll && searchResults.hits.length > 0"
+          :label="
+            pendingAddIds.length
+              ? `Add all (${pendingAddIds.length})`
+              : 'All in cart'
+          "
+          icon="pi pi-plus"
+          severity="success"
+          :loading="addingAll"
+          :disabled="!pendingAddIds.length"
+          @click="onAddAllToCart"
+        />
+      </div>
       <p v-if="searchResults.hits.length === 0" class="text-slate-500">
         No matches.
       </p>
