@@ -28,8 +28,14 @@ const printerPing = ref<PingResult | null | undefined>(undefined);
 /** Skip discipline reset while restoring saved kiosk context. */
 let hydratingSetup = false;
 
-const currentDiscipline = computed<Discipline | undefined>(() =>
-  projects.disciplines.find((d) => d.id === kiosk.disciplineId),
+/** Cached row for the locked kiosk discipline (header + ping). */
+const activeDiscipline = ref<Discipline | null>(null);
+
+const currentDiscipline = computed(
+  () =>
+    activeDiscipline.value ??
+    projects.disciplines.find((d) => d.id === kiosk.disciplineId) ??
+    null,
 );
 
 const contextLine = computed(() => {
@@ -69,8 +75,10 @@ onMounted(async () => {
     setupProject.value = pickProject(kiosk.projectId);
     await projects.loadDisciplinesForProject(kiosk.projectId!);
     setupDiscipline.value = pickDiscipline(kiosk.disciplineId);
+    activeDiscipline.value = setupDiscipline.value;
     hydratingSetup = false;
     showSetup.value = false;
+    await refreshPrinterPing();
   }
 });
 
@@ -84,26 +92,57 @@ watch(setupProject, async (proj, oldProj) => {
   else projects.disciplines = [];
 });
 
+async function resolveActiveDiscipline(): Promise<Discipline | null> {
+  const disciplineId = kiosk.disciplineId;
+  const projectId = kiosk.projectId;
+  if (disciplineId == null || projectId == null) {
+    activeDiscipline.value = null;
+    return null;
+  }
+
+  let d =
+    projects.disciplines.find((x) => x.id === disciplineId) ??
+    (setupDiscipline.value?.id === disciplineId ? setupDiscipline.value : null);
+
+  if (!d) {
+    await projects.loadDisciplinesForProject(projectId);
+    d = projects.disciplines.find((x) => x.id === disciplineId) ?? null;
+  }
+
+  activeDiscipline.value = d;
+  return d;
+}
+
+async function refreshPrinterPing() {
+  if (showSetup.value) return;
+
+  const d = await resolveActiveDiscipline();
+  printerPing.value = undefined;
+  if (!d?.printer_id) return;
+
+  try {
+    printerPing.value = null;
+    printerPing.value = await printers.pingOne(d.printer_id);
+  } catch {
+    printerPing.value = {
+      printer_id: d.printer_id,
+      ok: false,
+      ms: null,
+      error: "check failed",
+    };
+  }
+}
+
 watch(
-  () => kiosk.disciplineId,
-  async (id) => {
-    printerPing.value = undefined;
-    const d = projects.disciplines.find((x) => x.id === id);
-    if (!d?.printer_id) return;
-    try {
-      printerPing.value = null;
-      printerPing.value = await printers.pingOne(d.printer_id);
-    } catch {
-      printerPing.value = {
-        printer_id: d.printer_id,
-        ok: false,
-        ms: null,
-        error: "check failed",
-      };
-    }
+  () => [kiosk.disciplineId, kiosk.projectId] as const,
+  () => {
+    void refreshPrinterPing();
   },
-  { immediate: true },
 );
+
+watch(showSetup, (setup) => {
+  if (!setup) void refreshPrinterPing();
+});
 
 async function startKiosk() {
   const projectId = setupProject.value?.id;
@@ -124,8 +163,10 @@ async function startKiosk() {
     setupDiscipline.value =
       projects.disciplines.find((d) => d.id === disciplineId) ??
       setupDiscipline.value;
+    activeDiscipline.value = setupDiscipline.value;
     hydratingSetup = false;
     showSetup.value = false;
+    await refreshPrinterPing();
   } catch (e: unknown) {
     hydratingSetup = false;
     toast.add({
@@ -183,8 +224,11 @@ async function tryFullscreen() {
           <span class="kiosk-printer">{{ currentDiscipline.printer_name }}</span>
           <PingPill :ping="printerPing" />
         </template>
+        <span v-else-if="currentDiscipline" class="kiosk-warn">
+          No printer
+        </span>
         <span
-          v-else-if="currentDiscipline && !currentDiscipline.template_id"
+          v-if="currentDiscipline && !currentDiscipline.template_id"
           class="kiosk-warn"
         >
           No template
