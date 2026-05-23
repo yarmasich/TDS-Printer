@@ -3,7 +3,6 @@ import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
-import ConfirmDialog from "primevue/confirmdialog";
 
 const cart = useCart();
 const toast = useToast();
@@ -55,7 +54,6 @@ defineExpose({ onPrintAll });
 </script>
 
 <template>
-  <ConfirmDialog />
   <div
     v-if="cart.count > 0"
     class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"

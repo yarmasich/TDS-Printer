@@ -5,11 +5,11 @@ import Button from "primevue/button";
 import Drawer from "primevue/drawer";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
-import ConfirmDialog from "primevue/confirmdialog";
 
 const props = defineProps<{
   operator: string;
   reason: string;
+  kiosk?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -71,12 +71,17 @@ function clearCart() {
 </script>
 
 <template>
-  <ConfirmDialog />
-
   <!-- Floating sticky bar that appears when cart has items -->
   <Transition name="slide-up">
-    <div v-if="cart.count > 0" class="sticky-cart">
-      <div class="sticky-cart-inner">
+    <div
+      v-if="cart.count > 0"
+      class="sticky-cart"
+      :class="{ 'sticky-cart--kiosk': props.kiosk }"
+    >
+      <div
+        class="sticky-cart-inner"
+        :class="{ 'sticky-cart-inner--kiosk': props.kiosk }"
+      >
         <button class="cart-summary" @click="drawerOpen = true">
           <i class="pi pi-shopping-cart text-lg"></i>
           <span class="cart-summary-count">{{ cart.count }}</span>
@@ -86,12 +91,16 @@ function clearCart() {
           <Button
             label="Clear"
             severity="secondary"
-            size="small"
+            :size="props.kiosk ? 'large' : 'small'"
+            :fluid="props.kiosk"
             @click="clearCart"
           />
           <Button
             label="Print all"
             icon="pi pi-print"
+            :size="props.kiosk ? 'large' : undefined"
+            :fluid="props.kiosk"
+            class="print-all-btn"
             :loading="printing"
             @click="printAll"
           />
@@ -226,5 +235,33 @@ function clearCart() {
 .slide-up-leave-to {
   transform: translateY(100%);
   opacity: 0;
+}
+
+.sticky-cart--kiosk {
+  padding: 16px 12px calc(16px + env(safe-area-inset-bottom));
+}
+
+.sticky-cart-inner--kiosk {
+  max-width: none;
+  border-radius: 20px;
+  padding: 12px 16px 12px 22px;
+}
+
+.sticky-cart-inner--kiosk .cart-summary {
+  font-size: 18px;
+  padding: 8px 10px;
+}
+
+.sticky-cart-inner--kiosk .cart-summary-count {
+  font-size: 15px;
+  min-width: 28px;
+  padding: 3px 10px;
+}
+
+.sticky-cart-inner--kiosk :deep(.print-all-btn) {
+  min-height: 52px;
+  min-width: 140px;
+  font-size: 17px;
+  font-weight: 700;
 }
 </style>

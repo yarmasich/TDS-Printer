@@ -21,8 +21,12 @@ import ResultCard from "@/components/print/ResultCard.vue";
 import StickyCart from "@/components/print/StickyCart.vue";
 import QuickPickChip from "@/components/print/QuickPickChip.vue";
 import PingPill from "@/components/PingPill.vue";
+import { useKiosk } from "@/stores/kiosk";
+
+const props = defineProps<{ kiosk?: boolean }>();
 
 const projects = useProjects();
+const kioskStore = useKiosk();
 const cart = useCart();
 const printers = usePrinters();
 const toast = useToast();
@@ -61,13 +65,18 @@ const showAddAll = computed(
 const queryInput = useTemplateRef<{ $el: HTMLInputElement }>("queryInput");
 
 onMounted(async () => {
+  kioskStore.load();
   await Promise.all([
     projects.loadProjects(),
     api.get<Reason[]>("/api/reasons").then((r) => (reasons.value = r)),
     api.get<AuthName[]>("/api/auth-names").then((a) => (operators.value = a)),
     cart.fetch(),
   ]);
-  // Auto-focus the search box so a kiosk operator can just start typing.
+  if (props.kiosk && kioskStore.isReady) {
+    selectedProject.value = kioskStore.projectId;
+    await projects.loadDisciplinesForProject(kioskStore.projectId!);
+    selectedDiscipline.value = kioskStore.disciplineId;
+  }
   queryInput.value?.$el?.focus();
 });
 
@@ -179,9 +188,10 @@ async function onAddAllToCart() {
 </script>
 
 <template>
-  <div class="space-y-4 pb-24">
-    <!-- ============ Context bar ============ -->
+  <div class="space-y-4 pb-24" :class="{ 'print-panel--kiosk': kiosk }">
+    <!-- ============ Context bar (desktop only) ============ -->
     <header
+      v-if="!kiosk"
       class="bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm flex items-center gap-3 flex-wrap"
     >
       <div class="flex items-center gap-2 flex-1 min-w-[260px]">
@@ -227,8 +237,11 @@ async function onAddAllToCart() {
     </header>
 
     <!-- ============ Hero search ============ -->
-    <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <div class="search-row">
+    <section
+      class="bg-white border border-slate-200 rounded-2xl shadow-sm"
+      :class="kiosk ? 'p-4 mx-3 mt-3' : 'p-6'"
+    >
+      <div class="search-row" :class="{ 'search-row--kiosk': kiosk }">
         <i class="pi pi-search search-icon"></i>
         <InputText
           ref="queryInput"
@@ -251,13 +264,17 @@ async function onAddAllToCart() {
           label="Find"
           icon="pi pi-search"
           :loading="searching"
-          size="large"
+          :size="kiosk ? 'large' : 'large'"
+          class="find-btn"
           @click="doSearch"
         />
       </div>
 
       <!-- Operator / Reason chips (compact, opt-in) -->
-      <div class="flex items-center gap-2 mt-4 flex-wrap text-sm">
+      <div
+        class="flex items-center gap-2 mt-4 flex-wrap"
+        :class="kiosk ? 'text-base' : 'text-sm'"
+      >
         <span class="text-slate-500">When printing:</span>
         <QuickPickChip
           v-model="operator"
@@ -280,6 +297,7 @@ async function onAddAllToCart() {
     <section
       v-if="searchResults"
       class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
+      :class="kiosk ? 'mx-3' : ''"
     >
       <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
         <h2 class="text-lg font-bold">
@@ -302,6 +320,7 @@ async function onAddAllToCart() {
           "
           icon="pi pi-plus"
           severity="success"
+          :size="kiosk ? 'large' : undefined"
           :loading="addingAll"
           :disabled="!pendingAddIds.length"
           @click="onAddAllToCart"
@@ -315,15 +334,20 @@ async function onAddAllToCart() {
           v-for="h in searchResults.hits"
           :key="h.label_id"
           :hit="h"
+          :kiosk="kiosk"
           @cart="onAddToCart"
         />
       </div>
     </section>
 
-    <section v-else class="empty-state">
+    <section v-else class="empty-state" :class="kiosk ? 'mx-3 empty-state--kiosk' : ''">
       <i class="pi pi-search text-5xl text-slate-300 mb-3"></i>
       <p class="text-slate-500">
-        Pick a project / discipline above and type a cable id to begin.
+        {{
+          kiosk
+            ? "Type a cable id, range, or list to search."
+            : "Pick a project / discipline above and type a cable id to begin."
+        }}
       </p>
       <p v-if="!projects.projects.length" class="text-slate-400 text-sm mt-2">
         No projects yet —
@@ -334,7 +358,12 @@ async function onAddAllToCart() {
     </section>
 
     <!-- ============ Sticky cart ============ -->
-    <StickyCart :operator="operator" :reason="reason" @printed="onPrinted" />
+    <StickyCart
+      :operator="operator"
+      :reason="reason"
+      :kiosk="kiosk"
+      @printed="onPrinted"
+    />
   </div>
 </template>
 
@@ -376,5 +405,53 @@ async function onAddAllToCart() {
   background: #ffffff;
   border: 1px dashed #cbd5e1;
   border-radius: 16px;
+}
+
+.print-panel--kiosk {
+  padding-bottom: calc(100px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.search-row--kiosk {
+  padding: 10px 12px 10px 20px;
+  border-radius: 20px;
+}
+
+.search-row--kiosk :deep(.search-input) {
+  font-size: 26px !important;
+  padding: 18px 6px !important;
+}
+
+.search-row--kiosk .search-icon {
+  font-size: 24px;
+}
+
+.print-panel--kiosk :deep(.p-button) {
+  touch-action: manipulation;
+}
+
+.print-panel--kiosk :deep(.find-btn) {
+  min-height: 52px;
+  min-width: 110px;
+  font-size: 17px;
+}
+
+.print-panel--kiosk :deep(.p-select) {
+  min-height: 48px;
+  touch-action: manipulation;
+}
+
+.empty-state--kiosk {
+  padding: 48px 20px;
+}
+
+.empty-state--kiosk .pi-search {
+  font-size: 4rem !important;
+}
+
+.empty-state--kiosk p {
+  font-size: 18px;
 }
 </style>

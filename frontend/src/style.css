@@ -24,4 +24,40 @@ body {
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/*
+ * Tailwind preflight can break PrimeVue teleports on iOS/tablet: masks sit
+ * over the page but mis-sized, so taps only land in a corner. Force
+ * overlay positioning and never let closed masks eat touches.
+ */
+.p-dialog-mask,
+.p-drawer-mask,
+.p-select-overlay,
+.p-connected-overlay,
+.p-toast {
+  position: fixed !important;
+}
+
+.p-dialog-mask,
+.p-drawer-mask,
+.p-select-overlay,
+.p-connected-overlay {
+  z-index: 1200 !important;
+}
+
+.p-dialog-mask,
+.p-drawer-mask {
+  pointer-events: none !important;
+}
+
+.p-dialog-mask:has([role="dialog"]),
+.p-drawer-mask:has([role="dialog"]),
+.p-drawer-mask:has([role="complementary"]) {
+  pointer-events: auto !important;
+}
+
+.p-select-overlay,
+.p-connected-overlay {
+  pointer-events: auto !important;
+}
+
 /* PrimeVue's preset styling will live alongside Tailwind utilities. */

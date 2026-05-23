@@ -13,6 +13,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/pages/Admin.vue"),
     meta: { title: "Admin" },
   },
+  {
+    path: "/kiosk",
+    name: "kiosk",
+    component: () => import("@/pages/KioskPanel.vue"),
+    meta: { title: "Kiosk", kiosk: true },
+  },
 ];
 
 export const router = createRouter({

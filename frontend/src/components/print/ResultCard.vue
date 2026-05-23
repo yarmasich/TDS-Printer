@@ -2,7 +2,7 @@
 import type { SearchHit } from "@/api/types";
 import Button from "primevue/button";
 
-defineProps<{ hit: SearchHit }>();
+defineProps<{ hit: SearchHit; kiosk?: boolean }>();
 
 defineEmits<{
   cart: [labelId: number];
@@ -10,7 +10,10 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+  <div
+    class="bg-white border border-slate-200 rounded-2xl shadow-sm"
+    :class="kiosk ? 'p-5 result-card--kiosk' : 'p-4'"
+  >
     <div class="flex gap-3 items-stretch">
       <!-- LEFT cell -->
       <div class="flex-1 min-w-0 flex flex-col gap-1.5">
@@ -21,12 +24,13 @@ defineEmits<{
           Left{{ hit.matched_left ? " ✓" : "" }}
         </div>
         <div
-          class="flex-1 min-h-[90px] flex items-center justify-center text-center text-sm leading-snug px-3 py-3 rounded-lg border whitespace-pre-wrap break-words"
-          :class="
+          class="flex-1 flex items-center justify-center text-center leading-snug px-3 py-3 rounded-lg border whitespace-pre-wrap break-words"
+          :class="[
+            kiosk ? 'min-h-[110px] text-base' : 'min-h-[90px] text-sm',
             hit.matched_left
               ? 'bg-sky-50 border-sky-500 shadow-[inset_0_0_0_1px_#0284c7]'
-              : 'bg-slate-50 border-slate-300'
-          "
+              : 'bg-slate-50 border-slate-300',
+          ]"
         >
           {{ hit.left_text || "—" }}
         </div>
@@ -41,12 +45,13 @@ defineEmits<{
           Right{{ hit.matched_right ? " ✓" : "" }}
         </div>
         <div
-          class="flex-1 min-h-[90px] flex items-center justify-center text-center text-sm leading-snug px-3 py-3 rounded-lg border whitespace-pre-wrap break-words"
-          :class="
+          class="flex-1 flex items-center justify-center text-center leading-snug px-3 py-3 rounded-lg border whitespace-pre-wrap break-words"
+          :class="[
+            kiosk ? 'min-h-[110px] text-base' : 'min-h-[90px] text-sm',
             hit.matched_right
               ? 'bg-sky-50 border-sky-500 shadow-[inset_0_0_0_1px_#0284c7]'
-              : 'bg-slate-50 border-slate-300'
-          "
+              : 'bg-slate-50 border-slate-300',
+          ]"
         >
           {{ hit.right_text || "—" }}
         </div>
@@ -59,7 +64,9 @@ defineEmits<{
         <Button
           label="+ Add"
           icon="pi pi-plus"
-          size="small"
+          :size="kiosk ? 'large' : 'small'"
+          :fluid="kiosk"
+          class="result-add-btn"
           @click="$emit('cart', hit.label_id)"
         />
       </div>
@@ -72,3 +79,10 @@ defineEmits<{
     </div>
   </div>
 </template>
+
+<style scoped>
+.result-card--kiosk :deep(.result-add-btn) {
+  min-width: 88px;
+  min-height: 56px;
+}
+</style>
