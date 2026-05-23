@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { api, apiUrl } from "@/api/client";
+import { adminAuthHeader, api, apiUrl } from "@/api/client";
 import type { Template } from "@/api/types";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
@@ -141,13 +141,26 @@ function remove(t: Template) {
   });
 }
 
-function previewUrl(t: Template) {
-  return (
-    apiUrl("/api/print/preview") +
-    `?template_id=${t.id}` +
-    `&left_text=${encodeURIComponent(t.left_text)}` +
-    `&right_text=${encodeURIComponent(t.right_text)}`
-  );
+async function openPreview(t: Template) {
+  const q = new URLSearchParams({
+    template_id: String(t.id),
+    left_text: t.left_text,
+    right_text: t.right_text,
+  });
+  try {
+    const res = await fetch(`${apiUrl("/api/print/preview")}?${q}`, {
+      headers: adminAuthHeader(),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    window.open(URL.createObjectURL(blob), "_blank", "noopener");
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Preview failed",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
 }
 
 // ──────────────── live preview ────────────────
@@ -178,7 +191,10 @@ async function refreshPreview() {
   try {
     const res = await fetch(apiUrl("/api/print/preview-draft"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...adminAuthHeader(),
+      },
       // crop=true so the preview is the text-bbox only — without
       // it the bitmap is mostly blank canvas and the actual text
       // shrinks to dots when scaled into the small Print-On swatch.
@@ -358,15 +374,14 @@ watch(
       <Column header="" :style="{ width: '220px' }">
         <template #body="{ data }">
           <div class="flex gap-1 justify-end">
-            <a :href="previewUrl(data)" target="_blank" rel="noopener">
-              <Button
-                icon="pi pi-eye"
-                size="small"
-                text
-                severity="secondary"
-                aria-label="Preview"
-              />
-            </a>
+            <Button
+              icon="pi pi-eye"
+              size="small"
+              text
+              severity="secondary"
+              aria-label="Preview"
+              @click="openPreview(data)"
+            />
             <Button
               icon="pi pi-pencil"
               size="small"

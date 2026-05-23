@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { api, apiUrl } from "@/api/client";
+import { adminAuthHeader, api, apiUrl } from "@/api/client";
 import type { Discipline, ImportDTO, Project } from "@/api/types";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
@@ -58,6 +58,7 @@ async function upload() {
   try {
     const res = await fetch(apiUrl("/api/import/upload"), {
       method: "POST",
+      headers: adminAuthHeader(),
       body: fd,
     });
     const data = await res.json();

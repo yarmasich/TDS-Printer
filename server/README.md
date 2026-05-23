@@ -19,19 +19,34 @@ FastAPI бэкенд — **только JSON API**. Веб-интерфейс ж
 - [ ] **Print engine — заглушка** (логирует в stdout, реальную отправку байт на принтер
       добавим следующим шагом, портируя `PandaRawPrinter.buildPrintJob` из smali)
 - [ ] Excel импорт + поиск
-- [ ] Логин (PIN/сессия)
+- [x] Admin login (JWT, env credentials)
 
 ## Запуск
 
 ```bash
-cd tds-server
+cd server
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-alembic upgrade head            # создаёт / мигрирует БД
+cp .env.example .env              # задайте ADMIN_* (см. ниже)
+set -a && source .env && set +a   # или export вручную
+alembic upgrade head              # создаёт / мигрирует БД
 uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     --reload --reload-dir app --reload-dir alembic
 ```
+
+### Admin login
+
+Панель `/admin` и изменяющие API (шаблоны, импорт, CRUD проектов и т.д.)
+требуют JWT после `POST /api/auth/login`. **Print** и **Kiosk** без пароля.
+
+Переменные окружения (см. `.env.example`):
+
+- `ADMIN_USERNAME` — логин
+- `ADMIN_PASSWORD` — пароль
+- `ADMIN_JWT_SECRET` — случайная длинная строка для подписи токена
+
+Без этих переменных вход в админку отключён (`503` на login).
 
 Чтобы посмотреть UI — поднимите фронт отдельно: `cd ../frontend && npm run dev`,
 откройте `http://localhost:5173`.

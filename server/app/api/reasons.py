@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import Reason
 
@@ -14,7 +15,7 @@ def list_reasons(session: Session = Depends(get_session)) -> List[Reason]:
     return session.exec(select(Reason).order_by(Reason.sort_order, Reason.text)).all()
 
 
-@router.post("", response_model=Reason)
+@router.post("", response_model=Reason, dependencies=[Depends(require_admin)])
 def create_reason(r: Reason, session: Session = Depends(get_session)) -> Reason:
     session.add(r)
     session.commit()
@@ -22,7 +23,7 @@ def create_reason(r: Reason, session: Session = Depends(get_session)) -> Reason:
     return r
 
 
-@router.delete("/{reason_id}")
+@router.delete("/{reason_id}", dependencies=[Depends(require_admin)])
 def delete_reason(reason_id: int, session: Session = Depends(get_session)) -> dict:
     r = session.get(Reason, reason_id)
     if not r:

@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import AuthName
 
@@ -14,7 +15,7 @@ def list_auth(session: Session = Depends(get_session)) -> List[AuthName]:
     return session.exec(select(AuthName).order_by(AuthName.name)).all()
 
 
-@router.post("", response_model=AuthName)
+@router.post("", response_model=AuthName, dependencies=[Depends(require_admin)])
 def create_auth(a: AuthName, session: Session = Depends(get_session)) -> AuthName:
     session.add(a)
     session.commit()
@@ -22,7 +23,7 @@ def create_auth(a: AuthName, session: Session = Depends(get_session)) -> AuthNam
     return a
 
 
-@router.delete("/{auth_id}")
+@router.delete("/{auth_id}", dependencies=[Depends(require_admin)])
 def delete_auth(auth_id: int, session: Session = Depends(get_session)) -> dict:
     a = session.get(AuthName, auth_id)
     if not a:

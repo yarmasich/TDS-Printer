@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
 from ..printer import PrintError, render_and_send, render_label_png
@@ -39,7 +40,7 @@ class TestPrintRequest(BaseModel):
     reason: str = "TEST"
 
 
-@router.get("/preview")
+@router.get("/preview", dependencies=[Depends(require_admin)])
 def preview(
     template_id: Optional[int] = Query(None),
     label_id: Optional[int] = Query(None),
@@ -76,7 +77,7 @@ def preview(
     return Response(content=png, media_type="image/png")
 
 
-@router.post("/preview-draft")
+@router.post("/preview-draft", dependencies=[Depends(require_admin)])
 def preview_draft(req: DraftPreviewRequest):
     """Render an unsaved template — same renderer as the printer path,
     so what you see here is what comes out of the printer."""
@@ -86,7 +87,7 @@ def preview_draft(req: DraftPreviewRequest):
     return Response(content=png, media_type="image/png")
 
 
-@router.post("/test")
+@router.post("/test", dependencies=[Depends(require_admin)])
 def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -> dict:
     """Print a draft template right now — used by the template editor's
     'Test' button. We still log it (status='ok', reason='TEST' by default)

@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import (
+    admin_auth,
     auth_names,
     cart,
     history,
@@ -25,6 +26,7 @@ from .api import (
     reasons,
     templates,
 )
+from .auth_admin import require_admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,17 +46,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_admin = [Depends(require_admin)]
+
+app.include_router(admin_auth.router)
 app.include_router(printers.router)
-app.include_router(templates.router)
+app.include_router(templates.router, dependencies=_admin)
 app.include_router(projects.router)
 app.include_router(reasons.router)
 app.include_router(auth_names.router)
 app.include_router(labels.router)
-app.include_router(import_api.router)
-app.include_router(imports_api.router)
+app.include_router(import_api.router, dependencies=_admin)
+app.include_router(imports_api.router, dependencies=_admin)
 app.include_router(cart.router)
 app.include_router(print_api.router)
-app.include_router(history.router)
+app.include_router(history.router, dependencies=_admin)
 
 
 @app.get("/health")

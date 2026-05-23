@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
+from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import DataHall, Discipline, Label, Printer, Project, Template
 
@@ -24,7 +25,7 @@ def list_projects(session: Session = Depends(get_session)) -> List[Project]:
     return session.exec(select(Project).order_by(Project.name)).all()
 
 
-@router.post("/projects", response_model=Project)
+@router.post("/projects", response_model=Project, dependencies=[Depends(require_admin)])
 def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> Project:
     p = Project(name=body.name.strip())
     session.add(p)
@@ -33,7 +34,7 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> 
     return p
 
 
-@router.delete("/projects/{project_id}")
+@router.delete("/projects/{project_id}", dependencies=[Depends(require_admin)])
 def delete_project(project_id: int, session: Session = Depends(get_session)) -> dict:
     p = session.get(Project, project_id)
     if not p:
@@ -65,7 +66,7 @@ def list_halls(
     return session.exec(stmt.order_by(DataHall.name)).all()
 
 
-@router.post("/halls", response_model=DataHall)
+@router.post("/halls", response_model=DataHall, dependencies=[Depends(require_admin)])
 def create_hall(body: HallIn, session: Session = Depends(get_session)) -> DataHall:
     if not session.get(Project, body.project_id):
         raise HTTPException(404, "Project not found")
@@ -76,7 +77,7 @@ def create_hall(body: HallIn, session: Session = Depends(get_session)) -> DataHa
     return h
 
 
-@router.delete("/halls/{hall_id}")
+@router.delete("/halls/{hall_id}", dependencies=[Depends(require_admin)])
 def delete_hall(hall_id: int, session: Session = Depends(get_session)) -> dict:
     h = session.get(DataHall, hall_id)
     if not h:
@@ -155,7 +156,7 @@ def list_disciplines(
     return out
 
 
-@router.post("/disciplines", response_model=Discipline)
+@router.post("/disciplines", response_model=Discipline, dependencies=[Depends(require_admin)])
 def create_discipline(
     body: DisciplineIn, session: Session = Depends(get_session)
 ) -> Discipline:
@@ -173,7 +174,7 @@ def create_discipline(
     return d
 
 
-@router.put("/disciplines/{discipline_id}", response_model=Discipline)
+@router.put("/disciplines/{discipline_id}", response_model=Discipline, dependencies=[Depends(require_admin)])
 def update_discipline(
     discipline_id: int, patch: DisciplinePatch, session: Session = Depends(get_session)
 ) -> Discipline:
@@ -188,7 +189,7 @@ def update_discipline(
     return d
 
 
-@router.delete("/disciplines/{discipline_id}")
+@router.delete("/disciplines/{discipline_id}", dependencies=[Depends(require_admin)])
 def delete_discipline(
     discipline_id: int, session: Session = Depends(get_session)
 ) -> dict:

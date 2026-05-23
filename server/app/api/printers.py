@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import Printer
 from ..printer import ping_printer
@@ -18,14 +19,14 @@ class PingResult(BaseModel):
     error: str = ""
 
 
-@router.get("", response_model=List[Printer])
+@router.get("", response_model=List[Printer], dependencies=[Depends(require_admin)])
 def list_printers(session: Session = Depends(get_session)) -> List[Printer]:
     return session.exec(select(Printer).order_by(Printer.name)).all()
 
 
 # Important: declare this BEFORE the catch-all ``/{printer_id}`` so FastAPI
 # doesn't try to parse "ping-all" as an int.
-@router.get("/ping-all", response_model=List[PingResult])
+@router.get("/ping-all", response_model=List[PingResult], dependencies=[Depends(require_admin)])
 def ping_all(session: Session = Depends(get_session)) -> List[PingResult]:
     """Ping every printer. Used by the admin page to render status badges."""
     out: List[PingResult] = []
@@ -35,7 +36,7 @@ def ping_all(session: Session = Depends(get_session)) -> List[PingResult]:
     return out
 
 
-@router.get("/{printer_id}", response_model=Printer)
+@router.get("/{printer_id}", response_model=Printer, dependencies=[Depends(require_admin)])
 def get_printer(printer_id: int, session: Session = Depends(get_session)) -> Printer:
     p = session.get(Printer, printer_id)
     if not p:
@@ -43,7 +44,7 @@ def get_printer(printer_id: int, session: Session = Depends(get_session)) -> Pri
     return p
 
 
-@router.post("", response_model=Printer)
+@router.post("", response_model=Printer, dependencies=[Depends(require_admin)])
 def create_printer(p: Printer, session: Session = Depends(get_session)) -> Printer:
     session.add(p)
     session.commit()
@@ -51,7 +52,7 @@ def create_printer(p: Printer, session: Session = Depends(get_session)) -> Print
     return p
 
 
-@router.put("/{printer_id}", response_model=Printer)
+@router.put("/{printer_id}", response_model=Printer, dependencies=[Depends(require_admin)])
 def update_printer(
     printer_id: int, patch: Printer, session: Session = Depends(get_session)
 ) -> Printer:
@@ -66,7 +67,7 @@ def update_printer(
     return existing
 
 
-@router.delete("/{printer_id}")
+@router.delete("/{printer_id}", dependencies=[Depends(require_admin)])
 def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> dict:
     p = session.get(Printer, printer_id)
     if not p:

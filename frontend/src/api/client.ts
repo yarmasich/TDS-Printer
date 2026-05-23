@@ -14,6 +14,15 @@
  */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
+const TOKEN_KEY = "tds-admin-token";
+
+/** Bearer token for admin-only routes (multipart / image fetch). */
+export function adminAuthHeader(): Record<string, string> {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -32,7 +41,7 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const init: RequestInit = { method, headers: {} };
+  const init: RequestInit = { method, headers: { ...adminAuthHeader() } };
   if (body !== undefined) {
     if (body instanceof FormData) {
       init.body = body;
@@ -43,6 +52,19 @@ async function request<T>(
     }
   }
   const res = await fetch(API_BASE + path, init);
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname.startsWith("/admin") &&
+      !window.location.pathname.includes("/admin/login")
+    ) {
+      const redirect = encodeURIComponent(
+        window.location.pathname + window.location.search,
+      );
+      window.location.assign(`/admin/login?redirect=${redirect}`);
+    }
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
