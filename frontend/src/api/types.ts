@@ -53,6 +53,8 @@ export interface Template {
   font_style: string;
   left_offset: number;
   right_offset: number;
+  /** Horizontal glyph stretch; 1 = none. */
+  scale_x: number;
 }
 
 export interface Project {

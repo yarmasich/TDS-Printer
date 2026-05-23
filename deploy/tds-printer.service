@@ -5,24 +5,28 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=tds
-Group=tds
-WorkingDirectory=/opt/tds-printer/server
-Environment="PATH=/opt/tds-printer/server/.venv/bin"
-# alembic upgrade на старте — гарантирует свежую схему после деплоя
-ExecStartPre=/opt/tds-printer/server/.venv/bin/alembic upgrade head
-ExecStart=/opt/tds-printer/server/.venv/bin/uvicorn app.main:app \
-    --host 0.0.0.0 --port 8000 \
-    --proxy-headers --forwarded-allow-ips='*'
+# Note: paths are case-sensitive on Linux — must match the actual
+# directory exactly (`TDS-Printer`, not `tds-printer`).
+# venv lives one level above `server/`, alongside `frontend/`.
+WorkingDirectory=/opt/TDS-Printer/server
+Environment="PATH=/opt/TDS-Printer/.venv/bin"
+ExecStartPre=/opt/TDS-Printer/.venv/bin/alembic upgrade head
+ExecStart=/opt/TDS-Printer/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
 Restart=on-failure
 RestartSec=5
 
-# Лимиты + изоляция
+# Run as a non-privileged user once you've created one:
+#   sudo useradd --system --home /opt/TDS-Printer --shell /usr/sbin/nologin tds
+#   sudo chown -R tds:tds /opt/TDS-Printer
+# Then uncomment:
+# User=tds
+# Group=tds
+
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/tds-printer
+ReadWritePaths=/opt/TDS-Printer
 
 [Install]
 WantedBy=multi-user.target

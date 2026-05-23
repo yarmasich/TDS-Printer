@@ -16,6 +16,7 @@ import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import ProgressSpinner from "primevue/progressspinner";
 import LabelShape from "@/components/admin/LabelShape.vue";
+import AlignmentGrid from "@/components/admin/AlignmentGrid.vue";
 import {
   parsePanduitSku,
   findTemplatePreset,
@@ -67,6 +68,7 @@ const blank = (): Omit<Template, "id"> => ({
   font_style: "Bold",
   left_offset: 0,
   right_offset: 0,
+  scale_x: 1,
 });
 
 const form = reactive<Omit<Template, "id">>(blank());
@@ -262,8 +264,6 @@ async function testPrint() {
   }
 }
 
-const ALIGN_H = ["LEFT", "CENTER", "RIGHT"];
-const ALIGN_V = ["TOP", "CENTER", "BOTTOM"];
 const FONTS = ["Microsoft Sans Serif", "Calibri"];
 const STYLES = ["Bold", "Regular"];
 
@@ -595,14 +595,28 @@ watch(
             <InputNumber v-model="form.left_pt" :min-fraction-digits="0" :max-fraction-digits="2" class="w-full" /></div>
           <div><label class="block text-xs text-slate-600">Right pt</label>
             <InputNumber v-model="form.right_pt" :min-fraction-digits="0" :max-fraction-digits="2" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">H align</label>
-            <Select v-model="form.h_align" :options="ALIGN_H" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">V align</label>
-            <Select v-model="form.v_align" :options="ALIGN_V" class="w-full" /></div>
+          <div class="col-span-2 md:col-span-4">
+            <AlignmentGrid v-model:h-align="form.h_align" v-model:v-align="form.v_align" />
+          </div>
           <div><label class="block text-xs text-slate-600">L offset</label>
             <InputNumber v-model="form.left_offset" class="w-full" /></div>
           <div><label class="block text-xs text-slate-600">R offset</label>
             <InputNumber v-model="form.right_offset" class="w-full" /></div>
+          <div class="md:col-span-2">
+            <label class="block text-xs text-slate-600">Stretch width</label>
+            <InputNumber
+              v-model="form.scale_x"
+              :min="1"
+              :max="1.5"
+              :step="0.01"
+              :min-fraction-digits="2"
+              :max-fraction-digits="2"
+              class="w-full"
+            />
+            <span class="text-[10px] text-slate-400 block mt-0.5">
+              1.00 = normal width · 1.12 = slightly wider letters (Turn-Tell)
+            </span>
+          </div>
         </fieldset>
       </div>
 

@@ -40,7 +40,6 @@ _FOOTER = b"\nE\n"
 # EasyMark page is 300 DPI; thermal head uses 203 DPI for point sizes.
 _FONT_DPI = 203
 
-
 class PrintError(Exception):
     pass
 
@@ -155,6 +154,63 @@ def _paint_measured_lines(
         cur_y += line_h + line_gap
 
 
+def _stretch_ink_horizontal(im: Image.Image, scale_x: float) -> Image.Image:
+    """Widen drawn text in-place; keeps vertical position, centers on buffer width."""
+    if scale_x <= 1.0:
+        return im
+    inv = Image.eval(im, lambda v: 255 - v)
+    bbox = inv.getbbox()
+    if not bbox:
+        return im
+    crop = im.crop(bbox)
+    new_w = max(1, int(round(crop.width * scale_x)))
+    stretched = crop.resize((new_w, crop.height), Image.Resampling.LANCZOS)
+    out = Image.new("L", im.size, 255)
+    paste_x = (im.width - new_w) // 2
+    paste_y = bbox[1]
+    paste_x = max(0, min(paste_x, im.width - new_w))
+    out.paste(stretched, (paste_x, paste_y))
+    return out
+
+
+def _paint_lines_on_buffer(
+    buf: Image.Image,
+    measured: list[tuple[str, tuple[int, int, int, int]]],
+    *,
+    pad: int,
+    rect_w: float,
+    rect_h: float,
+    font: ImageFont.FreeTypeFont,
+    h_align: str,
+    v_align: str,
+    y_offset: float,
+    y0: float,
+    line_gap: int,
+    total_h: float,
+) -> None:
+    if v_align == "TOP":
+        cur_y = y0
+    elif v_align == "BOTTOM":
+        cur_y = y0 + rect_h - total_h
+    else:
+        cur_y = y0 + max(0.0, (rect_h - total_h) / 2)
+    cur_y += y_offset
+
+    bdraw = ImageDraw.Draw(buf)
+    by = pad + (cur_y - y0)
+    heights = _line_heights(font, measured)
+    for (line, bbox), line_h in zip(measured, heights):
+        w = bbox[2] - bbox[0]
+        if h_align == "LEFT":
+            bx = pad
+        elif h_align == "RIGHT":
+            bx = pad + (rect_w - w)
+        else:
+            bx = pad + (rect_w - w) / 2
+        bdraw.text((bx, by), line, font=font, fill=0, anchor="lt")
+        by += line_h + line_gap
+
+
 def _draw_text_block(
     img: Image.Image,
     text: str,
@@ -168,15 +224,17 @@ def _draw_text_block(
     v_align: str,
     y_offset: float,
     rotate_180: bool = False,
+    scale_x: float = 1.0,
 ) -> None:
     if not text:
         return
 
     rect_w = x1 - x0
     rect_h = y1 - y0
-    measured, line_gap, total_h = _measure_block(font, text, rect_w, rect_h)
+    wrap_w = rect_w / scale_x if scale_x > 1.0 else rect_w
+    measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h)
 
-    if not rotate_180:
+    if not rotate_180 and scale_x <= 1.0:
         _paint_measured_lines(
             ImageDraw.Draw(img),
             measured,
@@ -201,29 +259,25 @@ def _draw_text_block(
         (max(1, int(rect_w)) + pad * 2, max(1, int(round(rect_h))) + pad * 2),
         255,
     )
-    if v_align == "TOP":
-        cur_y = y0
-    elif v_align == "BOTTOM":
-        cur_y = y1 - total_h
-    else:
-        cur_y = y0 + max(0.0, (rect_h - total_h) / 2)
-    cur_y += y_offset
-
-    bdraw = ImageDraw.Draw(buf)
-    by = pad + (cur_y - y0)
-    for line, bbox in measured:
-        w = bbox[2] - bbox[0]
-        h = bbox[3] - bbox[1]
-        if h_align == "LEFT":
-            bx = pad
-        elif h_align == "RIGHT":
-            bx = pad + (rect_w - w)
-        else:
-            bx = pad + (rect_w - w) / 2
-        bdraw.text((bx, by), line, font=font, fill=0)
-        by += h + line_gap
-
-    block = buf.transpose(Image.Transpose.ROTATE_180)
+    _paint_lines_on_buffer(
+        buf,
+        measured,
+        pad=pad,
+        rect_w=rect_w,
+        rect_h=rect_h,
+        font=font,
+        h_align=h_align,
+        v_align=v_align,
+        y_offset=y_offset,
+        y0=y0,
+        line_gap=line_gap,
+        total_h=total_h,
+    )
+    if scale_x > 1.0:
+        buf = _stretch_ink_horizontal(buf, scale_x)
+    block = (
+        buf.transpose(Image.Transpose.ROTATE_180) if rotate_180 else buf
+    )
     img.paste(
         block,
         (int(round(x0)) - pad, int(round(y0)) - pad),
@@ -240,7 +294,8 @@ def render_label_bitmap(
     img = Image.new("L", (width, height), 255)
     h_align = _align_value(template.h_align)
     v_align = _align_value(template.v_align)
-    rotate_180 = is_turn_tell_300(template)
+    turn_tell = is_turn_tell_300(template)
+    scale_x = max(1.0, float(getattr(template, "scale_x", 1.0) or 1.0))
 
     for cable_left, text, pt, y_offset in (
         (True, left_text, template.left_pt, template.left_offset),
@@ -258,7 +313,8 @@ def render_label_bitmap(
             h_align=h_align,
             v_align=v_align,
             y_offset=y_offset,
-            rotate_180=rotate_180,
+            rotate_180=turn_tell,
+            scale_x=scale_x,
         )
 
     return img

@@ -96,6 +96,9 @@ class Template(SQLModel, table=True):
     left_offset: float = 0
     right_offset: float = 0
 
+    # Horizontal glyph stretch (1.0 = none; ~1.12 matches EasyMark on Turn-Tell)
+    scale_x: float = 1.0
+
 
 # ──────────────────────────── project hierarchy ────────────────────────────
 

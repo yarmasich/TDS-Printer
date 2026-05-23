@@ -1066,10 +1066,10 @@ export interface components {
              */
             right_offset: number;
             /**
-             * Mirror Mode
-             * @default false
+             * Scale X
+             * @default 1
              */
-            mirror_mode: boolean;
+            scale_x: number;
         };
         /**
          * VAlign
