@@ -1,11 +1,15 @@
-"""Panduit raw-TCP print engine.
+"""Raw-TCP print engine — protocol-agnostic facade.
 
 Pipeline:
 
     template + left/right text
-        → PIL bitmap (printer raster coordinates)
-        → 1-bit MSB-first raster
-        → Panduit job header + TCP
+        → PIL bitmap (printer raster coordinates) — shared
+        → 1-bit MSB-first raster                  — shared
+        → protocol-specific framing               — see printer_epl2 / printer_jscript
+        → TCP :9100
+
+The framing modules pick which dialect to speak (TSC EPL2 vs cab JScript).
+Dispatch happens in ``build_print_job`` based on ``Printer.protocol``.
 """
 from __future__ import annotations
 
@@ -30,12 +34,6 @@ _FONT_FILES: dict[tuple[str, str], str] = {
     ("Calibri", "Bold"): "calibri_bold.ttf",
     ("Calibri", "Regular"): "calibri_regular.ttf",
 }
-
-_HEADER_TMPL = (
-    "^Q73,3\n^W106\n^AT\n^H17\n^S2\n^E16\n^M0\n^B0\n^O0\n^R15\n"
-    "~Q+0\n^D0\n^P1\n^L\nQ0,0,{bpr},{h}\n"
-)
-_FOOTER = b"\nE\n"
 
 # EasyMark page is 300 DPI; thermal head uses 203 DPI for point sizes.
 _FONT_DPI = 203
@@ -347,13 +345,22 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
     return bytes(out)
 
 
-def build_print_job(template: Template, left_text: str, right_text: str) -> bytes:
-    bitmap = render_label_bitmap(template, left_text, right_text)
-    raster = bitmap_to_mono_raster(bitmap, template.bytes_per_row, template.height)
-    header = _HEADER_TMPL.format(
-        bpr=template.bytes_per_row, h=template.height
-    ).encode("ascii")
-    return header + raster + _FOOTER
+def build_print_job(
+    template: Template, printer: Printer, left_text: str, right_text: str
+) -> bytes:
+    """Pick the framing dialect based on ``printer.protocol`` and return wire bytes.
+
+    Lazy imports keep ``printer_epl2`` / ``printer_jscript`` free to import
+    rendering helpers from this module without a circular dependency.
+    """
+    if printer.protocol == "jscript":
+        from .printer_jscript import build_jscript_job
+
+        return build_jscript_job(template, left_text, right_text)
+    # Default: TSC EPL2 (TDP-43ME — the Android-ported engine).
+    from .printer_epl2 import build_epl2_job
+
+    return build_epl2_job(template, left_text, right_text)
 
 
 def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0) -> None:
@@ -384,13 +391,14 @@ def render_and_send(
     operator: str,
     reason: str,
 ) -> None:
-    payload = build_print_job(template, left_text, right_text)
+    payload = build_print_job(template, printer, left_text, right_text)
     log.info(
-        "print %s → %s:%d (%d bytes) %dx%d turn_tell=%s L=%r R=%r op=%r reason=%r",
+        "print %s → %s:%d (%d bytes) %s %dx%d turn_tell=%s L=%r R=%r op=%r reason=%r",
         template.name,
         printer.ip,
         printer.port,
         len(payload),
+        printer.protocol,
         template.bytes_per_row * 8,
         template.height,
         is_turn_tell_300(template),

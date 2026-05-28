@@ -7,12 +7,18 @@
  * thin layer lets every page/store compile from a fresh clone.
  */
 
+/** Wire protocol the printer speaks on port 9100.
+ *  - "epl2"    — TSC EPL2 dialect (TDP-43ME-class), default.
+ *  - "jscript" — cab JScript (Panduit DP4300H/DP4600H, OEM cab Produkttechnik). */
+export type PrinterProtocol = "epl2" | "jscript";
+
 export interface Printer {
   id: number;
   name: string;
   ip: string;
   port: number;
   notes: string;
+  protocol: PrinterProtocol;
 }
 
 export interface PingResult {
@@ -20,6 +26,13 @@ export interface PingResult {
   ok: boolean;
   ms: number | null;
   error: string;
+}
+
+export interface TestPrintResult {
+  ok: boolean;
+  log_id: number | null;
+  template_used: string | null;
+  detail: string;
 }
 
 export type HAlign = "LEFT" | "CENTER" | "RIGHT";

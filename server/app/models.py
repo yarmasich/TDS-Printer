@@ -44,6 +44,9 @@ class Printer(SQLModel, table=True):
     ip: str
     port: int = 9100
     notes: str = ""
+    # "epl2" = TSC TDP-43ME-class (default, current Android-ported engine).
+    # "jscript" = cab-OEM DP4300H/DP4600H. Determines which build_*_job runs.
+    protocol: str = "epl2"
 
 
 class Template(SQLModel, table=True):

@@ -10,6 +10,8 @@ Type=simple
 # venv lives one level above `server/`, alongside `frontend/`.
 WorkingDirectory=/opt/TDS-Printer/server
 Environment="PATH=/opt/TDS-Printer/.venv/bin"
+# Sync deps after git pull (auth needs pyjwt, main needs python-dotenv).
+ExecStartPre=/opt/TDS-Printer/.venv/bin/pip install -e /opt/TDS-Printer/server -q
 ExecStartPre=/opt/TDS-Printer/.venv/bin/alembic upgrade head
 ExecStart=/opt/TDS-Printer/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
 Restart=on-failure
