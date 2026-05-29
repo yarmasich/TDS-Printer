@@ -653,8 +653,11 @@ watch(
       </template>
     </Dialog>
 
-    <!-- Full-size preview zoom. Renders on top of the template editor
-         (PrimeVue handles nested Dialog stacking via teleport). -->
+    <!-- Full-size preview zoom + live tweak panel. Same ``form`` reactive
+         drives the preview watcher, so every change here re-renders the
+         schematic with the debounced refresh. Renders on top of the
+         template editor (PrimeVue handles nested Dialog stacking via
+         teleport). -->
     <Dialog
       v-model:visible="zoomOpen"
       modal
@@ -663,24 +666,210 @@ watch(
       :style="{ width: '92vw', maxWidth: '1400px' }"
       content-class="zoom-dialog"
     >
-      <div v-if="panduitSpec" class="zoom-shape">
-        <LabelShape
-          :spec="panduitSpec"
-          :preview-src="previewSrc"
-          :loading="previewLoading"
-        />
-      </div>
-      <div v-else class="zoom-bitmap">
-        <ProgressSpinner
-          v-if="previewLoading"
-          class="preview-spinner"
-          stroke-width="4"
-        />
-        <img
-          v-if="previewSrc"
-          :src="previewSrc"
-          :alt="`Preview of ${form.name || 'draft'}`"
-        />
+      <div class="zoom-layout">
+        <div class="zoom-preview">
+          <div v-if="panduitSpec" class="zoom-shape">
+            <LabelShape
+              :spec="panduitSpec"
+              :preview-src="previewSrc"
+              :loading="previewLoading"
+            />
+          </div>
+          <div v-else class="zoom-bitmap">
+            <ProgressSpinner
+              v-if="previewLoading"
+              class="preview-spinner"
+              stroke-width="4"
+            />
+            <img
+              v-if="previewSrc"
+              :src="previewSrc"
+              :alt="`Preview of ${form.name || 'draft'}`"
+            />
+          </div>
+
+          <!-- Geometry block: bitmap envelope + the two text rectangles
+               that live inside it. Lives next to the cassette meta
+               (Print-On area, wrap tails, wire range) because it's the
+               same kind of thing — physical/raster layout. The right
+               panel stays focused on "how the text is laid out". -->
+          <div class="zoom-geometry">
+            <div class="zoom-card">
+              <h4 class="zoom-card-title">Bitmap</h4>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="zoom-field-label">Bytes/row</label>
+                  <InputNumber
+                    v-model="form.bytes_per_row"
+                    :use-grouping="false"
+                    class="w-full"
+                  />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Height (px)</label>
+                  <InputNumber
+                    v-model="form.height"
+                    :use-grouping="false"
+                    class="w-full"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="zoom-card">
+              <h4 class="zoom-card-title">Left rect (px)</h4>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="zoom-field-label">Top</label>
+                  <InputNumber v-model="form.left_top" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Bottom</label>
+                  <InputNumber v-model="form.left_bottom" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Left</label>
+                  <InputNumber v-model="form.left_left" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Right</label>
+                  <InputNumber v-model="form.left_right" :min-fraction-digits="0" class="w-full" />
+                </div>
+              </div>
+            </div>
+
+            <div class="zoom-card">
+              <h4 class="zoom-card-title">Right rect (px)</h4>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="zoom-field-label">Top</label>
+                  <InputNumber v-model="form.right_top" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Bottom</label>
+                  <InputNumber v-model="form.right_bottom" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Left</label>
+                  <InputNumber v-model="form.right_left" :min-fraction-digits="0" class="w-full" />
+                </div>
+                <div>
+                  <label class="zoom-field-label">Right</label>
+                  <InputNumber v-model="form.right_right" :min-fraction-digits="0" class="w-full" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="zoom-controls">
+          <div class="zoom-card">
+            <h4 class="zoom-card-title">Default text</h4>
+            <div class="space-y-2">
+              <div>
+                <label class="zoom-field-label">Left</label>
+                <Textarea
+                  v-model="form.left_text"
+                  :rows="3"
+                  auto-resize
+                  class="w-full font-mono"
+                />
+              </div>
+              <div>
+                <label class="zoom-field-label">Right</label>
+                <Textarea
+                  v-model="form.right_text"
+                  :rows="3"
+                  auto-resize
+                  class="w-full font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="zoom-card">
+            <h4 class="zoom-card-title">Gap (px)</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="zoom-field-label">Top</label>
+                <InputNumber v-model="form.gap_top" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">Bottom</label>
+                <InputNumber v-model="form.gap_bottom" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">Left</label>
+                <InputNumber v-model="form.gap_left" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">Right</label>
+                <InputNumber v-model="form.gap_right" class="w-full" />
+              </div>
+            </div>
+          </div>
+
+          <div class="zoom-card">
+            <h4 class="zoom-card-title">Typography</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="zoom-field-label">Font</label>
+                <Select v-model="form.font_name" :options="FONTS" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">Style</label>
+                <Select v-model="form.font_style" :options="STYLES" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">Left pt</label>
+                <InputNumber
+                  v-model="form.left_pt"
+                  :min-fraction-digits="0"
+                  :max-fraction-digits="2"
+                  class="w-full"
+                />
+              </div>
+              <div>
+                <label class="zoom-field-label">Right pt</label>
+                <InputNumber
+                  v-model="form.right_pt"
+                  :min-fraction-digits="0"
+                  :max-fraction-digits="2"
+                  class="w-full"
+                />
+              </div>
+              <div class="col-span-2">
+                <AlignmentGrid
+                  v-model:h-align="form.h_align"
+                  v-model:v-align="form.v_align"
+                />
+              </div>
+              <div>
+                <label class="zoom-field-label">L offset</label>
+                <InputNumber v-model="form.left_offset" class="w-full" />
+              </div>
+              <div>
+                <label class="zoom-field-label">R offset</label>
+                <InputNumber v-model="form.right_offset" class="w-full" />
+              </div>
+              <div class="col-span-2">
+                <label class="zoom-field-label">Stretch width</label>
+                <InputNumber
+                  v-model="form.scale_x"
+                  :min="1"
+                  :max="1.5"
+                  :step="0.01"
+                  :min-fraction-digits="2"
+                  :max-fraction-digits="2"
+                  class="w-full"
+                />
+                <span class="text-[10px] text-slate-400 block mt-0.5">
+                  1.00 = normal · 1.12 = Turn-Tell wider letters
+                </span>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </Dialog>
   </section>
@@ -695,8 +884,15 @@ watch(
 .template-dialog .p-inputnumber-input,
 .template-dialog .p-textarea,
 .template-dialog .p-select,
-.template-dialog .p-iconfield {
+.template-dialog .p-iconfield,
+.zoom-dialog .p-inputtext,
+.zoom-dialog .p-inputnumber,
+.zoom-dialog .p-inputnumber-input,
+.zoom-dialog .p-textarea,
+.zoom-dialog .p-select,
+.zoom-dialog .p-iconfield {
   width: 100% !important;
+  min-width: 0 !important;
 }
 .template-dialog .p-textarea {
   resize: vertical;
@@ -755,6 +951,64 @@ watch(
 /* ─── full-screen zoom modal ─── */
 .zoom-dialog {
   padding: 16px !important;
+}
+.zoom-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  /* Stack on small screens — preview on top, controls below. */
+  .zoom-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.zoom-preview {
+  /* Make the preview claim the full column width so the schematic can
+     stretch as the dialog grows. */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.zoom-geometry {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.zoom-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Stay readable but cap the height on tall monitors so the panel doesn't
+     stretch into a sparse column. */
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.zoom-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  /* Don't let PrimeVue's wider InputNumber children blow the card out of
+     the column. ``min-width: 0`` lets flex/grid children shrink properly. */
+  min-width: 0;
+}
+.zoom-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+}
+.zoom-field-label {
+  display: block;
+  font-size: 11px;
+  color: #475569;
+  margin-bottom: 2px;
 }
 .zoom-shape {
   /* Let LabelShape stretch to the full dialog width. */

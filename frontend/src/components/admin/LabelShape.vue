@@ -143,7 +143,10 @@ function labelX(n: number): number {
              the entire row, then clipped to this one label's Print-On
              Area. That way the left label sees the left half of the
              bitmap, the right label sees the right half — same as how
-             the bitmap is physically laid out by the printer. -->
+             the bitmap is physically laid out by the printer. The
+             server pre-rotates Turn-Tell previews 180° so cable-left
+             text lands in the visually-left label and reads right-side
+             up; this component renders the PNG as-is. -->
         <image
           v-if="previewSrc"
           :href="previewSrc"

@@ -1,9 +1,11 @@
 """Cable / label text search — ported verbatim from the CLI parser
 (`utils/cable_search.py` + `parse_batch_query` from the main script).
 
-Numeric queries match cable IDs inside cells, e.g. ``CBL#4249`` or
-``DAC | CBL#4249 | 3m`` (pipe after ``CBL#`` is optional). Non-numeric
-queries are plain substring match (case-insensitive).
+Numeric queries match cable IDs inside cells. The ID always follows a
+``#``, but the prefix varies by cable type — ``CBL#1.1`` (fiber),
+``CAT6 #1.1``, ``LC #1.1``, ``MPO #1.1`` — so we anchor on ``#`` rather
+than any one prefix. Non-numeric queries are plain substring match
+(case-insensitive).
 """
 from __future__ import annotations
 
@@ -20,11 +22,11 @@ def cable_query_pattern(query: str) -> re.Pattern:
 
     if "." in query:
         return re.compile(
-            rf"CBL#\s*(\||)\s*(?<!\d){re.escape(query)}(?!\d)",
+            rf"#\s*(\||)\s*(?<!\d){re.escape(query)}(?!\d)",
             re.I,
         )
     return re.compile(
-        rf"CBL#\s*(\||)(?<!\d)\s*{re.escape(query)}(\D|$)",
+        rf"#\s*(\||)(?<!\d)\s*{re.escape(query)}(\D|$)",
         re.I,
     )
 

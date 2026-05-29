@@ -427,6 +427,16 @@ def render_label_png(
         y1 = min(img.height, int(max(l[3], r[3])))
         if x1 > x0 and y1 > y0:
             img = img.crop((x0, y0, x1, y1))
+    if is_turn_tell_300(template):
+        # The raw bitmap is rendered in TSC-feed orientation: each text block
+        # flipped 180° and left/right swapped (see label_geometry.text_rect),
+        # so it prints right-side-up after TSC's bottom-up feed. For an
+        # operator looking at the schematic preview that's two upside-down
+        # blocks in the wrong sides. A 180° rotation in PIL puts the bitmap
+        # back into operator-readable orientation — cable-left text in the
+        # visually-left label, right-side-up — without touching the print
+        # path (which still consumes the original bitmap via render_label_bitmap).
+        img = img.transpose(Image.Transpose.ROTATE_180)
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
