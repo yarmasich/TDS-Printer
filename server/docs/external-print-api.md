@@ -115,7 +115,135 @@ repeated request prints again.
 
 ---
 
-## 4. Examples in other languages
+## 4. Print many labels at once (batch)
+
+To print many *different* cable numbers of **one discipline** in a single call
+(e.g. 50 labels), use the batch endpoint. (`copies` on `/api/v1/print` prints
+the *same* label N times — that's not what you want here.)
+
+```
+POST /api/v1/print-batch
+X-API-Key: <key>
+Content-Type: application/json
+```
+
+### Request body
+
+| Field           | Type     | Required | Description |
+|-----------------|----------|----------|-------------|
+| `cables`        | string[] | —        | List of cables; each entry may be a single number, a range, or a list. |
+| `cable`         | string   | —        | A single range/list string, e.g. `"1.1-50"`. |
+| `discipline_id` | int      | —        | Discipline (or use `discipline` + `project`). |
+| `discipline` / `project` / `data_hall` | string | — | Name-based scope (same as single print). |
+| `reason`        | string   | —        | History reason (defaults to `"API batch"`). |
+| `stop_on_error` | bool     | —        | Stop on the first **printer/send** error (default `false` = keep going). |
+
+Provide `cables` and/or `cable` (at least one). Up to **500** cables per call.
+
+**Range / list syntax** (same as the operator search box):
+
+- `"1.1-50"` → `1.1, 1.2, … 1.50` (50 cables — note the end is the minor part,
+  not `"1.1-1.50"`).
+- `"1.1,1.2,1.5"` → those three.
+- `["1.1", "1.5-1.8", "2.3"]` → each entry expanded, then de-duplicated.
+
+### Example — 50 labels
+
+```bash
+curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
+  -H "X-API-Key: tdsk_c0d04177_..." \
+  -H "Content-Type: application/json" \
+  -d '{"cable": "1.1-50", "project": "Nscale", "discipline": "8K-IBLFSP"}'
+```
+
+Or an explicit list:
+
+```bash
+curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
+  -H "X-API-Key: tdsk_c0d04177_..." \
+  -H "Content-Type: application/json" \
+  -d '{"cables": ["1.1","1.2","1.7","2.3-2.10"], "discipline_id": 1}'
+```
+
+### Response — `200 OK`
+
+```json
+{
+  "ok": true,
+  "requested": 50,
+  "printed": 50,
+  "discipline": "8K-IBLFSP",
+  "printer": "192.168.0.178:9100",
+  "results": [
+    { "cable": "1.1", "status": "printed", "label_id": 1, "log_id": 311 },
+    { "cable": "1.7", "status": "not_found" },
+    { "cable": "1.9", "status": "ambiguous", "candidates": [ ... ] }
+  ]
+}
+```
+
+- `ok` is `true` only if **every** requested cable printed.
+- Per-cable `status`: `printed` · `not_found` · `ambiguous` · `invalid` ·
+  `error` (printer/send failed) · `skipped` (only when `stop_on_error` aborted
+  the rest).
+- The endpoint returns `200` even with partial failures — inspect `results`.
+  (A `400` is returned only for an empty request or a batch over 500.)
+
+> Prints are sent **serially** to one printer, so a 50-label batch is one long
+> request — set a generous client timeout.
+
+---
+
+## 5. Printer status (online / offline)
+
+```
+GET /api/v1/printers
+X-API-Key: <key>
+```
+
+Returns the printer roster with a live online flag — useful for an external
+dashboard. Each printer is TCP-connect probed (~2 s timeout each, checked
+serially), so keep polling reasonable when there are many printers.
+
+### Query params
+
+| Param  | Default | Description |
+|--------|---------|-------------|
+| `ping` | `true`  | Probe each printer. `false` = config only, fast (no `online`/`ms`). |
+| `name` | —       | Filter to a single printer by exact name. |
+
+### Example
+
+```bash
+curl http://10.0.0.5:8000/api/v1/printers \
+  -H "X-API-Key: tdsk_c0d04177_..."
+```
+
+```json
+[
+  {
+    "name": "DP4300H",
+    "ip": "192.168.0.178",
+    "port": 9100,
+    "protocol": "jscript",
+    "online": true,
+    "ms": 12.3,
+    "error": ""
+  }
+]
+```
+
+When `ping=false`, `online` and `ms` are `null` and `error` is empty. When a
+printer is offline, `online` is `false` and `error` carries the reason
+(e.g. connection refused / timeout).
+
+> The print API works by discipline, not by printer. To know which printer a
+> given discipline prints to, match by printer `name` (each discipline's
+> template is bound to one printer).
+
+---
+
+## 6. Examples in other languages
 
 ### Python
 
@@ -149,7 +277,7 @@ const data = await res.json();
 
 ---
 
-## 5. Notes
+## 7. Notes
 
 - **A discipline needs a template.** If the discipline has no template assigned,
   you get `400`. Assign one in the admin (Projects · Halls · Disciplines).

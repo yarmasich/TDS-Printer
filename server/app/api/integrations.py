@@ -12,15 +12,19 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_api_key
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
-from ..printer import PrintError, render_and_send
-from ..search import cable_query_pattern, validate_query
+from ..printer import PrintError, ping_printer, render_and_send
+from ..search import cable_query_pattern, parse_batch_query, validate_query
+
+# Cap on how many labels one batch request may print, to keep a single call
+# from monopolising the printer (each send is synchronous).
+MAX_BATCH = 500
 
 router = APIRouter(prefix="/api/v1", tags=["integrations"])
 
@@ -53,6 +57,45 @@ class CandidateDTO(BaseModel):
     right_text: str
     sheet_name: str
     row_idx: int
+
+
+class PrinterStatusDTO(BaseModel):
+    name: str
+    ip: str
+    port: int
+    protocol: str
+    # Populated only when ``ping`` is on; null otherwise.
+    online: Optional[bool] = None
+    ms: Optional[float] = None
+    error: str = ""
+
+
+@router.get("/printers", response_model=List[PrinterStatusDTO])
+def api_printers(
+    ping: bool = Query(True, description="TCP-ping each printer (false = config only, fast)"),
+    name: Optional[str] = Query(None, description="Filter to a single printer by exact name"),
+    session: Session = Depends(get_session),
+    key: ApiKey = Security(require_api_key),
+) -> List[PrinterStatusDTO]:
+    """Printer roster with live online status for external dashboards.
+
+    With ``ping=true`` (default) each printer is TCP-connect probed (~2 s
+    timeout each, checked serially) — keep that in mind when polling many
+    printers. Use ``ping=false`` for a fast config-only listing.
+    """
+    stmt = select(Printer).order_by(Printer.name)
+    if name:
+        stmt = stmt.where(Printer.name == name)
+    printers = session.exec(stmt).all()
+
+    out: List[PrinterStatusDTO] = []
+    for p in printers:
+        dto = PrinterStatusDTO(name=p.name, ip=p.ip, port=p.port, protocol=p.protocol)
+        if ping:
+            ok, ms, err = ping_printer(p.ip, p.port)
+            dto.online, dto.ms, dto.error = ok, ms, err
+        out.append(dto)
+    return out
 
 
 def _resolve_discipline(req: ApiPrintRequest, session: Session) -> Discipline:
@@ -91,44 +134,72 @@ def _resolve_discipline(req: ApiPrintRequest, session: Session) -> Discipline:
     return matches[0]
 
 
-def _resolve_label(disc: Discipline, cable: str, session: Session) -> Label:
-    """Find the single label in this discipline matching the cable query."""
+def _match_cable(labels: List[Label], cable: str) -> tuple[str, List[Label]]:
+    """Match a cable query against a pre-fetched label list.
+
+    Returns ``(status, hits)`` where status is ``"invalid"`` (bad query) or
+    ``"ok"`` (then ``hits`` may be 0, 1 or many — the caller decides). Pure /
+    non-raising so it can drive both the single and batch endpoints.
+    """
     ok, normalised = validate_query(cable)
     if not ok:
-        raise HTTPException(400, f"Invalid cable query: {cable!r}")
+        return "invalid", []
     pat = cable_query_pattern(normalised)
-
-    labels = session.exec(
-        select(Label).where(Label.discipline_id == disc.id)
-    ).all()
     hits = [
         lb
         for lb in labels
         if (lb.left_text and pat.search(lb.left_text))
         or (lb.right_text and pat.search(lb.right_text))
     ]
+    return "ok", hits
+
+
+def _candidates(hits: List[Label], limit: int = 20) -> List[dict]:
+    return [
+        CandidateDTO(
+            label_id=lb.id,
+            left_text=lb.left_text,
+            right_text=lb.right_text,
+            sheet_name=lb.sheet_name,
+            row_idx=lb.row_idx,
+        ).model_dump()
+        for lb in hits[:limit]
+    ]
+
+
+def _resolve_label(disc: Discipline, cable: str, session: Session) -> Label:
+    """Find the single label in this discipline matching the cable query."""
+    labels = session.exec(
+        select(Label).where(Label.discipline_id == disc.id)
+    ).all()
+    status, hits = _match_cable(labels, cable)
+    if status == "invalid":
+        raise HTTPException(400, f"Invalid cable query: {cable!r}")
     if not hits:
         raise HTTPException(404, f"No label matching '{cable}' in discipline '{disc.name}'")
     if len(hits) > 1:
-        candidates = [
-            CandidateDTO(
-                label_id=lb.id,
-                left_text=lb.left_text,
-                right_text=lb.right_text,
-                sheet_name=lb.sheet_name,
-                row_idx=lb.row_idx,
-            ).model_dump()
-            for lb in hits[:20]
-        ]
         raise HTTPException(
             409,
             {
                 "message": f"'{cable}' matches {len(hits)} labels in '{disc.name}' — "
                 "narrow the query or print by label_id.",
-                "candidates": candidates,
+                "candidates": _candidates(hits),
             },
         )
     return hits[0]
+
+
+def _discipline_printer(disc: Discipline, session: Session) -> tuple[Template, Printer]:
+    """Resolve a discipline's bound template + printer, or raise."""
+    if not disc.template_id:
+        raise HTTPException(400, f"Discipline '{disc.name}' has no template assigned")
+    template = session.get(Template, disc.template_id)
+    if not template:
+        raise HTTPException(500, "Discipline points at a missing template")
+    printer = session.get(Printer, template.printer_id)
+    if not printer:
+        raise HTTPException(500, "Template points at a missing printer")
+    return template, printer
 
 
 @router.post("/print", response_model=ApiPrintResponse)
@@ -138,16 +209,7 @@ def api_print(
     key: ApiKey = Security(require_api_key),
 ) -> ApiPrintResponse:
     disc = _resolve_discipline(req, session)
-    if not disc.template_id:
-        raise HTTPException(
-            400, f"Discipline '{disc.name}' has no template assigned"
-        )
-    template = session.get(Template, disc.template_id)
-    if not template:
-        raise HTTPException(500, "Discipline points at a missing template")
-    printer = session.get(Printer, template.printer_id)
-    if not printer:
-        raise HTTPException(500, "Template points at a missing printer")
+    template, printer = _discipline_printer(disc, session)
 
     label = _resolve_label(disc, req.cable, session)
     left, right = label.left_text, label.right_text
@@ -194,4 +256,153 @@ def api_print(
         template_name=template.name,
         printer=f"{printer.ip}:{printer.port}",
         copies=req.copies,
+    )
+
+
+# ──────────────────────────── batch print ────────────────────────────
+
+class ApiBatchPrintRequest(BaseModel):
+    # Provide a list of cables and/or a single range/list string. Each entry
+    # may itself be a range ("1.1-50") or list ("1.1,1.2,1.5") — expanded the
+    # same way the operator search box does.
+    cables: List[str] = Field(default_factory=list, description="e.g. ['1.1','1.2','1.5-1.8']")
+    cable: Optional[str] = Field(None, description="Single range/list, e.g. '1.1-50'")
+    # Scope — same as the single-print endpoint.
+    discipline_id: Optional[int] = None
+    project: Optional[str] = None
+    data_hall: Optional[str] = None
+    discipline: Optional[str] = None
+    reason: str = ""
+    stop_on_error: bool = Field(
+        False, description="Stop the batch on the first printer/send error (default: continue)"
+    )
+
+
+class BatchItemResult(BaseModel):
+    cable: str
+    # printed | not_found | ambiguous | invalid | error | skipped
+    status: str
+    label_id: Optional[int] = None
+    log_id: Optional[int] = None
+    error: str = ""
+    candidates: Optional[List[dict]] = None
+
+
+class ApiBatchPrintResponse(BaseModel):
+    ok: bool                 # True only if every requested cable printed
+    requested: int
+    printed: int
+    discipline: str
+    printer: str
+    results: List[BatchItemResult]
+
+
+def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
+    """Flatten cables[] + cable into individual queries, de-duped, order-preserved."""
+    raw: List[str] = [c for c in req.cables]
+    if req.cable:
+        raw.append(req.cable)
+    out: List[str] = []
+    seen: set[str] = set()
+    for entry in raw:
+        entry = entry.strip()
+        if not entry:
+            continue
+        for q in parse_batch_query(entry):
+            if q not in seen:
+                seen.add(q)
+                out.append(q)
+    return out
+
+
+@router.post("/print-batch", response_model=ApiBatchPrintResponse)
+def api_print_batch(
+    req: ApiBatchPrintRequest,
+    session: Session = Depends(get_session),
+    key: ApiKey = Security(require_api_key),
+) -> ApiBatchPrintResponse:
+    """Print many cables of ONE discipline in a single call.
+
+    Expands ranges/lists (``'1.1-50'`` → 50 cables), prints each, and returns a
+    per-cable report. Cables that don't resolve to exactly one label are
+    reported (``not_found`` / ``ambiguous``) and skipped — they don't abort the
+    run unless ``stop_on_error`` is set (which only applies to printer/send
+    failures, not lookup misses).
+    """
+    disc = _resolve_discipline(req, session)
+    template, printer = _discipline_printer(disc, session)
+
+    queries = _expand_cables(req)
+    if not queries:
+        raise HTTPException(400, "Provide 'cables' and/or 'cable'")
+    if len(queries) > MAX_BATCH:
+        raise HTTPException(
+            400, f"Batch too large: {len(queries)} cables (max {MAX_BATCH})"
+        )
+
+    labels = session.exec(select(Label).where(Label.discipline_id == disc.id)).all()
+    operator = f"api:{key.name}"
+    reason = req.reason or "API batch"
+
+    results: List[BatchItemResult] = []
+    printed = 0
+    aborted = False
+
+    for q in queries:
+        if aborted:
+            results.append(BatchItemResult(cable=q, status="skipped"))
+            continue
+
+        status, hits = _match_cable(labels, q)
+        if status == "invalid":
+            results.append(BatchItemResult(cable=q, status="invalid"))
+            continue
+        if not hits:
+            results.append(BatchItemResult(cable=q, status="not_found"))
+            continue
+        if len(hits) > 1:
+            results.append(
+                BatchItemResult(cable=q, status="ambiguous", candidates=_candidates(hits))
+            )
+            continue
+
+        label = hits[0]
+        log = PrintLog(
+            template_name=template.name,
+            printer_ip=f"{printer.ip}:{printer.port}",
+            operator=operator,
+            reason=reason,
+            left_text=label.left_text,
+            right_text=label.right_text,
+        )
+        try:
+            render_and_send(template, printer, label.left_text, label.right_text, operator, reason)
+        except PrintError as e:
+            log.status = "error"
+            log.error = str(e)
+            session.add(log)
+            session.commit()
+            session.refresh(log)
+            results.append(
+                BatchItemResult(cable=q, status="error", label_id=label.id, log_id=log.id, error=str(e))
+            )
+            if req.stop_on_error:
+                aborted = True
+            continue
+
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        printed += 1
+        results.append(
+            BatchItemResult(cable=q, status="printed", label_id=label.id, log_id=log.id)
+        )
+
+    return ApiBatchPrintResponse(
+        ok=printed == len(queries),
+        requested=len(queries),
+        printed=printed,
+        discipline=disc.name,
+        printer=f"{printer.ip}:{printer.port}",
+        results=results,
     )
