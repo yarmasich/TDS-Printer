@@ -19,11 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api import (
     admin_auth,
+    api_keys,
     auth_names,
     cart,
     history,
     import_ as import_api,
     imports as imports_api,
+    integrations,
     labels,
     print as print_api,
     printers,
@@ -65,6 +67,9 @@ app.include_router(imports_api.router, dependencies=_admin)
 app.include_router(cart.router)
 app.include_router(print_api.router)
 app.include_router(history.router, dependencies=_admin)
+app.include_router(api_keys.router, dependencies=_admin)
+# Integration router does its own per-route API-key auth (not the admin JWT).
+app.include_router(integrations.router)
 
 
 @app.get("/health")

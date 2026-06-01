@@ -52,6 +52,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 \
 Чтобы посмотреть UI — поднимите фронт отдельно: `cd ../frontend && npm run dev`,
 откройте `http://localhost:5173`.
 
+### Печать из внешнего приложения (API-ключ)
+
+Стороннее приложение может печатать по номеру кабеля через
+`POST /api/v1/print` с заголовком `X-API-Key` (без логина в админку). Ключи
+выдаются в админке → раздел **API keys**. Полная документация с примерами —
+[`docs/external-print-api.md`](docs/external-print-api.md).
+
 Эндпоинты:
 - `GET /` — служебный JSON-баннер (`{service, docs, openapi, health, frontend}`)
 - `GET /docs` — Swagger

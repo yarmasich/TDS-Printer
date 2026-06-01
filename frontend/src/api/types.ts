@@ -168,3 +168,17 @@ export interface PrintLog {
   status: string;
   error: string;
 }
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  prefix: string;
+  enabled: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** POST /api/api-keys returns the plaintext key exactly once. */
+export interface ApiKeyCreated extends ApiKey {
+  key: string;
+}

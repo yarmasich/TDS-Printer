@@ -189,3 +189,22 @@ class PrintLog(SQLModel, table=True):
     right_text: str = ""
     status: str = "ok"
     error: str = ""
+
+
+class ApiKey(SQLModel, table=True):
+    """A credential for machine-to-machine print access.
+
+    External apps authenticate with the ``X-API-Key`` header instead of the
+    admin JWT. We never store the raw key — only its SHA-256 hash. ``prefix``
+    is the leading, non-secret slice we keep so the admin UI can show *which*
+    key is which, and so lookup can narrow before the constant-time compare.
+    The plaintext is returned exactly once, at creation.
+    """
+    __tablename__ = "apikey"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)          # human label of the consuming app
+    prefix: str = Field(index=True)         # first chars of the key, for display
+    key_hash: str                            # sha256 hex of the full key
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+    last_used_at: Optional[datetime] = None

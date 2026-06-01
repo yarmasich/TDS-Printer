@@ -31,10 +31,19 @@ body {
  */
 .p-dialog-mask,
 .p-drawer-mask,
-.p-select-overlay,
-.p-connected-overlay,
 .p-toast {
   position: fixed !important;
+}
+
+/*
+ * Anchored overlays (Select, etc.) must stay `absolute` so PrimeVue's
+ * document-relative positioning lines them up under the trigger. Forcing
+ * `fixed` reinterprets those coords against the viewport, so on a scrolled
+ * page the panel detaches and floats over the content below.
+ */
+.p-select-overlay,
+.p-connected-overlay {
+  position: absolute !important;
 }
 
 .p-dialog-mask,
