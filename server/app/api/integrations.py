@@ -10,6 +10,7 @@ manual ones.
 """
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
@@ -189,6 +190,44 @@ def _resolve_label(disc: Discipline, cable: str, session: Session) -> Label:
     return hits[0]
 
 
+GROUP_RE = re.compile(r"\d+\.\*?")           # whole-group query: "20." / "20.*"
+_CABLE_TOKEN_RE = re.compile(r"#\s*\|?\s*([\d.]+)")
+
+
+def _cable_token(text: str) -> Optional[str]:
+    """Best-effort cable id from a label cell (``...CBL#20.3...`` → ``20.3``)."""
+    m = _CABLE_TOKEN_RE.search(text or "")
+    return m.group(1) if m else None
+
+
+def _print_label(
+    label: Label, template: Template, printer: Printer,
+    operator: str, reason: str, session: Session,
+) -> tuple[Optional[int], Optional[str]]:
+    """Render+send one label, log it, return ``(log_id, error)``."""
+    log = PrintLog(
+        template_name=template.name,
+        printer_ip=f"{printer.ip}:{printer.port}",
+        operator=operator,
+        reason=reason,
+        left_text=label.left_text,
+        right_text=label.right_text,
+    )
+    try:
+        render_and_send(template, printer, label.left_text, label.right_text, operator, reason)
+    except PrintError as e:
+        log.status = "error"
+        log.error = str(e)
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return log.id, str(e)
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log.id, None
+
+
 def _discipline_printer(disc: Discipline, session: Session) -> tuple[Template, Printer]:
     """Resolve a discipline's bound template + printer, or raise."""
     if not disc.template_id:
@@ -218,34 +257,17 @@ def api_print(
 
     log_ids: List[int] = []
     for _ in range(req.copies):
-        log = PrintLog(
-            template_name=template.name,
-            printer_ip=f"{printer.ip}:{printer.port}",
-            operator=operator,
-            reason=reason,
-            left_text=left,
-            right_text=right,
-        )
-        try:
-            render_and_send(template, printer, left, right, operator, reason)
-        except PrintError as e:
-            log.status = "error"
-            log.error = str(e)
-            session.add(log)
-            session.commit()
-            session.refresh(log)
+        log_id, err = _print_label(label, template, printer, operator, reason, session)
+        if err:
             raise HTTPException(
                 502,
                 {
-                    "message": f"Print failed: {e}",
-                    "log_ids": log_ids + [log.id],
+                    "message": f"Print failed: {err}",
+                    "log_ids": log_ids + ([log_id] if log_id else []),
                     "printed": len(log_ids),
                 },
             )
-        session.add(log)
-        session.commit()
-        session.refresh(log)
-        log_ids.append(log.id)
+        log_ids.append(log_id)
 
     return ApiPrintResponse(
         ok=True,
@@ -347,59 +369,53 @@ def api_print_batch(
     results: List[BatchItemResult] = []
     printed = 0
     aborted = False
+    problems = False
 
     for q in queries:
         if aborted:
             results.append(BatchItemResult(cable=q, status="skipped"))
+            problems = True
             continue
 
         status, hits = _match_cable(labels, q)
         if status == "invalid":
             results.append(BatchItemResult(cable=q, status="invalid"))
+            problems = True
             continue
         if not hits:
             results.append(BatchItemResult(cable=q, status="not_found"))
+            problems = True
             continue
-        if len(hits) > 1:
+
+        # A group query ("20.*") legitimately resolves to many labels — print
+        # them all. A plain query matching >1 label is ambiguous and skipped.
+        is_group = bool(GROUP_RE.fullmatch(q))
+        if len(hits) > 1 and not is_group:
             results.append(
                 BatchItemResult(cable=q, status="ambiguous", candidates=_candidates(hits))
             )
+            problems = True
             continue
 
-        label = hits[0]
-        log = PrintLog(
-            template_name=template.name,
-            printer_ip=f"{printer.ip}:{printer.port}",
-            operator=operator,
-            reason=reason,
-            left_text=label.left_text,
-            right_text=label.right_text,
-        )
-        try:
-            render_and_send(template, printer, label.left_text, label.right_text, operator, reason)
-        except PrintError as e:
-            log.status = "error"
-            log.error = str(e)
-            session.add(log)
-            session.commit()
-            session.refresh(log)
-            results.append(
-                BatchItemResult(cable=q, status="error", label_id=label.id, log_id=log.id, error=str(e))
-            )
-            if req.stop_on_error:
-                aborted = True
-            continue
-
-        session.add(log)
-        session.commit()
-        session.refresh(log)
-        printed += 1
-        results.append(
-            BatchItemResult(cable=q, status="printed", label_id=label.id, log_id=log.id)
-        )
+        for label in hits:
+            cable_label = (_cable_token(label.left_text) or q) if is_group else q
+            log_id, err = _print_label(label, template, printer, operator, reason, session)
+            if err:
+                results.append(
+                    BatchItemResult(cable=cable_label, status="error", label_id=label.id, log_id=log_id, error=err)
+                )
+                problems = True
+                if req.stop_on_error:
+                    aborted = True
+                    break
+            else:
+                printed += 1
+                results.append(
+                    BatchItemResult(cable=cable_label, status="printed", label_id=label.id, log_id=log_id)
+                )
 
     return ApiBatchPrintResponse(
-        ok=printed == len(queries),
+        ok=not problems,
         requested=len(queries),
         printed=printed,
         discipline=disc.name,

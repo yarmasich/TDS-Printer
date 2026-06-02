@@ -42,7 +42,9 @@ const activeComponent = computed(
 function select(key: string) {
   active.value = key;
   if (window.location.hash !== `#${key}`) {
-    history.replaceState(null, "", `#${key}`);
+    // Preserve Vue Router's history.state — passing null wipes it and the
+    // router warns about a manually-replaced state.
+    history.replaceState(history.state, "", `#${key}`);
   }
 }
 

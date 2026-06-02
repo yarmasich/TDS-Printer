@@ -15,6 +15,18 @@ from typing import List, Tuple
 
 def cable_query_pattern(query: str) -> re.Pattern:
     query = query.strip()
+
+    # Whole-group query: ``20.`` or ``20.*`` → the trunk ``#20`` *and* every
+    # breakout ``#20.1`` … ``#20.18``. Use this when you want "all cables 20",
+    # since a bare ``20`` matches only the single ``#20``.
+    group = re.fullmatch(r"(\d+)\.\*?", query)
+    if group:
+        base = group.group(1)
+        return re.compile(
+            rf"#\s*(\||)\s*(?<!\d){base}(\.\d+)?(?!\d)",
+            re.I,
+        )
+
     is_num = bool(re.fullmatch(r"\d+(\.\d+)?", query))
 
     if not is_num:
@@ -25,8 +37,11 @@ def cable_query_pattern(query: str) -> re.Pattern:
             rf"#\s*(\||)\s*(?<!\d){re.escape(query)}(?!\d)",
             re.I,
         )
+    # Trailing ``(?![\d.])`` so a bare integer matches only the whole cable id
+    # (``#1``) and not its decimal children (``#1.1`` … ``#1.18``) — the old
+    # ``(\D|$)`` treated the dot as a boundary and over-matched.
     return re.compile(
-        rf"#\s*(\||)(?<!\d)\s*{re.escape(query)}(\D|$)",
+        rf"#\s*(\||)\s*(?<!\d){re.escape(query)}(?![\d.])",
         re.I,
     )
 
@@ -69,6 +84,8 @@ def validate_query(query: str) -> Tuple[bool, str]:
     """
     query = query.strip().replace(" ", "").replace(",", ".") if " " in query else query.strip()
     if re.fullmatch(r"\d+(\.\d+)?", query):
+        return True, query
+    if re.fullmatch(r"\d+\.\*?", query):  # whole-group form: "20." / "20.*"
         return True, query
     if len(query) >= 2:
         return True, query

@@ -41,6 +41,15 @@ const operators = ref<AuthName[]>([]);
 
 const searchResults = ref<SearchResponse | null>(null);
 const searching = ref(false);
+// The query string that produced the current results (not the live input).
+const lastQuery = ref("");
+
+// When the operator searched a bare integer (e.g. "2"), that matches only the
+// single trunk cable #2. Offer a one-click jump to the whole group "2.*"
+// (#2 plus every #2.x breakout). Null when the query isn't a plain integer.
+const groupSuggestion = computed(() =>
+  /^\d+$/.test(lastQuery.value) ? `${lastQuery.value}.*` : null,
+);
 const addingAll = ref(false);
 const printerPing = ref<PingResult | null | undefined>(undefined);
 
@@ -110,6 +119,7 @@ watch(currentDiscipline, async (d) => {
 async function doSearch() {
   if (!query.value.trim()) return;
   searching.value = true;
+  lastQuery.value = query.value.trim();
   try {
     const params = new URLSearchParams({ q: query.value.trim() });
     if (selectedProject.value)
@@ -132,8 +142,16 @@ async function doSearch() {
 
 function clearQuery() {
   query.value = "";
+  lastQuery.value = "";
   searchResults.value = null;
   queryInput.value?.$el?.focus();
+}
+
+// Re-run the search for the whole group (e.g. "2" → "2.*").
+function searchGroup() {
+  if (!groupSuggestion.value) return;
+  query.value = groupSuggestion.value;
+  doSearch();
 }
 
 // Called by StickyCart after a successful Print all — reset the search
@@ -246,7 +264,7 @@ async function onAddAllToCart() {
         <InputText
           ref="queryInput"
           v-model="query"
-          placeholder="Cable id, text, range 45.5-7 or list 45.5,6,7"
+          placeholder="Cable id, text, range 45.5-7, list 45.5,6,7 or whole group 20.*"
           class="search-input"
           autocomplete="off"
           @keydown.enter="doSearch"
@@ -326,6 +344,21 @@ async function onAddAllToCart() {
           @click="onAddAllToCart"
         />
       </div>
+      <button
+        v-if="groupSuggestion"
+        type="button"
+        class="w-full mb-3 flex items-center gap-2 text-left text-sm
+               bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200
+               rounded-xl px-3 py-2 transition-colors"
+        @click="searchGroup"
+      >
+        <i class="pi pi-sitemap"></i>
+        <span>
+          Need every cable in group {{ lastQuery }}? Show the whole group
+          <strong>{{ groupSuggestion }}</strong> ({{ lastQuery }} + {{ lastQuery }}.1, {{ lastQuery }}.2 …)
+        </span>
+        <i class="pi pi-arrow-right ml-auto"></i>
+      </button>
       <p v-if="searchResults.hits.length === 0" class="text-slate-500">
         No matches.
       </p>

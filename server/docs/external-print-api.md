@@ -145,6 +145,8 @@ Provide `cables` and/or `cable` (at least one). Up to **500** cables per call.
 - `"1.1-50"` → `1.1, 1.2, … 1.50` (50 cables — note the end is the minor part,
   not `"1.1-1.50"`).
 - `"1.1,1.2,1.5"` → those three.
+- `"20.*"` (or `"20."`) → the **whole group 20**: the trunk `#20` *and* every
+  breakout `#20.1` … `#20.18`. (A bare `"20"` matches only the single `#20`.)
 - `["1.1", "1.5-1.8", "2.3"]` → each entry expanded, then de-duplicated.
 
 ### Example — 50 labels
