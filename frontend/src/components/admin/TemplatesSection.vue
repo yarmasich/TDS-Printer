@@ -44,6 +44,7 @@ const zoomOpen = ref(false);
 const blank = (): Omit<Template, "id"> => ({
   name: "",
   printer_id: printers.printers[0]?.id ?? 0,
+  api_printer_id: null,
   bytes_per_row: 156,
   height: 862,
   left_top: 480,
@@ -512,6 +513,24 @@ watch(
               option-value="id"
               class="w-full"
             />
+            <span class="text-xs text-slate-400">Used by the web / operator flow.</span>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">
+              API printer <span class="font-normal text-slate-400">(optional)</span>
+            </label>
+            <Select
+              v-model="form.api_printer_id"
+              :options="printers.printers"
+              option-label="name"
+              option-value="id"
+              show-clear
+              placeholder="— same as Printer —"
+              class="w-full"
+            />
+            <span class="text-xs text-slate-400">
+              Used by the machine API (/api/v1). Empty → falls back to Printer.
+            </span>
           </div>
         </fieldset>
 

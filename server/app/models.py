@@ -60,6 +60,10 @@ class Template(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
     printer_id: int = Field(foreign_key="printer.id")
+    # Optional second printer used by the machine API (/api/v1) — lets one
+    # template (same geometry/font) print to a different physical printer for
+    # API jobs than for the web/operator flow. Falls back to ``printer_id``.
+    api_printer_id: Optional[int] = Field(default=None, foreign_key="printer.id")
 
     # Bitmap geometry
     bytes_per_row: int

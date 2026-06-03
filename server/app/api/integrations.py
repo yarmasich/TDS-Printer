@@ -229,13 +229,18 @@ def _print_label(
 
 
 def _discipline_printer(disc: Discipline, session: Session) -> tuple[Template, Printer]:
-    """Resolve a discipline's bound template + printer, or raise."""
+    """Resolve a discipline's template + the printer to use for API jobs.
+
+    Uses the template's ``api_printer_id`` (the printer dedicated to the machine
+    API) when set, otherwise falls back to its main ``printer_id`` — so the web
+    flow and the API can target different printers off the same template.
+    """
     if not disc.template_id:
         raise HTTPException(400, f"Discipline '{disc.name}' has no template assigned")
     template = session.get(Template, disc.template_id)
     if not template:
         raise HTTPException(500, "Discipline points at a missing template")
-    printer = session.get(Printer, template.printer_id)
+    printer = session.get(Printer, template.api_printer_id or template.printer_id)
     if not printer:
         raise HTTPException(500, "Template points at a missing printer")
     return template, printer

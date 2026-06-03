@@ -1,0 +1,31 @@
+# TDS Printer API (FastAPI / uvicorn) — production backend.
+#
+# Install:
+#   sudo cp deploy/systemd/tds-printer.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tds-printer
+#   systemctl status tds-printer
+#
+# Adjust User, WorkingDirectory and the venv path to your install location.
+
+[Unit]
+Description=TDS Printer API server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tds
+Group=tds
+WorkingDirectory=/opt/tds-printer/server
+# server/.env holds ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_JWT_SECRET — uvicorn
+# does not auto-load it, but app.main does via python-dotenv on import.
+EnvironmentFile=-/opt/tds-printer/server/.env
+# No --reload in prod (it watches the cwd, and writes to data/tds.db would
+# bounce the process mid-transaction). Bind to localhost — nginx fronts it.
+ExecStart=/opt/tds-printer/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

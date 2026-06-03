@@ -283,6 +283,10 @@ const data = await res.json();
 
 - **A discipline needs a template.** If the discipline has no template assigned,
   you get `400`. Assign one in the admin (Projects · Halls · Disciplines).
+- **Printer.** API jobs print to the template's **API printer** if one is set
+  (Admin → Templates → "API printer"), otherwise to the template's main
+  printer. This lets the same template send web/operator jobs and API jobs to
+  different physical printers.
 - **Text comes from the label.** The API prints the matched label's
   `left_text` / `right_text` as-is — you cannot override the text through this
   endpoint (use the internal `POST /api/print` for arbitrary text).
