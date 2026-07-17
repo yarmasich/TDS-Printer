@@ -44,7 +44,6 @@ const zoomOpen = ref(false);
 const blank = (): Omit<Template, "id"> => ({
   name: "",
   printer_id: printers.printers[0]?.id ?? 0,
-  api_printer_id: null,
   bytes_per_row: 156,
   height: 862,
   left_top: 480,
@@ -292,6 +291,14 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
 // / S200X400 today). Null → form keeps whatever geometry it has.
 const availablePreset = computed(() => findTemplatePreset(form.name || ""));
 
+// Canonical SKU shown on the Load-preset button (e.g. "R150x150" → "R150X150").
+// Mirrors findTemplatePreset's key derivation — a stray inline regex here used
+// to render "Load undefined preset" when the button was shown.
+const presetSku = computed(() => {
+  const m = (form.name || "").match(/^([RS])(\d{3})[xX](\d{3})/i);
+  return m ? `${m[1]!.toUpperCase()}${m[2]}X${m[3]}` : null;
+});
+
 function applyPreset() {
   const preset = availablePreset.value;
   if (!preset) return;
@@ -491,7 +498,7 @@ watch(
             <div class="mt-1 text-xs">
               <Button
                 v-if="availablePreset"
-                :label="`Load ${form.name.match(/^[RS]\\d{3}[xX]\\d{3}/)?.[0]} preset`"
+                :label="`Load ${presetSku} preset`"
                 icon="pi pi-download"
                 size="small"
                 text
@@ -513,23 +520,9 @@ watch(
               option-value="id"
               class="w-full"
             />
-            <span class="text-xs text-slate-400">Used by the web / operator flow.</span>
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">
-              API printer <span class="font-normal text-slate-400">(optional)</span>
-            </label>
-            <Select
-              v-model="form.api_printer_id"
-              :options="printers.printers"
-              option-label="name"
-              option-value="id"
-              show-clear
-              placeholder="— same as Printer —"
-              class="w-full"
-            />
             <span class="text-xs text-slate-400">
-              Used by the machine API (/api/v1). Empty → falls back to Printer.
+              Default printer. API jobs override it per-request via
+              <code class="text-[10px]">printer_id</code>.
             </span>
           </div>
         </fieldset>

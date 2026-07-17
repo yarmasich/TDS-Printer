@@ -14,7 +14,7 @@ import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_api_key
@@ -31,6 +31,11 @@ router = APIRouter(prefix="/api/v1", tags=["integrations"])
 
 
 class ApiPrintRequest(BaseModel):
+    # Accept the wire name ``printer_id`` (FloorHub's field) while keeping the
+    # Python attribute ``printer`` — so code never confuses this *string code*
+    # with the integer ``template.printer_id`` FK. ``printer`` is also accepted.
+    model_config = ConfigDict(populate_by_name=True)
+
     cable: str = Field(..., description="Cable number or text, e.g. '1.1'")
     # Scope — provide discipline_id, OR discipline (+ project / data_hall) by name.
     discipline_id: Optional[int] = None
@@ -39,6 +44,14 @@ class ApiPrintRequest(BaseModel):
     discipline: Optional[str] = None
     reason: str = ""
     copies: int = Field(1, ge=1, le=50)
+    printer: Optional[str] = Field(
+        None,
+        alias="printer_id",
+        description="Logical printer code (= printer name), e.g. 'WS1'. Sent as "
+        "'printer_id'. Set by the calling workstation; overrides the template's "
+        "printer so one discipline can print to any desk. Omit → template "
+        "default. Unknown → 404.",
+    )
 
 
 class ApiPrintResponse(BaseModel):
@@ -228,21 +241,48 @@ def _print_label(
     return log.id, None
 
 
-def _discipline_printer(disc: Discipline, session: Session) -> tuple[Template, Printer]:
+def _resolve_api_printer(
+    template: Template, printer_code: Optional[str], session: Session
+) -> Printer:
+    """Pick the physical printer for an API job.
+
+    Precedence:
+      1. the request's ``printer`` code — the calling workstation's choice,
+         matched against ``Printer.name``. An unknown code is a **404** (a typo
+         must never silently print on the wrong desk);
+      2. the template's ``printer_id`` (its default printer).
+
+    This keeps the physical printer *out* of the discipline: one discipline can
+    print to any workstation's printer, chosen per-request, without being bound
+    to it.
+    """
+    code = (printer_code or "").strip()
+    if code:
+        printer = session.exec(select(Printer).where(Printer.name == code)).first()
+        if not printer:
+            raise HTTPException(404, f"Unknown printer {code!r}")
+        return printer
+    printer = session.get(Printer, template.printer_id)
+    if not printer:
+        raise HTTPException(500, "Template points at a missing printer")
+    return printer
+
+
+def _discipline_printer(
+    disc: Discipline, session: Session, printer_code: Optional[str] = None
+) -> tuple[Template, Printer]:
     """Resolve a discipline's template + the printer to use for API jobs.
 
-    Uses the template's ``api_printer_id`` (the printer dedicated to the machine
-    API) when set, otherwise falls back to its main ``printer_id`` — so the web
-    flow and the API can target different printers off the same template.
+    The template decides *how* to render (geometry / font); the printer is
+    picked by ``_resolve_api_printer`` — a per-request ``printer`` code wins
+    over the template's default ``printer_id``.
     """
     if not disc.template_id:
         raise HTTPException(400, f"Discipline '{disc.name}' has no template assigned")
     template = session.get(Template, disc.template_id)
     if not template:
         raise HTTPException(500, "Discipline points at a missing template")
-    printer = session.get(Printer, template.api_printer_id or template.printer_id)
-    if not printer:
-        raise HTTPException(500, "Template points at a missing printer")
+    printer = _resolve_api_printer(template, printer_code, session)
     return template, printer
 
 
@@ -253,7 +293,7 @@ def api_print(
     key: ApiKey = Security(require_api_key),
 ) -> ApiPrintResponse:
     disc = _resolve_discipline(req, session)
-    template, printer = _discipline_printer(disc, session)
+    template, printer = _discipline_printer(disc, session, req.printer)
 
     label = _resolve_label(disc, req.cable, session)
     left, right = label.left_text, label.right_text
@@ -289,6 +329,9 @@ def api_print(
 # ──────────────────────────── batch print ────────────────────────────
 
 class ApiBatchPrintRequest(BaseModel):
+    # ``printer_id`` on the wire → ``printer`` attribute (see ApiPrintRequest).
+    model_config = ConfigDict(populate_by_name=True)
+
     # Provide a list of cables and/or a single range/list string. Each entry
     # may itself be a range ("1.1-50") or list ("1.1,1.2,1.5") — expanded the
     # same way the operator search box does.
@@ -300,6 +343,13 @@ class ApiBatchPrintRequest(BaseModel):
     data_hall: Optional[str] = None
     discipline: Optional[str] = None
     reason: str = ""
+    printer: Optional[str] = Field(
+        None,
+        alias="printer_id",
+        description="Logical printer code (= printer name), e.g. 'WS1'. Sent as "
+        "'printer_id'. Set by the calling workstation; overrides the template's "
+        "printer. Whole batch prints to it. Omit → template default. Unknown → 404.",
+    )
     stop_on_error: bool = Field(
         False, description="Stop the batch on the first printer/send error (default: continue)"
     )
@@ -357,7 +407,7 @@ def api_print_batch(
     failures, not lookup misses).
     """
     disc = _resolve_discipline(req, session)
-    template, printer = _discipline_printer(disc, session)
+    template, printer = _discipline_printer(disc, session, req.printer)
 
     queries = _expand_cables(req)
     if not queries:

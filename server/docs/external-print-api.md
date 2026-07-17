@@ -48,6 +48,7 @@ Content-Type: application/json
 | `data_hall`     | string | —        | Data hall name — an extra disambiguator. |
 | `reason`        | string | —        | Print reason for the history (defaults to `"API"`). |
 | `copies`        | int    | —        | Number of copies, 1–50 (defaults to 1). |
+| `printer_id`    | string | —        | Logical printer **code** = printer name, e.g. `"WS1"` (see [§7 Printer routing](#7-printer-routing-per-workstation)). Overrides the template's printer. Omit → template default. Unknown code → `404`. |
 
 **Scope**: provide either `discipline_id`, or `discipline` (plus `project` /
 `data_hall` if needed so the name is unambiguous).
@@ -86,7 +87,7 @@ curl -X POST http://10.0.0.5:8000/api/v1/print \
 |-------|------|------|
 | `401` | Missing / invalid / revoked / disabled key | `{"detail": "Invalid or revoked API key"}` |
 | `400` | No scope given (neither `discipline_id` nor `discipline`) or malformed `cable` | `{"detail": "..."}` |
-| `404` | Discipline or cable not found | `{"detail": "No label matching '1.1' in discipline '...'"}` |
+| `404` | Discipline / cable not found, or unknown `printer_id` code | `{"detail": "No label matching '1.1' in discipline '...'"}` · `{"detail": "Unknown printer 'WS9'"}` |
 | `409` | Ambiguous match | see below |
 | `502` | Printer unreachable / send error | `{"detail": {"message": "...", "log_ids": [...], "printed": N}}` |
 
@@ -136,6 +137,7 @@ Content-Type: application/json
 | `discipline_id` | int      | —        | Discipline (or use `discipline` + `project`). |
 | `discipline` / `project` / `data_hall` | string | — | Name-based scope (same as single print). |
 | `reason`        | string   | —        | History reason (defaults to `"API batch"`). |
+| `printer_id`    | string   | —        | Logical printer **code** = printer name, e.g. `"WS1"` (see [§7 Printer routing](#7-printer-routing-per-workstation)). Whole batch prints to it. Omit → template default. Unknown → `404`. |
 | `stop_on_error` | bool     | —        | Stop on the first **printer/send** error (default `false` = keep going). |
 
 Provide `cables` and/or `cable` (at least one). Up to **500** cables per call.
@@ -239,9 +241,8 @@ When `ping=false`, `online` and `ms` are `null` and `error` is empty. When a
 printer is offline, `online` is `false` and `error` carries the reason
 (e.g. connection refused / timeout).
 
-> The print API works by discipline, not by printer. To know which printer a
-> given discipline prints to, match by printer `name` (each discipline's
-> template is bound to one printer).
+> Use each printer's `name` as the logical `printer_id` code when routing a print
+> to a specific workstation — see [§7 Printer routing](#7-printer-routing-per-workstation).
 
 ---
 
@@ -279,14 +280,54 @@ const data = await res.json();
 
 ---
 
-## 7. Notes
+## 7. Printer routing (per workstation)
+
+The print API works **by discipline**, and a discipline is *printer-agnostic* —
+its template only decides *how* to render (geometry / font), not *where* to
+print. That lets the **same discipline** print to different physical printers
+depending on which workstation prints it.
+
+**How it works.** Each request may carry a `printer_id` field — a **logical
+code** equal to the target printer's `name`. The server maps that code to the
+physical device (ip / port / protocol) and routes there. The caller never sends
+an IP or USB path — just the code. (The bare name `printer` is also accepted for
+backwards compatibility; `printer_id` is canonical.)
+
+```
+printer_id sent    →  server finds the Printer whose name == code  →  prints there
+printer_id omitted →  template default (its main printer)
+printer_id unknown →  404 "Unknown printer '<code>'"  (a typo never prints elsewhere)
+```
+
+**Recommended FloorHub pattern.** Each workstation picks its printer **once**
+and stores the code in that browser's `localStorage` (per-machine, not per
+user — a labeler can move desks, the printer stays with the desk). Every print
+then sends that code. To populate the picker, call `GET /api/v1/printers`
+([§5](#5-printer-status-online--offline)) and use each printer's `name` as the
+code; if you prefer, hard-code a fixed list (`WS1` / `WS2` / `WS3`) in FloorHub
+settings that matches the printer names configured in the admin.
+
+```jsonc
+// three workstations, one discipline, three destinations:
+{ "cable": "30.*", "project": "X-AI", "discipline": "18K-EW-LFSP", "printer_id": "WS1" }
+{ "cable": "30.*", "project": "X-AI", "discipline": "18K-EW-LFSP", "printer_id": "WS2" }
+{ "cable": "30.*", "project": "X-AI", "discipline": "18K-EW-LFSP", "printer_id": "WS3" }
+```
+
+> Protocol is per-printer: routing a job to a `jscript` printer frames it as
+> JScript even if the template's default printer is `epl2`. The rendered
+> geometry still comes from the template, so keep the routed printers on the
+> same label stock.
+
+---
+
+## 8. Notes
 
 - **A discipline needs a template.** If the discipline has no template assigned,
   you get `400`. Assign one in the admin (Projects · Halls · Disciplines).
-- **Printer.** API jobs print to the template's **API printer** if one is set
-  (Admin → Templates → "API printer"), otherwise to the template's main
-  printer. This lets the same template send web/operator jobs and API jobs to
-  different physical printers.
+- **Printer.** If a request carries a `printer_id` code it prints there
+  ([§7](#7-printer-routing-per-workstation)). Otherwise API jobs print to the
+  template's printer (the same one the web/operator flow uses).
 - **Text comes from the label.** The API prints the matched label's
   `left_text` / `right_text` as-is — you cannot override the text through this
   endpoint (use the internal `POST /api/print` for arbitrary text).

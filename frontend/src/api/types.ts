@@ -42,8 +42,6 @@ export interface Template {
   id: number;
   name: string;
   printer_id: number;
-  /** Optional printer used by the machine API (/api/v1); null = use printer_id. */
-  api_printer_id: number | null;
   bytes_per_row: number;
   height: number;
   left_top: number;
