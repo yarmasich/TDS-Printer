@@ -69,6 +69,7 @@ const blank = (): Omit<Template, "id"> => ({
   left_offset: 0,
   right_offset: 0,
   scale_x: 1,
+  mirror_legend: false,
 });
 
 const form = reactive<Omit<Template, "id">>(blank());
@@ -643,6 +644,19 @@ watch(
             <span class="text-[10px] text-slate-400 block mt-0.5">
               1.00 = normal width · 1.12 = slightly wider letters (Turn-Tell)
             </span>
+          </div>
+          <div class="col-span-2 md:col-span-4">
+            <label class="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="form.mirror_legend"
+                class="h-4 w-4 accent-orange-600"
+              />
+              <span>
+                <b>Mirror legend (×2)</b> — print the text twice (top rotated
+                180°) so a self-laminating wrap reads from either side
+              </span>
+            </label>
           </div>
         </fieldset>
       </div>

@@ -68,6 +68,8 @@ export interface Template {
   right_offset: number;
   /** Horizontal glyph stretch; 1 = none. */
   scale_x: number;
+  /** Print each block twice (top rotated 180°) for a two-sided wrap read. */
+  mirror_legend: boolean;
 }
 
 export interface Project {

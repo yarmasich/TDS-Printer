@@ -294,26 +294,39 @@ def render_label_bitmap(
     v_align = _align_value(template.v_align)
     turn_tell = is_turn_tell_300(template)
     scale_x = max(1.0, float(getattr(template, "scale_x", 1.0) or 1.0))
+    mirror = bool(getattr(template, "mirror_legend", False))
 
     for cable_left, text, pt, y_offset in (
         (True, left_text, template.left_pt, template.left_offset),
         (False, right_text, template.right_pt, template.right_offset),
     ):
         x0, y0, x1, y1 = text_rect(template, cable_left=cable_left)
-        _draw_text_block(
-            img,
-            text,
-            x0=x0,
-            y0=y0,
-            x1=x1,
-            y1=y1,
-            font=_load_font(template.font_name, template.font_style, pt),
-            h_align=h_align,
-            v_align=v_align,
-            y_offset=y_offset,
-            rotate_180=turn_tell,
-            scale_x=scale_x,
-        )
+        font = _load_font(template.font_name, template.font_style, pt)
+
+        # Rectangle halves to draw into, with each copy's rotation. Mirror mode
+        # prints the same text twice — bottom upright, top rotated 180° — so a
+        # self-laminating wrap reads from either side. Off = one copy.
+        if mirror:
+            ymid = (y0 + y1) / 2
+            copies = ((ymid, y1, turn_tell), (y0, ymid, not turn_tell))
+        else:
+            copies = ((y0, y1, turn_tell),)
+
+        for cy0, cy1, flip in copies:
+            _draw_text_block(
+                img,
+                text,
+                x0=x0,
+                y0=cy0,
+                x1=x1,
+                y1=cy1,
+                font=font,
+                h_align=h_align,
+                v_align=v_align,
+                y_offset=y_offset,
+                rotate_180=flip,
+                scale_x=scale_x,
+            )
 
     return img
 

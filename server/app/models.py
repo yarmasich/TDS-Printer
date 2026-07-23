@@ -102,6 +102,11 @@ class Template(SQLModel, table=True):
     # Horizontal glyph stretch (1.0 = none; ~1.12 matches EasyMark on Turn-Tell)
     scale_x: float = 1.0
 
+    # Print each text block twice within its rectangle — bottom copy upright,
+    # top copy rotated 180° (same text) — so a self-laminating wrap reads from
+    # either side. Off = the normal single print.
+    mirror_legend: bool = False
+
 
 # ──────────────────────────── project hierarchy ────────────────────────────
 
