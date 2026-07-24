@@ -318,12 +318,16 @@ def render_label_bitmap(
         font = _load_font(template.font_name, template.font_style, pt * scale)
         y_offset = y_offset * scale
 
-        # Rectangle halves to draw into, with each copy's rotation. Mirror mode
-        # prints the same text twice — bottom upright, top rotated 180° — so a
-        # self-laminating wrap reads from either side. Off = one copy.
+        # Mirror mode prints the same text twice, stacked HEAD-TO-HEAD at the
+        # rect's centre seam, so a folded self-laminating wrap reads right-way-up
+        # from both sides (the two tops meet at the fold). Bottom half head-up,
+        # top half head-down. Turn-Tell bitmaps get a whole-page 180° rotation
+        # later (build_jscript_job / render_label_png) which preserves the
+        # head-to-head meeting — so the per-copy rotation here is independent of
+        # ``turn_tell``. Off = one copy (which does follow ``turn_tell``).
         if mirror:
             ymid = (y0 + y1) / 2
-            copies = ((ymid, y1, turn_tell), (y0, ymid, not turn_tell))
+            copies = ((ymid, y1, False), (y0, ymid, True))
         else:
             copies = ((y0, y1, turn_tell),)
 
