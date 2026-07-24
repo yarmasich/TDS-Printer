@@ -88,7 +88,11 @@ def _line_heights(
 
 
 def _measure_block(
-    font: ImageFont.FreeTypeFont, text: str, rect_w: float, rect_h: float
+    font: ImageFont.FreeTypeFont,
+    text: str,
+    rect_w: float,
+    rect_h: float,
+    scale: float = 1.0,
 ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], int, float]:
     lines = _wrap_to_width(text, font, rect_w)
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
@@ -100,11 +104,11 @@ def _measure_block(
         return measured, 0, 0.0
 
     heights = _line_heights(font, measured)
-    line_gap = max(2, int(font.size * 0.15))
+    line_gap = max(round(2 * scale), int(font.size * 0.15))
     ink_h = sum(heights)
     n_lines = len(measured)
-    if rect_h < 100 and n_lines > 1:
-        line_gap = max(1, min(line_gap, 2))
+    if rect_h < 100 * scale and n_lines > 1:
+        line_gap = max(1, min(line_gap, round(2 * scale)))
     if n_lines > 1 and ink_h < rect_h:
         line_gap = min(line_gap, max(1, int((rect_h - ink_h) / (n_lines - 1))))
     total_h = ink_h + line_gap * (n_lines - 1)
@@ -223,6 +227,7 @@ def _draw_text_block(
     y_offset: float,
     rotate_180: bool = False,
     scale_x: float = 1.0,
+    scale: float = 1.0,
 ) -> None:
     if not text:
         return
@@ -230,7 +235,7 @@ def _draw_text_block(
     rect_w = x1 - x0
     rect_h = y1 - y0
     wrap_w = rect_w / scale_x if scale_x > 1.0 else rect_w
-    measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h)
+    measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h, scale)
 
     if not rotate_180 and scale_x <= 1.0:
         _paint_measured_lines(
@@ -251,7 +256,7 @@ def _draw_text_block(
         )
         return
 
-    pad = 4
+    pad = max(4, round(4 * scale))
     buf = Image.new(
         "L",
         (max(1, int(rect_w)) + pad * 2, max(1, int(round(rect_h))) + pad * 2),
@@ -284,14 +289,23 @@ def _draw_text_block(
 
 
 def render_label_bitmap(
-    template: Template, left_text: str, right_text: str
+    template: Template, left_text: str, right_text: str, *, scale: float = 1.0
 ) -> Image.Image:
-    """Bitmap in printer raster space (preview == print)."""
-    width = template.bytes_per_row * 8
-    height = template.height
+    """Bitmap in printer raster space (preview == print).
+
+    ``scale`` renders at N× the template's 300-DPI design grid so a higher-DPI
+    head prints the same *physical* size — glyphs, rects and offsets all scale
+    together, giving native (non-blocky) detail rather than a pixel-doubled
+    upscale. ``scale=1.0`` is byte-for-byte identical to the un-scaled render.
+    """
+    bytes_per_row = round(template.bytes_per_row * scale)
+    width = bytes_per_row * 8
+    height = round(template.height * scale)
     img = Image.new("L", (width, height), 255)
     h_align = _align_value(template.h_align)
     v_align = _align_value(template.v_align)
+    # Turn-Tell detection reads the template's native geometry — compute it
+    # before scaling so a 2× render still gets the column-swap / Y-flip.
     turn_tell = is_turn_tell_300(template)
     scale_x = max(1.0, float(getattr(template, "scale_x", 1.0) or 1.0))
     mirror = bool(getattr(template, "mirror_legend", False))
@@ -300,8 +314,9 @@ def render_label_bitmap(
         (True, left_text, template.left_pt, template.left_offset),
         (False, right_text, template.right_pt, template.right_offset),
     ):
-        x0, y0, x1, y1 = text_rect(template, cable_left=cable_left)
-        font = _load_font(template.font_name, template.font_style, pt)
+        x0, y0, x1, y1 = text_rect(template, cable_left=cable_left, scale=scale)
+        font = _load_font(template.font_name, template.font_style, pt * scale)
+        y_offset = y_offset * scale
 
         # Rectangle halves to draw into, with each copy's rotation. Mirror mode
         # prints the same text twice — bottom upright, top rotated 180° — so a
@@ -326,6 +341,7 @@ def render_label_bitmap(
                 y_offset=y_offset,
                 rotate_180=flip,
                 scale_x=scale_x,
+                scale=scale,
             )
 
     return img
@@ -369,7 +385,7 @@ def build_print_job(
     if printer.protocol == "jscript":
         from .printer_jscript import build_jscript_job
 
-        return build_jscript_job(template, left_text, right_text)
+        return build_jscript_job(template, printer, left_text, right_text)
     # Default: TSC EPL2 (TDP-43ME — the Android-ported engine).
     from .printer_epl2 import build_epl2_job
 

@@ -24,6 +24,11 @@ const protocolOptions: { label: string; value: PrinterProtocol }[] = [
   { label: "JScript — cab DP4300H", value: "jscript" },
 ];
 
+const dpiOptions: { label: string; value: number }[] = [
+  { label: "300 dpi — DP4300H", value: 300 },
+  { label: "600 dpi — DP4600H", value: 600 },
+];
+
 const dialogOpen = ref(false);
 const editId = ref<number | null>(null);
 const testingId = ref<number | null>(null);
@@ -33,6 +38,7 @@ const form = reactive<Omit<Printer, "id">>({
   port: 9100,
   notes: "",
   protocol: "epl2",
+  dpi: 300,
 });
 
 onMounted(async () => {
@@ -47,6 +53,7 @@ function openCreate() {
   form.port = 9100;
   form.notes = "";
   form.protocol = "epl2";
+  form.dpi = 300;
   dialogOpen.value = true;
 }
 
@@ -58,6 +65,7 @@ async function openEdit(p: Printer) {
     port: p.port,
     notes: p.notes,
     protocol: p.protocol,
+    dpi: p.dpi ?? 300,
   });
   dialogOpen.value = true;
 }
@@ -172,6 +180,12 @@ async function remove(p: Printer) {
           >
             {{ data.protocol }}
           </span>
+          <span
+            v-if="data.protocol === 'jscript'"
+            class="ml-1 px-2 py-0.5 rounded text-xs font-mono bg-slate-100 text-slate-600"
+          >
+            {{ data.dpi ?? 300 }} dpi
+          </span>
         </template>
       </Column>
       <Column field="notes" header="Notes" />
@@ -253,6 +267,23 @@ async function remove(p: Printer) {
           <p class="mt-1 text-xs text-slate-500">
             Pick by printer model. EPL2 = TSC TDP-43ME-class; JScript = cab
             (DP4300H, DP4600H — "Made in Germany", MAC starts 00:02:e7).
+          </p>
+        </div>
+        <div v-if="form.protocol === 'jscript'">
+          <label class="block text-xs font-bold text-slate-600 mb-1">
+            Printhead resolution
+          </label>
+          <Select
+            v-model="form.dpi"
+            :options="dpiOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+          />
+          <p class="mt-1 text-xs text-slate-500">
+            Must match the physical head. DP4600H is 600 dpi — the label is
+            rendered at 2× so it prints the same size as a 300-dpi DP4300H.
+            Wrong value prints everything half/double size.
           </p>
         </div>
         <div>

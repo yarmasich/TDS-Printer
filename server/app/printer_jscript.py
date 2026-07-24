@@ -30,10 +30,12 @@ from __future__ import annotations
 from PIL import Image
 
 from .label_geometry import is_turn_tell_300
-from .models import Template
+from .models import Printer, Template
 from .printer import bitmap_to_mono_raster, render_label_bitmap
 
-# DP4300H native resolution. Same on DP4600H.
+# Design/raster reference resolution. Templates store geometry in this grid;
+# DP4300H prints it 1:1. DP4600H is 600 DPI, so its raster is rendered 2× (see
+# ``_dpi_scale``) to keep the physical label size identical.
 _DPI = 300
 # Distance between the trailing edge of one label and the leading edge of the
 # next. Used in the S command's 4th parameter (total_height).
@@ -93,8 +95,22 @@ def _ascii_hex_raster(raster: bytes, bytes_per_row: int, height: int) -> str:
     return "\r\n".join(out) + "\r\n"
 
 
-def build_jscript_job(template: Template, left_text: str, right_text: str) -> bytes:
-    bitmap = render_label_bitmap(template, left_text, right_text)
+def _dpi_scale(printer: Printer) -> float:
+    """Render scale so the raster fills the same physical area on any head.
+
+    cab places a downloaded bitmap one dot per printer dot, so a 300-DPI raster
+    on a 600-DPI head prints half-size. Rendering at ``head_dpi / 300`` instead
+    makes the physical label identical across DP4300H (1.0) and DP4600H (2.0).
+    """
+    dpi = getattr(printer, "dpi", _DPI) or _DPI
+    return dpi / _DPI
+
+
+def build_jscript_job(
+    template: Template, printer: Printer, left_text: str, right_text: str
+) -> bytes:
+    scale = _dpi_scale(printer)
+    bitmap = render_label_bitmap(template, left_text, right_text, scale=scale)
 
     # Turn-Tell templates encode the carrier "upside down" relative to cab's
     # default feed: text lives in the bottom half of the bitmap and each block
@@ -108,8 +124,15 @@ def build_jscript_job(template: Template, left_text: str, right_text: str) -> by
     if is_turn_tell_300(template):
         bitmap = bitmap.transpose(Image.Transpose.ROTATE_180)
 
-    raster = bitmap_to_mono_raster(bitmap, template.bytes_per_row, template.height)
+    # Raster dimensions follow the (scaled) bitmap so a 600-DPI head receives 2×
+    # the dots; ROTATE_180 preserves size, so width stays byte-aligned.
+    scaled_bpr = bitmap.width // 8
+    scaled_height = bitmap.height
+    raster = bitmap_to_mono_raster(bitmap, scaled_bpr, scaled_height)
 
+    # The S-command geometry is physical millimetres — invariant of head DPI —
+    # so it is derived from the template's native 300-DPI pixel design, not the
+    # scaled raster.
     width_px = template.bytes_per_row * 8
     height_px = template.height
     width_mm = min(_px_to_mm_int(width_px), _PRINTHEAD_MM)
@@ -124,7 +147,7 @@ def build_jscript_job(template: Template, left_text: str, right_text: str) -> by
     pitch_mm = height_mm + int(round(_GAP_MM))
 
     download = "d ASC;TDSIMG\r\n" + _ascii_hex_raster(
-        raster, template.bytes_per_row, height_px
+        raster, scaled_bpr, scaled_height
     )
     job = (
         "m m\r\n"

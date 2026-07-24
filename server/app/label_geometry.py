@@ -15,11 +15,15 @@ def is_turn_tell_300(template: Template) -> bool:
 
 
 def text_rect(
-    template: Template, *, cable_left: bool
+    template: Template, *, cable_left: bool, scale: float = 1.0
 ) -> tuple[float, float, float, float]:
     """Print area for one sticker.
 
     ``cable_left`` follows Excel/UI: left column → left sticker on the cable.
+
+    ``scale`` multiplies the returned pixel coordinates so the same template can
+    be rendered at a higher-DPI head's native density (e.g. 2.0 for a 600-DPI
+    DP4600H); the template stores its geometry in the 300-DPI design grid.
 
     Turn-Tell @ 300 DPI (Panduit raw TCP vs EasyMark export):
     - **Y:** ``raster_y = height − editor_y`` (feed direction).
@@ -40,6 +44,6 @@ def text_rect(
         h = float(template.height)
         y0 = h - em_bottom
         y1 = h - em_top
-        return (x0, y0, x1, y1)
+        return (x0 * scale, y0 * scale, x1 * scale, y1 * scale)
 
-    return (x0, em_top, x1, em_bottom)
+    return (x0 * scale, em_top * scale, x1 * scale, em_bottom * scale)

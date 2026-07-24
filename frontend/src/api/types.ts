@@ -19,6 +19,9 @@ export interface Printer {
   port: number;
   notes: string;
   protocol: PrinterProtocol;
+  /** Printhead resolution. DP4300H = 300, DP4600H = 600. Scales the raster so
+   *  every model prints at the same physical size. */
+  dpi: number;
 }
 
 export interface PingResult {

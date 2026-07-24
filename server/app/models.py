@@ -47,6 +47,11 @@ class Printer(SQLModel, table=True):
     # "epl2" = TSC TDP-43ME-class (default, current Android-ported engine).
     # "jscript" = cab-OEM DP4300H/DP4600H. Determines which build_*_job runs.
     protocol: str = "epl2"
+    # Printhead resolution in DPI. DP4300H = 300, DP4600H = 600. cab places a
+    # downloaded bitmap one dot per printer dot (no DPI scaling of its own), so
+    # the JScript raster is rendered at this density — a 600-DPI head then
+    # prints at the same physical label size as a 300-DPI one.
+    dpi: int = 300
 
 
 class Template(SQLModel, table=True):
