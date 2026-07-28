@@ -42,6 +42,16 @@ watch(projectId, async (pid) => {
   }
 });
 
+// Same discipline name can exist in several data halls (e.g. DH23/AS-T1 and
+// DH26/AS-T1). Prefix the hall so the option — and the picked value — is
+// unambiguous. Backend already returns them grouped by hall, then name.
+const disciplineOptions = computed(() =>
+  disciplines.value.map((d) => ({
+    id: d.id,
+    label: d.data_hall_name ? `${d.data_hall_name} / ${d.name}` : d.name,
+  })),
+);
+
 const canUpload = computed(
   () => disciplineId.value != null && file.value != null,
 );
@@ -120,11 +130,12 @@ function remove(imp: ImportDTO) {
           <label class="block text-xs font-bold text-slate-600 mb-1">Discipline</label>
           <Select
             v-model="disciplineId"
-            :options="disciplines"
-            option-label="name"
+            :options="disciplineOptions"
+            option-label="label"
             option-value="id"
             :disabled="projectId == null"
             placeholder="— pick —"
+            filter
             class="w-full"
           />
         </div>

@@ -89,6 +89,7 @@ export interface DataHall {
 export interface Discipline {
   id: number;
   data_hall_id: number;
+  data_hall_name: string;
   name: string;
   template_id: number | null;
   template_name: string | null;

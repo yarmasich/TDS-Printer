@@ -112,6 +112,7 @@ class DisciplinePatch(BaseModel):
 class DisciplineDTO(BaseModel):
     id: int
     data_hall_id: int
+    data_hall_name: str = ""
     name: str
     template_id: Optional[int]
     template_name: Optional[str] = None
@@ -137,7 +138,14 @@ def list_disciplines(
         if not hall_ids:
             return []
         stmt = stmt.where(Discipline.data_hall_id.in_(hall_ids))
-    rows = session.exec(stmt.order_by(Discipline.name)).all()
+    rows = session.exec(stmt).all()
+    # Preload hall names so same-named disciplines in different halls are
+    # distinguishable (e.g. "DH23 / AS-T1" vs "DH26 / AS-T1" in the import UI).
+    hall_ids = {d.data_hall_id for d in rows}
+    halls = {
+        h.id: h.name
+        for h in session.exec(select(DataHall).where(DataHall.id.in_(hall_ids))).all()
+    } if hall_ids else {}
     out = []
     for d in rows:
         n = session.exec(
@@ -146,13 +154,17 @@ def list_disciplines(
         tmpl = session.get(Template, d.template_id) if d.template_id else None
         printer = session.get(Printer, tmpl.printer_id) if tmpl else None
         out.append(DisciplineDTO(
-            id=d.id, data_hall_id=d.data_hall_id, name=d.name,
+            id=d.id, data_hall_id=d.data_hall_id,
+            data_hall_name=halls.get(d.data_hall_id, ""), name=d.name,
             template_id=d.template_id,
             template_name=tmpl.name if tmpl else None,
             printer_id=printer.id if printer else None,
             printer_name=printer.name if printer else None,
             color=d.color, label_count=n,
         ))
+    # Group by hall, then by discipline name — keeps the two halls' identical
+    # names apart in the dropdown instead of interleaving them.
+    out.sort(key=lambda x: (x.data_hall_name, x.name))
     return out
 
 
