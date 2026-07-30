@@ -234,7 +234,23 @@ async function onAddAllToCart() {
           show-clear
           size="small"
           class="min-w-[160px]"
-        />
+        >
+          <template #option="{ option }">
+            <span
+              v-if="option.data_hall_name"
+              class="text-slate-400"
+            >{{ option.data_hall_name }} / </span>{{ option.name }}
+          </template>
+          <template #value="{ placeholder }">
+            <template v-if="currentDiscipline">
+              <span
+                v-if="currentDiscipline.data_hall_name"
+                class="text-slate-400"
+              >{{ currentDiscipline.data_hall_name }} / </span>{{ currentDiscipline.name }}
+            </template>
+            <span v-else>{{ placeholder }}</span>
+          </template>
+        </Select>
       </div>
 
       <div v-if="currentDiscipline" class="flex items-center gap-2 text-sm">

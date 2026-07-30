@@ -283,7 +283,23 @@ async function tryFullscreen() {
           append-to="body"
           fluid
           class="kiosk-select"
-        />
+        >
+          <template #option="{ option }">
+            <span
+              v-if="option.data_hall_name"
+              class="text-slate-400"
+            >{{ option.data_hall_name }} / </span>{{ option.name }}
+          </template>
+          <template #value="{ value, placeholder }">
+            <template v-if="value">
+              <span
+                v-if="value.data_hall_name"
+                class="text-slate-400"
+              >{{ value.data_hall_name }} / </span>{{ value.name }}
+            </template>
+            <span v-else>{{ placeholder }}</span>
+          </template>
+        </Select>
 
         <Button
           type="button"
