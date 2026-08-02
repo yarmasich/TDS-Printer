@@ -117,6 +117,28 @@ async function bindTemplate(d: Discipline, templateId: number | null) {
   }
 }
 
+async function toggleBundle(d: Discipline) {
+  const next = !d.bundle_mode;
+  try {
+    await api.put(`/api/disciplines/${d.id}`, { bundle_mode: next });
+    d.bundle_mode = next; // optimistic — avoid full refresh flash
+    toast.add({
+      severity: "success",
+      summary: next ? "Bundle mode on" : "Bundle mode off",
+      detail: next
+        ? "Re-import this discipline's files so labels get tagged by bundle."
+        : "",
+      life: 3500,
+    });
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Save failed",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 async function updateColor(d: Discipline, color: string) {
   // PrimeVue's ColorPicker (format=hex) returns the colour without the
   // leading '#', which matches what the DB stores.
@@ -231,6 +253,19 @@ function del(url: string, label: string) {
             </span>
           </div>
           <div class="flex items-center gap-2">
+            <label
+              class="inline-flex items-center gap-1 text-xs cursor-pointer select-none"
+              :class="d.bundle_mode ? 'text-orange-600 font-semibold' : 'text-slate-500'"
+              title="Bundle mode: imports parse 'BUNDLE #N' headers and tag labels; Print shows a bundle picker. Re-import after turning on."
+            >
+              <input
+                type="checkbox"
+                class="h-3.5 w-3.5 accent-orange-600"
+                :checked="d.bundle_mode"
+                @change="toggleBundle(d)"
+              />
+              <span>Bundle</span>
+            </label>
             <Select
               :model-value="d.template_id"
               :options="templates"

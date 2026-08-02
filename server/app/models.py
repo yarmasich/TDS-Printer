@@ -135,6 +135,10 @@ class Discipline(SQLModel, table=True):
     name: str
     template_id: Optional[int] = Field(default=None, foreign_key="template.id")
     color: str = "FFFFFF"
+    # When on, imports into this discipline parse "BUNDLE #N" / "BDL #N" header
+    # rows: the header itself is skipped (not a label) and every label below it
+    # is tagged with that bundle number (Label.bundle), enabling print-by-bundle.
+    bundle_mode: bool = False
 
 
 class Import(SQLModel, table=True):
@@ -164,6 +168,9 @@ class Label(SQLModel, table=True):
     row_idx: int = 0
     left_text: str = ""
     right_text: str = ""
+    # Bundle this label belongs to (from a "BUNDLE #N" header during import when
+    # the discipline has bundle_mode on). None for normal / non-bundle imports.
+    bundle: Optional[str] = Field(default=None, index=True)
 
 
 # ──────────────────────────── shared lists / logs ────────────────────────────

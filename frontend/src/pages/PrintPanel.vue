@@ -3,6 +3,7 @@ import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { api } from "@/api/client";
 import type {
   AuthName,
+  Bundle,
   Discipline,
   PingResult,
   Reason,
@@ -52,6 +53,14 @@ const groupSuggestion = computed(() =>
 );
 const addingAll = ref(false);
 const printerPing = ref<PingResult | null | undefined>(undefined);
+
+// Bundle picker — only for disciplines with bundle_mode. Selecting a bundle
+// loads all its labels into the same results list the cable search uses.
+const bundles = ref<Bundle[]>([]);
+const selectedBundle = ref<string | null>(null);
+const bundleOptions = computed(() =>
+  bundles.value.map((b) => ({ value: b.bundle, label: `#${b.bundle} · ${b.count}` })),
+);
 
 const cartLabelIds = computed(
   () => new Set(cart.items.map((i) => i.label_id).filter((id) => id != null)),
@@ -115,6 +124,47 @@ watch(currentDiscipline, async (d) => {
     };
   }
 });
+
+// Load the discipline's bundle list when it has bundle_mode; clear otherwise.
+watch(currentDiscipline, async (d) => {
+  selectedBundle.value = null;
+  bundles.value = [];
+  if (d?.bundle_mode) {
+    try {
+      bundles.value = await api.get<Bundle[]>(
+        `/api/labels/bundles?discipline_id=${d.id}`,
+      );
+    } catch {
+      /* leave empty — the picker just won't show options */
+    }
+  }
+});
+
+async function loadBundle(bundle: string | null) {
+  selectedBundle.value = bundle;
+  if (!bundle || selectedDiscipline.value == null) {
+    searchResults.value = null;
+    lastQuery.value = "";
+    return;
+  }
+  query.value = "";
+  searching.value = true;
+  lastQuery.value = `BUNDLE #${bundle}`;
+  try {
+    searchResults.value = await api.get<SearchResponse>(
+      `/api/labels/by-bundle?discipline_id=${selectedDiscipline.value}` +
+        `&bundle=${encodeURIComponent(bundle)}`,
+    );
+  } catch (e: unknown) {
+    toast.add({
+      severity: "error",
+      summary: "Bundle load failed",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  } finally {
+    searching.value = false;
+  }
+}
 
 async function doSearch() {
   if (!query.value.trim()) return;
@@ -251,6 +301,18 @@ async function onAddAllToCart() {
             <span v-else>{{ placeholder }}</span>
           </template>
         </Select>
+        <Select
+          v-if="currentDiscipline?.bundle_mode"
+          :model-value="selectedBundle"
+          :options="bundleOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="Bundle"
+          show-clear
+          size="small"
+          class="min-w-[140px]"
+          @update:model-value="loadBundle"
+        />
       </div>
 
       <div v-if="currentDiscipline" class="flex items-center gap-2 text-sm">

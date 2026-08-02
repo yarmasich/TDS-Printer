@@ -10,6 +10,7 @@ left empty — admin assigns one later via the web UI).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,11 @@ from sqlmodel import Session, delete, select
 from .models import DataHall, Discipline, Import, Label, Project
 
 log = logging.getLogger("tds.importer")
+
+# Bundle header marker inside a cell, e.g. "… BUNDLE #2 …", "BDL #3", "BUNDLE#3"
+# (case-insensitive, optional spaces). Group 1 is the bundle number. Only used
+# for disciplines with bundle_mode on.
+_BUNDLE_RE = re.compile(r"(?:BUNDLE|BDL)\s*#\s*(\d+)", re.IGNORECASE)
 
 # Default colour palette copied from the CLI's ``auto_color()``.
 DEFAULT_PALETTE: dict[str, str] = {
@@ -110,9 +116,21 @@ def import_workbook_into_discipline(
             stats.sheets += 1
             imp.sheets += 1
             ws = wb[sheet_name]
+            current_bundle: Optional[str] = None
             for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
                 left = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
                 right = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+
+                # In bundle mode a "BUNDLE #N" / "BDL #N" header row is not a
+                # label — it starts a new bundle that tags the labels below it.
+                if discipline.bundle_mode:
+                    m = _BUNDLE_RE.search(left) or _BUNDLE_RE.search(right)
+                    if m:
+                        current_bundle = m.group(1)
+                        stats.skipped += 1
+                        imp.skipped += 1
+                        continue
+
                 if not left and not right:
                     stats.skipped += 1
                     imp.skipped += 1
@@ -125,6 +143,7 @@ def import_workbook_into_discipline(
                     row_idx=idx,
                     left_text=left,
                     right_text=right,
+                    bundle=current_bundle if discipline.bundle_mode else None,
                 ))
                 stats.rows += 1
                 imp.rows += 1

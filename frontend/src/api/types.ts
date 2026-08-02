@@ -97,6 +97,15 @@ export interface Discipline {
   printer_name: string | null;
   color: string;
   label_count: number;
+  /** When on, imports parse "BUNDLE #N" headers and tag labels; Print shows a
+   *  bundle picker. */
+  bundle_mode: boolean;
+}
+
+/** One bundle within a discipline (GET /api/labels/bundles). */
+export interface Bundle {
+  bundle: string;
+  count: number;
 }
 
 export interface SearchHit {

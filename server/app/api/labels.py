@@ -41,10 +41,53 @@ class SearchResponse(BaseModel):
     total: int
 
 
+class BundleDTO(BaseModel):
+    bundle: str
+    count: int
+
+
 @router.get("/count")
 def count(session: Session = Depends(get_session)) -> dict:
     n = session.exec(select(func.count()).select_from(Label)).one()
     return {"labels": n}
+
+
+@router.get("/bundles", response_model=List[BundleDTO])
+def bundles(
+    discipline_id: int, session: Session = Depends(get_session)
+) -> List[BundleDTO]:
+    """Distinct bundles (with label counts) in a discipline — for the picker."""
+    rows = session.exec(
+        select(Label.bundle, func.count())
+        .where(Label.discipline_id == discipline_id, Label.bundle.is_not(None))
+        .group_by(Label.bundle)
+    ).all()
+    out = [BundleDTO(bundle=b, count=c) for b, c in rows if b]
+    # Numeric order when the bundle is a plain number; text otherwise.
+    out.sort(key=lambda x: (0, int(x.bundle)) if x.bundle.isdigit() else (1, x.bundle))
+    return out
+
+
+@router.get("/by-bundle", response_model=SearchResponse)
+def by_bundle(
+    discipline_id: int, bundle: str, session: Session = Depends(get_session)
+) -> SearchResponse:
+    """Every label of one bundle, in sheet order — same shape as /search so the
+    Print page can reuse its results list."""
+    stmt = (
+        select(Label, Discipline, DataHall, Project)
+        .join(Discipline, Label.discipline_id == Discipline.id)
+        .join(DataHall, Discipline.data_hall_id == DataHall.id)
+        .join(Project, DataHall.project_id == Project.id)
+        .where(Discipline.id == discipline_id, Label.bundle == bundle)
+        .order_by(Label.row_idx)
+    )
+    rows = session.exec(stmt).all()
+    hits = [
+        _hit(label=l, disc=d, hall=h, proj=p, matched_left=True, matched_right=True)
+        for l, d, h, p in rows
+    ]
+    return SearchResponse(query=f"BUNDLE #{bundle}", expanded=[], hits=hits, total=len(hits))
 
 
 @router.get("/search", response_model=SearchResponse)

@@ -337,6 +337,12 @@ class ApiBatchPrintRequest(BaseModel):
     # same way the operator search box does.
     cables: List[str] = Field(default_factory=list, description="e.g. ['1.1','1.2','1.5-1.8']")
     cable: Optional[str] = Field(None, description="Single range/list, e.g. '1.1-50'")
+    bundle: Optional[str] = Field(
+        None,
+        description="Explicit bundle number to print (discipline must have bundle "
+        "mode on). Usually unnecessary: for a bundle-mode discipline the normal "
+        "group query 'N.*' in cables/cable already means BUNDLE #N.",
+    )
     # Scope — same as the single-print endpoint.
     discipline_id: Optional[int] = None
     project: Optional[str] = None
@@ -392,6 +398,75 @@ def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
     return out
 
 
+def _requested_bundles(req: ApiBatchPrintRequest, bundle_mode: bool) -> List[str]:
+    """Bundle numbers to print for this request.
+
+    Explicit ``bundle`` wins. Otherwise, for a **bundle-mode** discipline, the
+    caller's usual group query ``N.*`` / ``N.`` / ``N`` (in ``cables``/``cable``)
+    is read as bundle N — so ACT keeps sending its normal format and ``1.*``
+    simply means BUNDLE #1. Non-bundle disciplines return [] (cable path).
+    """
+    if req.bundle:
+        return [req.bundle.strip()]
+    if not bundle_mode:
+        return []
+    out: List[str] = []
+    seen: set[str] = set()
+    for entry in list(req.cables) + ([req.cable] if req.cable else []):
+        m = re.match(r"\s*#?\s*(\d+)", entry or "")
+        if m and m.group(1) not in seen:
+            seen.add(m.group(1))
+            out.append(m.group(1))
+    return out
+
+
+def _print_bundles(
+    bundle_nums: List[str], req: ApiBatchPrintRequest, disc: Discipline,
+    template: Template, printer: Printer, key: ApiKey, session: Session,
+) -> ApiBatchPrintResponse:
+    """Print every label tagged with any of ``bundle_nums`` in this discipline."""
+    labels = session.exec(
+        select(Label)
+        .where(Label.discipline_id == disc.id, Label.bundle.in_(bundle_nums))
+        .order_by(Label.row_idx)
+    ).all()
+    if not labels:
+        raise HTTPException(
+            404,
+            f"No labels for bundle(s) {', '.join(bundle_nums)} in "
+            f"discipline '{disc.name}'",
+        )
+    operator = f"api:{key.name}"
+    reason = req.reason or f"API bundle {','.join(bundle_nums)}"
+    results: List[BatchItemResult] = []
+    printed = 0
+    problems = False
+    aborted = False
+    for label in labels:
+        tok = _cable_token(label.left_text) or f"#{label.bundle}"
+        if aborted:
+            results.append(BatchItemResult(cable=tok, status="skipped"))
+            problems = True
+            continue
+        log_id, err = _print_label(label, template, printer, operator, reason, session)
+        if err:
+            results.append(BatchItemResult(
+                cable=tok, status="error", label_id=label.id, log_id=log_id, error=err
+            ))
+            problems = True
+            if req.stop_on_error:
+                aborted = True
+        else:
+            printed += 1
+            results.append(BatchItemResult(
+                cable=tok, status="printed", label_id=label.id, log_id=log_id
+            ))
+    return ApiBatchPrintResponse(
+        ok=not problems, requested=len(labels), printed=printed,
+        discipline=disc.name, printer=f"{printer.ip}:{printer.port}", results=results,
+    )
+
+
 @router.post("/print-batch", response_model=ApiBatchPrintResponse)
 def api_print_batch(
     req: ApiBatchPrintRequest,
@@ -408,6 +483,13 @@ def api_print_batch(
     """
     disc = _resolve_discipline(req, session)
     template, printer = _discipline_printer(disc, session, req.printer)
+
+    # Bundle selection: explicit `bundle`, or — for a bundle-mode discipline —
+    # the caller's usual group query "N.*" read as bundle N (ACT sends its
+    # normal format, no change on their side). Empty → normal cable path.
+    bundle_nums = _requested_bundles(req, disc.bundle_mode)
+    if bundle_nums:
+        return _print_bundles(bundle_nums, req, disc, template, printer, key, session)
 
     queries = _expand_cables(req)
     if not queries:

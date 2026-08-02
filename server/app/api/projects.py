@@ -101,12 +101,14 @@ class DisciplineIn(BaseModel):
     name: str
     template_id: Optional[int] = None
     color: str = "FFFFFF"
+    bundle_mode: bool = False
 
 
 class DisciplinePatch(BaseModel):
     name: Optional[str] = None
     template_id: Optional[int] = None
     color: Optional[str] = None
+    bundle_mode: Optional[bool] = None
 
 
 class DisciplineDTO(BaseModel):
@@ -120,6 +122,7 @@ class DisciplineDTO(BaseModel):
     printer_name: Optional[str] = None
     color: str
     label_count: int
+    bundle_mode: bool = False
 
 
 @router.get("/disciplines", response_model=List[DisciplineDTO])
@@ -160,7 +163,7 @@ def list_disciplines(
             template_name=tmpl.name if tmpl else None,
             printer_id=printer.id if printer else None,
             printer_name=printer.name if printer else None,
-            color=d.color, label_count=n,
+            color=d.color, label_count=n, bundle_mode=d.bundle_mode,
         ))
     # Group by hall, then by discipline name — keeps the two halls' identical
     # names apart in the dropdown instead of interleaving them.
@@ -179,6 +182,7 @@ def create_discipline(
         name=body.name.strip(),
         template_id=body.template_id,
         color=body.color,
+        bundle_mode=body.bundle_mode,
     )
     session.add(d)
     session.commit()
