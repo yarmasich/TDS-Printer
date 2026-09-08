@@ -1,3 +1,4 @@
+import { readApiError } from "./errors";
 /**
  * Tiny typed fetch wrapper. Used by stores and components.
  *
@@ -66,17 +67,7 @@ async function request<T>(
     }
   }
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const data = await res.json();
-      detail =
-        typeof data.detail === "string"
-          ? data.detail
-          : JSON.stringify(data.detail ?? data);
-    } catch {
-      /* keep statusText */
-    }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, await readApiError(res));
   }
   if (res.status === 204) return undefined as T;
   // Some endpoints (preview) return non-JSON; callers that need binary should
