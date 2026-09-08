@@ -193,6 +193,12 @@ class CartItem(SQLModel, table=True):
     added_at: datetime = Field(default_factory=_utcnow)
     left_text: str = ""
     right_text: str = ""
+    # A durable claim prevents two workers from sending the same queued item.
+    # Interrupted/partial sends become uncertain and require operator review.
+    status: str = Field(default="queued", index=True)
+    error: str = ""
+    claim_token: str = Field(default="", index=True)
+    claimed_at: Optional[datetime] = None
 
 
 class PrintLog(SQLModel, table=True):

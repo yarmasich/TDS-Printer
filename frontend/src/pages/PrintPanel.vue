@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { useLatestResource } from "@/composables/latestResource";
 import { api } from "@/api/client";
 import type {
   AuthName,
@@ -28,7 +29,7 @@ const props = defineProps<{ kiosk?: boolean }>();
 
 const projects = useProjects();
 const kioskStore = useKiosk();
-const cart = useCart();
+const cart = useCart(props.kiosk ? "kiosk" : "print");
 const printers = usePrinters();
 const toast = useToast();
 
@@ -40,8 +41,9 @@ const reason = ref("");
 const reasons = ref<Reason[]>([]);
 const operators = ref<AuthName[]>([]);
 
-const searchResults = ref<SearchResponse | null>(null);
-const searching = ref(false);
+const results = useLatestResource<SearchResponse>();
+const { data: searchResults, loading: searching, error: searchError } = results;
+const setupError = ref("");
 // The query string that produced the current results (not the live input).
 const lastQuery = ref("");
 
@@ -52,11 +54,13 @@ const groupSuggestion = computed(() =>
   /^\d+$/.test(lastQuery.value) ? `${lastQuery.value}.*` : null,
 );
 const addingAll = ref(false);
-const printerPing = ref<PingResult | null | undefined>(undefined);
+const ping = useLatestResource<PingResult>();
+const printerPing = computed(() => ping.loading.value ? null : ping.data.value ?? undefined);
 
 // Bundle picker — only for disciplines with bundle_mode. Selecting a bundle
 // loads all its labels into the same results list the cable search uses.
-const bundles = ref<Bundle[]>([]);
+const bundleResource = useLatestResource<Bundle[]>();
+const bundles = computed(() => bundleResource.data.value ?? []);
 const selectedBundle = ref<string | null>(null);
 const bundleOptions = computed(() =>
   bundles.value.map((b) => ({ value: b.bundle, label: `#${b.bundle} · ${b.count}` })),
@@ -82,120 +86,96 @@ const showAddAll = computed(
 // element.
 const queryInput = useTemplateRef<{ $el: HTMLInputElement }>("queryInput");
 
+let hydrating = false;
+let mounted = true;
+const isMounted = () => mounted;
 onMounted(async () => {
   kioskStore.load();
-  await Promise.all([
+  const loaded = await Promise.allSettled([
     projects.loadProjects(),
     api.get<Reason[]>("/api/reasons").then((r) => (reasons.value = r)),
     api.get<AuthName[]>("/api/auth-names").then((a) => (operators.value = a)),
     cart.fetch(),
   ]);
+  if (!mounted) return;
+  setupError.value = loaded.filter(r => r.status === "rejected").map(r => String(r.reason)).join("; ");
   if (props.kiosk && kioskStore.isReady) {
+    hydrating = true;
     selectedProject.value = kioskStore.projectId;
-    await projects.loadDisciplinesForProject(kioskStore.projectId!);
-    selectedDiscipline.value = kioskStore.disciplineId;
+    try {
+      await projects.loadDisciplinesForProject(kioskStore.projectId!, isMounted);
+      if (!mounted) return;
+      selectedDiscipline.value = kioskStore.disciplineId;
+    } catch (error) { setupError.value = String(error); }
+    finally { hydrating = false; }
   }
   queryInput.value?.$el?.focus();
 });
 
+function resetResults() {
+  results.clear();
+  lastQuery.value = "";
+  selectedBundle.value = null;
+}
 watch(selectedProject, async (pid) => {
+  resetResults();
+  ping.clear();
+  bundleResource.clear();
   selectedDiscipline.value = null;
-  printerPing.value = undefined;
-  if (pid != null) await projects.loadDisciplinesForProject(pid);
-  else projects.disciplines = [];
-});
+  if (hydrating) return;
+  if (pid != null) {
+    try { await projects.loadDisciplinesForProject(pid, isMounted); }
+    catch { /* rendered through disciplineError */ }
+  } else projects.clearDisciplines();
+}, { flush: "sync" });
+
+watch(selectedDiscipline, resetResults, { flush: "sync" });
+watch(query, resetResults, { flush: "sync" });
 
 const currentDiscipline = computed<Discipline | undefined>(() =>
   projects.disciplines.find((d) => d.id === selectedDiscipline.value),
 );
-
-watch(currentDiscipline, async (d) => {
-  printerPing.value = undefined;
-  if (!d?.printer_id) return;
-  try {
-    printerPing.value = null;
-    printerPing.value = await printers.pingOne(d.printer_id);
-  } catch {
-    printerPing.value = {
-      printer_id: d.printer_id,
-      ok: false,
-      ms: null,
-      error: "check failed",
-    };
+watch(currentDiscipline, (d) => {
+  ping.clear();
+  bundleResource.clear();
+  if (d?.printer_id) {
+    const printerId = d.printer_id;
+    void ping.run(async () => {
+      try { return await printers.pingOne(printerId); }
+      catch (error) { return { printer_id: printerId, ok: false, ms: null, error: String(error) }; }
+    });
   }
-});
-
-// Load the discipline's bundle list when it has bundle_mode; clear otherwise.
-watch(currentDiscipline, async (d) => {
-  selectedBundle.value = null;
-  bundles.value = [];
-  if (d?.bundle_mode) {
-    try {
-      bundles.value = await api.get<Bundle[]>(
-        `/api/labels/bundles?discipline_id=${d.id}`,
-      );
-    } catch {
-      /* leave empty — the picker just won't show options */
-    }
-  }
-});
+  if (d?.bundle_mode) void bundleResource.run(() => api.get<Bundle[]>(`/api/labels/bundles?discipline_id=${d.id}`));
+}, { flush: "sync" });
 
 async function loadBundle(bundle: string | null) {
-  selectedBundle.value = bundle;
-  if (!bundle || selectedDiscipline.value == null) {
-    searchResults.value = null;
-    lastQuery.value = "";
-    return;
-  }
+  resetResults();
   query.value = "";
-  searching.value = true;
+  selectedBundle.value = bundle;
+  if (!bundle || selectedDiscipline.value == null) return;
+  const disciplineId = selectedDiscipline.value;
   lastQuery.value = `BUNDLE #${bundle}`;
-  try {
-    searchResults.value = await api.get<SearchResponse>(
-      `/api/labels/by-bundle?discipline_id=${selectedDiscipline.value}` +
-        `&bundle=${encodeURIComponent(bundle)}`,
-    );
-  } catch (e: unknown) {
-    toast.add({
-      severity: "error",
-      summary: "Bundle load failed",
-      detail: e instanceof Error ? e.message : String(e),
-    });
-  } finally {
-    searching.value = false;
-  }
+  await results.run(() => api.get<SearchResponse>(
+    `/api/labels/by-bundle?discipline_id=${disciplineId}&bundle=${encodeURIComponent(bundle)}`,
+  ));
 }
 
 async function doSearch() {
-  if (!query.value.trim()) return;
-  searching.value = true;
-  lastQuery.value = query.value.trim();
-  try {
-    const params = new URLSearchParams({ q: query.value.trim() });
-    if (selectedProject.value)
-      params.set("project_id", String(selectedProject.value));
-    if (selectedDiscipline.value)
-      params.set("discipline_id", String(selectedDiscipline.value));
-    searchResults.value = await api.get<SearchResponse>(
-      `/api/labels/search?${params}`,
-    );
-  } catch (e: unknown) {
-    toast.add({
-      severity: "error",
-      summary: "Search failed",
-      detail: e instanceof Error ? e.message : String(e),
-    });
-  } finally {
-    searching.value = false;
-  }
+  resetResults();
+  const q = query.value.trim();
+  if (!q) return;
+  lastQuery.value = q;
+  const params = new URLSearchParams({ q });
+  if (selectedProject.value) params.set("project_id", String(selectedProject.value));
+  if (selectedDiscipline.value) params.set("discipline_id", String(selectedDiscipline.value));
+  await results.run(() => api.get<SearchResponse>(`/api/labels/search?${params}`));
 }
-
 function clearQuery() {
   query.value = "";
-  lastQuery.value = "";
-  searchResults.value = null;
+  resetResults();
   queryInput.value?.$el?.focus();
 }
+onUnmounted(() => { mounted = false; results.clear(); ping.clear(); bundleResource.clear(); });
 
 // Re-run the search for the whole group (e.g. "2" → "2.*").
 function searchGroup() {
@@ -262,7 +242,7 @@ async function onAddAllToCart() {
       v-if="!kiosk"
       class="bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm flex items-center gap-3 flex-wrap"
     >
-      <div class="flex items-center gap-2 flex-1 min-w-[260px]">
+      <div class="context-filters">
         <span class="text-xs font-bold text-slate-500 uppercase">Context</span>
         <Select
           v-model="selectedProject"
@@ -272,18 +252,19 @@ async function onAddAllToCart() {
           placeholder="Project"
           show-clear
           size="small"
-          class="min-w-[160px]"
+          class="context-select"
         />
         <Select
           v-model="selectedDiscipline"
           :options="projects.disciplines"
           option-label="name"
           option-value="id"
-          :disabled="!selectedProject"
+          :disabled="!selectedProject || projects.loadingDisciplines"
+          :loading="projects.loadingDisciplines"
           placeholder="Discipline"
           show-clear
           size="small"
-          class="min-w-[160px]"
+          class="context-select"
         >
           <template #option="{ option }">
             <span
@@ -310,7 +291,7 @@ async function onAddAllToCart() {
           placeholder="Bundle"
           show-clear
           size="small"
-          class="min-w-[140px]"
+          class="context-select"
           @update:model-value="loadBundle"
         />
       </div>
@@ -342,7 +323,9 @@ async function onAddAllToCart() {
         <InputText
           ref="queryInput"
           v-model="query"
-          placeholder="Cable id, text, range 45.5-7, list 45.5,6,7 or whole group 20.*"
+          placeholder="Cable ID or text"
+          aria-label="Search cable labels"
+          aria-describedby="search-help"
           class="search-input"
           autocomplete="off"
           @keydown.enter="doSearch"
@@ -366,6 +349,11 @@ async function onAddAllToCart() {
         />
       </div>
 
+      <p id="search-help" class="text-sm text-slate-600 mt-3">Search by cable ID or text. Range: <b>45.5-7</b> · List: <b>45.5,6,7</b> · Whole group: <b>20.*</b></p>
+      <p v-if="searchError" role="alert" class="text-red-700 mt-3">Search failed: {{ searchError }}. Try Find again.</p>
+      <p v-if="setupError || projects.disciplineError" role="alert" class="text-red-700 mt-3">Could not load setup: {{ setupError || projects.disciplineError }}. Reload to retry.</p>
+      <p v-if="bundleResource.error.value" role="alert" class="text-red-700 mt-3">Could not load bundles: {{ bundleResource.error.value }}. Choose the discipline again to retry.</p>
+      <p v-if="cart.error" role="alert" class="text-red-700 mt-3">Could not load cart: {{ cart.error }}.</p>
       <!-- Operator / Reason chips (compact, opt-in) -->
       <div
         class="flex items-center gap-2 mt-4 flex-wrap"
@@ -399,7 +387,7 @@ async function onAddAllToCart() {
         <h2 class="text-lg font-bold">
           <i class="pi pi-list-check text-sky-600 mr-1"></i>
           Results
-          <span class="text-slate-400">({{ searchResults.total }})</span>
+          <span class="text-slate-400">({{ searchResults.hits.length }} displayed / {{ searchResults.total }} total)</span>
           <span
             v-if="searchResults.expanded.length > 1"
             class="text-sm font-normal text-slate-500 ml-2"
@@ -411,7 +399,7 @@ async function onAddAllToCart() {
           v-if="showAddAll && searchResults.hits.length > 0"
           :label="
             pendingAddIds.length
-              ? `Add all (${pendingAddIds.length})`
+              ? `${searchResults.truncated ? 'Add displayed' : 'Add all'} (${pendingAddIds.length})`
               : 'All in cart'
           "
           icon="pi pi-plus"
@@ -422,6 +410,7 @@ async function onAddAllToCart() {
           @click="onAddAllToCart"
         />
       </div>
+      <p v-if="searchResults.truncated" class="text-sm text-amber-800 mb-3">Only the displayed labels will be added. Narrow your search to find the remaining matches.</p>
       <button
         v-if="groupSuggestion"
         type="button"
@@ -479,6 +468,15 @@ async function onAddAllToCart() {
 </template>
 
 <style scoped>
+.context-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.context-select { flex: 1 1 160px; min-width: 0; max-width: 100%; }
+.context-filters > span { flex-basis: 100%; }
+@media (max-width: 480px) {
+  .search-row, .search-row--kiosk { flex-wrap: wrap; padding: 6px 8px; gap: 6px; }
+  .find-btn { flex-basis: 100%; }
+  .search-input { width: 0; }
+}
+
 .search-row {
   display: flex;
   align-items: center;

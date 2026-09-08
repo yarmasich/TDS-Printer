@@ -1,14 +1,20 @@
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+SERVER_DIR = Path(__file__).resolve().parent.parent
+# Alembic imports this module without importing app.main. Load the same
+# configuration here so migrations and HTTP workers never select different DBs.
+load_dotenv(SERVER_DIR / ".env")
+DATA_DIR = SERVER_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "tds.db"
 
 engine = create_engine(
-    f"sqlite:///{DB_PATH}",
+    os.environ.get("TDS_DATABASE_URL", f"sqlite:///{DB_PATH}"),
     connect_args={"check_same_thread": False},
     echo=False,
 )

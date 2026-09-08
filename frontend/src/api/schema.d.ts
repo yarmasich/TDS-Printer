@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auth Status */
+        get: operations["auth_status_api_auth_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/printers": {
         parameters: {
             query?: never;
@@ -75,6 +109,30 @@ export interface paths {
         get: operations["ping_api_printers__printer_id__ping_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/printers/{printer_id}/test-print": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Print
+         * @description Render a real label and send it to this printer to verify protocol.
+         *
+         *     Picks the first template bound to this printer — that's the only way to
+         *     get correct raster dimensions without asking the operator. If the printer
+         *     has no template assigned yet, returns 400 (assign one in Admin → Templates).
+         */
+        post: operations["test_print_api_printers__printer_id__test_print_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -311,6 +369,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/labels/bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bundles
+         * @description Distinct bundles (with label counts) in a discipline — for the picker.
+         */
+        get: operations["bundles_api_labels_bundles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/labels/by-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * By Bundle
+         * @description Every label of one bundle, in sheet order — same shape as /search so the
+         *     Print page can reuse its results list.
+         */
+        get: operations["by_bundle_api_labels_by_bundle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/labels/search": {
         parameters: {
             query?: never;
@@ -480,6 +579,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/print/preview-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Draft
+         * @description Render an unsaved template — same renderer as the printer path,
+         *     so what you see here is what comes out of the printer.
+         */
+        post: operations["preview_draft_api_print_preview_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/print/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Print
+         * @description Print a draft template right now — used by the template editor's
+         *     'Test' button. We still log it (status='ok', reason='TEST' by default)
+         *     so the operator can see test prints in history.
+         */
+        post: operations["test_print_api_print_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/print": {
         parameters: {
             query?: never;
@@ -514,15 +656,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/": {
+    "/api/api-keys": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Index */
-        get: operations["index__get"];
+        /** List Keys */
+        get: operations["list_keys_api_api_keys_get"];
+        put?: never;
+        /** Create Key */
+        post: operations["create_key_api_api_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/api-keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Key */
+        put: operations["update_key_api_api_keys__key_id__put"];
+        post?: never;
+        /** Delete Key */
+        delete: operations["delete_key_api_api_keys__key_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/printers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api Printers
+         * @description Printer roster with live online status for external dashboards.
+         *
+         *     With ``ping=true`` (default) each printer is TCP-connect probed (~2 s
+         *     timeout each, checked serially) — keep that in mind when polling many
+         *     printers. Use ``ping=false`` for a fast config-only listing.
+         */
+        get: operations["api_printers_api_v1_printers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -531,17 +716,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin": {
+    "/api/v1/print": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Admin */
-        get: operations["admin_admin_get"];
+        get?: never;
         put?: never;
-        post?: never;
+        /** Api Print */
+        post: operations["api_print_api_v1_print_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/print-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Print Batch
+         * @description Resolve a bounded, unique label set, then print with a complete report.
+         */
+        post: operations["api_print_batch_api_v1_print_batch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -565,6 +770,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Root
+         * @description Root hint for anyone hitting the API host directly.
+         */
+        get: operations["root__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -576,12 +801,188 @@ export interface components {
             /** Label Id */
             label_id: number;
         };
+        /** ApiBatchPrintRequest */
+        ApiBatchPrintRequest: {
+            /**
+             * Cables
+             * @description e.g. ['1.1','1.2','1.5-1.8']
+             */
+            cables?: string[];
+            /**
+             * Cable
+             * @description Single range/list, e.g. '1.1-50'
+             */
+            cable?: string | null;
+            /**
+             * Bundle
+             * @description Explicit bundle number to print (discipline must have bundle mode on). Usually unnecessary: for a bundle-mode discipline the normal group query 'N.*' in cables/cable already means BUNDLE #N.
+             */
+            bundle?: string | null;
+            /** Discipline Id */
+            discipline_id?: number | null;
+            /** Project */
+            project?: string | null;
+            /** Data Hall */
+            data_hall?: string | null;
+            /** Discipline */
+            discipline?: string | null;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Printer Id
+             * @description Logical printer code (= printer name), e.g. 'WS1'. Sent as 'printer_id'. Set by the calling workstation; overrides the template's printer. Whole batch prints to it. Omit → template default. Unknown → 404.
+             */
+            printer_id?: string | null;
+            /**
+             * Stop On Error
+             * @description Stop the batch on the first printer/send error (default: continue)
+             * @default false
+             */
+            stop_on_error: boolean;
+        };
+        /** ApiBatchPrintResponse */
+        ApiBatchPrintResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Requested */
+            requested: number;
+            /** Printed */
+            printed: number;
+            /** Discipline */
+            discipline: string;
+            /** Printer */
+            printer: string;
+            /** Results */
+            results: components["schemas"]["BatchItemResult"][];
+        };
+        /**
+         * ApiKeyCreated
+         * @description Returned only from POST — carries the plaintext key once.
+         */
+        ApiKeyCreated: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Key */
+            key: string;
+        };
+        /**
+         * ApiKeyDTO
+         * @description Safe view — never includes the secret.
+         */
+        ApiKeyDTO: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
+        };
+        /** ApiPrintRequest */
+        ApiPrintRequest: {
+            /**
+             * Cable
+             * @description Cable number or text, e.g. '1.1'
+             */
+            cable: string;
+            /** Discipline Id */
+            discipline_id?: number | null;
+            /** Project */
+            project?: string | null;
+            /** Data Hall */
+            data_hall?: string | null;
+            /** Discipline */
+            discipline?: string | null;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Copies
+             * @default 1
+             */
+            copies: number;
+            /**
+             * Printer Id
+             * @description Logical printer code (= printer name), e.g. 'WS1'. Sent as 'printer_id'. Set by the calling workstation; overrides the template's printer so one discipline can print to any desk. Omit → template default. Unknown → 404.
+             */
+            printer_id?: string | null;
+        };
+        /** ApiPrintResponse */
+        ApiPrintResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Log Ids */
+            log_ids: number[];
+            /** Label Id */
+            label_id: number;
+            /** Left Text */
+            left_text: string;
+            /** Right Text */
+            right_text: string;
+            /** Template Name */
+            template_name: string;
+            /** Printer */
+            printer: string;
+            /** Copies */
+            copies: number;
+        };
         /** AuthName */
         AuthName: {
             /** Id */
             id?: number | null;
             /** Name */
             name: string;
+        };
+        /** AuthStatusOut */
+        AuthStatusOut: {
+            /** Configured */
+            configured: boolean;
+        };
+        /** BatchItemResult */
+        BatchItemResult: {
+            /** Cable */
+            cable: string;
+            /** Status */
+            status: string;
+            /** Label Id */
+            label_id?: number | null;
+            /** Log Id */
+            log_id?: number | null;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
+            /** Candidates */
+            candidates?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /** Body_scan_api_import_scan_post */
         Body_scan_api_import_scan_post: {
@@ -600,8 +1001,18 @@ export interface components {
         Body_upload_api_import_upload_post: {
             /** Discipline Id */
             discipline_id: number;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
+        };
+        /** BundleDTO */
+        BundleDTO: {
+            /** Bundle */
+            bundle: string;
+            /** Count */
+            count: number;
         };
         /** CartItemDTO */
         CartItemDTO: {
@@ -623,6 +1034,21 @@ export interface components {
             template_name?: string | null;
             /** Added At */
             added_at: string;
+            /**
+             * Status
+             * @default queued
+             */
+            status: string;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
+        };
+        /** CreateApiKeyRequest */
+        CreateApiKeyRequest: {
+            /** Name */
+            name: string;
         };
         /** DataHall */
         DataHall: {
@@ -651,6 +1077,11 @@ export interface components {
              * @default FFFFFF
              */
             color: string;
+            /**
+             * Bundle Mode
+             * @default false
+             */
+            bundle_mode: boolean;
         };
         /** DisciplineDTO */
         DisciplineDTO: {
@@ -658,6 +1089,11 @@ export interface components {
             id: number;
             /** Data Hall Id */
             data_hall_id: number;
+            /**
+             * Data Hall Name
+             * @default
+             */
+            data_hall_name: string;
             /** Name */
             name: string;
             /** Template Id */
@@ -672,6 +1108,11 @@ export interface components {
             color: string;
             /** Label Count */
             label_count: number;
+            /**
+             * Bundle Mode
+             * @default false
+             */
+            bundle_mode: boolean;
         };
         /** DisciplineIn */
         DisciplineIn: {
@@ -686,6 +1127,11 @@ export interface components {
              * @default FFFFFF
              */
             color: string;
+            /**
+             * Bundle Mode
+             * @default false
+             */
+            bundle_mode: boolean;
         };
         /** DisciplinePatch */
         DisciplinePatch: {
@@ -695,6 +1141,38 @@ export interface components {
             template_id?: number | null;
             /** Color */
             color?: string | null;
+            /** Bundle Mode */
+            bundle_mode?: boolean | null;
+        };
+        /**
+         * DraftPreviewRequest
+         * @description Render a template that hasn't been saved yet.
+         *
+         *     Used by the admin form's live preview — at edit time we don't have
+         *     a stable ``template_id`` we could pass to the GET endpoint, and we
+         *     don't want to round-trip through ``PUT /api/templates``.
+         *
+         *     ``crop=True`` trims the bitmap to the text rectangles' bounding
+         *     box — useful when the preview is being scaled into a small UI
+         *     swatch and would otherwise be dominated by empty canvas.
+         */
+        DraftPreviewRequest: {
+            template: components["schemas"]["TemplateInput"];
+            /**
+             * Left Text
+             * @default
+             */
+            left_text: string;
+            /**
+             * Right Text
+             * @default
+             */
+            right_text: string;
+            /**
+             * Crop
+             * @default false
+             */
+            crop: boolean;
         };
         /**
          * HAlign
@@ -735,6 +1213,23 @@ export interface components {
             rows: number;
             /** Skipped */
             skipped: number;
+        };
+        /** LoginIn */
+        LoginIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /** LoginOut */
+        LoginOut: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
         };
         /** PingResult */
         PingResult: {
@@ -880,6 +1375,80 @@ export interface components {
              * @default
              */
             notes: string;
+            /**
+             * Protocol
+             * @default epl2
+             */
+            protocol: string;
+            /**
+             * Dpi
+             * @default 300
+             */
+            dpi: number;
+        };
+        /** PrinterInput */
+        PrinterInput: {
+            /** Name */
+            name: string;
+            /** Ip */
+            ip: string;
+            /**
+             * Port
+             * @default 9100
+             */
+            port: number;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
+             * Protocol
+             * @default epl2
+             * @enum {string}
+             */
+            protocol: "epl2" | "jscript";
+            /**
+             * Dpi
+             * @default 300
+             * @enum {integer}
+             */
+            dpi: 203 | 300 | 600;
+        };
+        /** PrinterPatch */
+        PrinterPatch: {
+            /** Name */
+            name?: string | null;
+            /** Ip */
+            ip?: string | null;
+            /** Port */
+            port?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Protocol */
+            protocol?: ("epl2" | "jscript") | null;
+            /** Dpi */
+            dpi?: (203 | 300 | 600) | null;
+        };
+        /** PrinterStatusDTO */
+        PrinterStatusDTO: {
+            /** Name */
+            name: string;
+            /** Ip */
+            ip: string;
+            /** Port */
+            port: number;
+            /** Protocol */
+            protocol: string;
+            /** Online */
+            online?: boolean | null;
+            /** Ms */
+            ms?: number | null;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
         };
         /** Project */
         Project: {
@@ -940,6 +1509,16 @@ export interface components {
             hits: components["schemas"]["SearchHit"][];
             /** Total */
             total: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
         };
         /**
          * Template
@@ -1070,6 +1649,371 @@ export interface components {
              * @default 1
              */
             scale_x: number;
+            /**
+             * Mirror Legend
+             * @default false
+             */
+            mirror_legend: boolean;
+        };
+        /** TemplateCreate */
+        TemplateCreate: {
+            /** Name */
+            name: string;
+            /** Printer Id */
+            printer_id: number;
+            /** Bytes Per Row */
+            bytes_per_row: number;
+            /** Height */
+            height: number;
+            /**
+             * Left Top
+             * @default 0
+             */
+            left_top: number;
+            /**
+             * Left Bottom
+             * @default 0
+             */
+            left_bottom: number;
+            /**
+             * Left Left
+             * @default 0
+             */
+            left_left: number;
+            /**
+             * Left Right
+             * @default 0
+             */
+            left_right: number;
+            /**
+             * Right Top
+             * @default 0
+             */
+            right_top: number;
+            /**
+             * Right Bottom
+             * @default 0
+             */
+            right_bottom: number;
+            /**
+             * Right Left
+             * @default 0
+             */
+            right_left: number;
+            /**
+             * Right Right
+             * @default 0
+             */
+            right_right: number;
+            /**
+             * Gap Top
+             * @default 0
+             */
+            gap_top: number;
+            /**
+             * Gap Bottom
+             * @default 0
+             */
+            gap_bottom: number;
+            /**
+             * Gap Left
+             * @default 0
+             */
+            gap_left: number;
+            /**
+             * Gap Right
+             * @default 0
+             */
+            gap_right: number;
+            /**
+             * Left Text
+             * @default TEXT+12345
+             */
+            left_text: string;
+            /**
+             * Right Text
+             * @default TEXT+12345
+             */
+            right_text: string;
+            /**
+             * Left Pt
+             * @default 7
+             */
+            left_pt: number;
+            /**
+             * Right Pt
+             * @default 7
+             */
+            right_pt: number;
+            /** @default CENTER */
+            h_align: components["schemas"]["HAlign"];
+            /** @default CENTER */
+            v_align: components["schemas"]["VAlign"];
+            /**
+             * Font Name
+             * @default Microsoft Sans Serif
+             * @enum {string}
+             */
+            font_name: "Microsoft Sans Serif" | "Calibri";
+            /**
+             * Font Style
+             * @default Bold
+             * @enum {string}
+             */
+            font_style: "Bold" | "Regular";
+            /**
+             * Left Offset
+             * @default 0
+             */
+            left_offset: number;
+            /**
+             * Right Offset
+             * @default 0
+             */
+            right_offset: number;
+            /**
+             * Scale X
+             * @default 1
+             */
+            scale_x: number;
+            /**
+             * Mirror Legend
+             * @default false
+             */
+            mirror_legend: boolean;
+        };
+        /**
+         * TemplateInput
+         * @description Render configuration; a new draft can have no name/printer selected yet.
+         */
+        TemplateInput: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Printer Id
+             * @default 0
+             */
+            printer_id: number;
+            /** Bytes Per Row */
+            bytes_per_row: number;
+            /** Height */
+            height: number;
+            /**
+             * Left Top
+             * @default 0
+             */
+            left_top: number;
+            /**
+             * Left Bottom
+             * @default 0
+             */
+            left_bottom: number;
+            /**
+             * Left Left
+             * @default 0
+             */
+            left_left: number;
+            /**
+             * Left Right
+             * @default 0
+             */
+            left_right: number;
+            /**
+             * Right Top
+             * @default 0
+             */
+            right_top: number;
+            /**
+             * Right Bottom
+             * @default 0
+             */
+            right_bottom: number;
+            /**
+             * Right Left
+             * @default 0
+             */
+            right_left: number;
+            /**
+             * Right Right
+             * @default 0
+             */
+            right_right: number;
+            /**
+             * Gap Top
+             * @default 0
+             */
+            gap_top: number;
+            /**
+             * Gap Bottom
+             * @default 0
+             */
+            gap_bottom: number;
+            /**
+             * Gap Left
+             * @default 0
+             */
+            gap_left: number;
+            /**
+             * Gap Right
+             * @default 0
+             */
+            gap_right: number;
+            /**
+             * Left Text
+             * @default TEXT+12345
+             */
+            left_text: string;
+            /**
+             * Right Text
+             * @default TEXT+12345
+             */
+            right_text: string;
+            /**
+             * Left Pt
+             * @default 7
+             */
+            left_pt: number;
+            /**
+             * Right Pt
+             * @default 7
+             */
+            right_pt: number;
+            /** @default CENTER */
+            h_align: components["schemas"]["HAlign"];
+            /** @default CENTER */
+            v_align: components["schemas"]["VAlign"];
+            /**
+             * Font Name
+             * @default Microsoft Sans Serif
+             * @enum {string}
+             */
+            font_name: "Microsoft Sans Serif" | "Calibri";
+            /**
+             * Font Style
+             * @default Bold
+             * @enum {string}
+             */
+            font_style: "Bold" | "Regular";
+            /**
+             * Left Offset
+             * @default 0
+             */
+            left_offset: number;
+            /**
+             * Right Offset
+             * @default 0
+             */
+            right_offset: number;
+            /**
+             * Scale X
+             * @default 1
+             */
+            scale_x: number;
+            /**
+             * Mirror Legend
+             * @default false
+             */
+            mirror_legend: boolean;
+        };
+        /** TemplatePatch */
+        TemplatePatch: {
+            /** Name */
+            name?: string | null;
+            /** Printer Id */
+            printer_id?: number | null;
+            /** Bytes Per Row */
+            bytes_per_row?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Left Top */
+            left_top?: number | null;
+            /** Left Bottom */
+            left_bottom?: number | null;
+            /** Left Left */
+            left_left?: number | null;
+            /** Left Right */
+            left_right?: number | null;
+            /** Right Top */
+            right_top?: number | null;
+            /** Right Bottom */
+            right_bottom?: number | null;
+            /** Right Left */
+            right_left?: number | null;
+            /** Right Right */
+            right_right?: number | null;
+            /** Gap Top */
+            gap_top?: number | null;
+            /** Gap Bottom */
+            gap_bottom?: number | null;
+            /** Gap Left */
+            gap_left?: number | null;
+            /** Gap Right */
+            gap_right?: number | null;
+            /** Left Text */
+            left_text?: string | null;
+            /** Right Text */
+            right_text?: string | null;
+            /** Left Pt */
+            left_pt?: number | null;
+            /** Right Pt */
+            right_pt?: number | null;
+            h_align?: components["schemas"]["HAlign"] | null;
+            v_align?: components["schemas"]["VAlign"] | null;
+            /** Font Name */
+            font_name?: ("Microsoft Sans Serif" | "Calibri") | null;
+            /** Font Style */
+            font_style?: ("Bold" | "Regular") | null;
+            /** Left Offset */
+            left_offset?: number | null;
+            /** Right Offset */
+            right_offset?: number | null;
+            /** Scale X */
+            scale_x?: number | null;
+            /** Mirror Legend */
+            mirror_legend?: boolean | null;
+        };
+        /**
+         * TestPrintRequest
+         * @description Send a one-off draft print to a real printer — for the 'Test'
+         *     button on the template form. ``printer_id`` is required because the
+         *     inline template may be brand-new (no FK persisted yet).
+         */
+        TestPrintRequest: {
+            template: components["schemas"]["TemplateInput"];
+            /** Printer Id */
+            printer_id: number;
+            /**
+             * Operator
+             * @default
+             */
+            operator: string;
+            /**
+             * Reason
+             * @default TEST
+             */
+            reason: string;
+        };
+        /** TestPrintResult */
+        TestPrintResult: {
+            /** Ok */
+            ok: boolean;
+            /** Log Id */
+            log_id?: number | null;
+            /** Template Used */
+            template_used?: string | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
+        /** UpdateApiKeyRequest */
+        UpdateApiKeyRequest: {
+            /** Enabled */
+            enabled: boolean;
         };
         /**
          * VAlign
@@ -1084,10 +2028,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -1098,6 +2038,59 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    auth_status_api_auth_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthStatusOut"];
+                };
+            };
+        };
+    };
+    login_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_printers_api_printers_get: {
         parameters: {
             query?: never;
@@ -1127,7 +2120,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Printer"];
+                "application/json": components["schemas"]["PrinterInput"];
             };
         };
         responses: {
@@ -1213,7 +2206,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Printer"];
+                "application/json": components["schemas"]["PrinterPatch"];
             };
         };
         responses: {
@@ -1301,6 +2294,37 @@ export interface operations {
             };
         };
     };
+    test_print_api_printers__printer_id__test_print_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                printer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestPrintResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_templates_api_templates_get: {
         parameters: {
             query?: never;
@@ -1330,7 +2354,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Template"];
+                "application/json": components["schemas"]["TemplateCreate"];
             };
         };
         responses: {
@@ -1396,7 +2420,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Template"];
+                "application/json": components["schemas"]["TemplatePatch"];
             };
         };
         responses: {
@@ -1963,6 +2987,69 @@ export interface operations {
             };
         };
     };
+    bundles_api_labels_bundles_get: {
+        parameters: {
+            query: {
+                discipline_id: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleDTO"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    by_bundle_api_labels_by_bundle_get: {
+        parameters: {
+            query: {
+                discipline_id: number;
+                bundle: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     search_api_labels_search_get: {
         parameters: {
             query: {
@@ -1972,6 +3059,7 @@ export interface operations {
                 data_hall_id?: number | null;
                 discipline_id?: number | null;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -2333,6 +3421,74 @@ export interface operations {
             };
         };
     };
+    preview_draft_api_print_preview_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_print_api_print_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestPrintRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     submit_print_api_print_post: {
         parameters: {
             query?: never;
@@ -2399,7 +3555,7 @@ export interface operations {
             };
         };
     };
-    index__get: {
+    list_keys_api_api_keys_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2414,14 +3570,120 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/html": string;
+                    "application/json": components["schemas"]["ApiKeyDTO"][];
                 };
             };
         };
     };
-    admin_admin_get: {
+    create_key_api_api_keys_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_key_api_api_keys__key_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateApiKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyDTO"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_key_api_api_keys__key_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_printers_api_v1_printers_get: {
+        parameters: {
+            query?: {
+                /** @description TCP-ping each printer (false = config only, fast) */
+                ping?: boolean;
+                /** @description Filter to a single printer by exact name */
+                name?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2434,12 +3696,109 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/html": string;
+                    "application/json": components["schemas"]["PrinterStatusDTO"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_print_api_v1_print_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiPrintRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiPrintResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_print_batch_api_v1_print_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiBatchPrintRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiBatchPrintResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    root__get: {
         parameters: {
             query?: never;
             header?: never;

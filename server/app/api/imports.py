@@ -5,9 +5,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, select
 
 from ..db import get_session
+from ..importer import begin_label_mutation, delete_labels
 from ..models import DataHall, Discipline, Import, Label, Project
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
@@ -70,11 +71,15 @@ def delete_import(import_id: int, session: Session = Depends(get_session)) -> di
     to complain about. With ``PRAGMA foreign_keys=ON`` SQLite checks the
     constraint per-statement, so order matters here.
     """
-    imp = session.get(Import, import_id)
-    if not imp:
-        raise HTTPException(404, "Import not found")
-    result = session.exec(delete(Label).where(Label.import_id == import_id))
-    n_labels = result.rowcount or 0
-    session.delete(imp)
-    session.commit()
-    return {"deleted": import_id, "labels_removed": n_labels}
+    try:
+        begin_label_mutation(session)
+        imp = session.get(Import, import_id)
+        if not imp:
+            raise HTTPException(404, "Import not found")
+        n_labels = delete_labels(session, Label.import_id == import_id)
+        session.delete(imp)
+        session.commit()
+        return {"deleted": import_id, "labels_removed": n_labels}
+    except Exception:
+        session.rollback()
+        raise

@@ -123,6 +123,8 @@ export interface SearchHit {
 }
 
 export interface SearchResponse {
+  truncated: boolean;
+  offset: number;
   query: string;
   expanded: string[];
   hits: SearchHit[];
@@ -130,6 +132,8 @@ export interface SearchResponse {
 }
 
 export interface CartItem {
+  status: "queued" | "printing" | "uncertain" | "printed";
+  error: string;
   id: number;
   label_id: number | null;
   discipline_name: string;

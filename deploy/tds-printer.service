@@ -13,7 +13,7 @@ Environment="PATH=/opt/TDS-Printer/.venv/bin"
 # Sync deps after git pull (auth needs pyjwt, main needs python-dotenv).
 ExecStartPre=/opt/TDS-Printer/.venv/bin/pip install -e /opt/TDS-Printer/server -q
 ExecStartPre=/opt/TDS-Printer/.venv/bin/alembic upgrade head
-ExecStart=/opt/TDS-Printer/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+ExecStart=/opt/TDS-Printer/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=5
 

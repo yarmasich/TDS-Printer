@@ -4,19 +4,38 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlmodel import Session, func, select
+from pydantic import BaseModel, field_validator
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, delete, func, select
 
 from ..auth_admin import require_admin
 from ..db import get_session
-from ..models import DataHall, Discipline, Label, Printer, Project, Template
+from ..importer import begin_label_mutation, delete_labels
+from ..models import DataHall, Discipline, Import, Label, Printer, Project, Template
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
 
+def _commit(session: Session) -> None:
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, "Name already exists or referenced record is in use") from exc
+
+
+class NamedInput(BaseModel):
+    @field_validator("name", check_fields=False)
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value.strip()
+
+
 # ─────────── Project ───────────
 
-class ProjectIn(BaseModel):
+class ProjectIn(NamedInput):
     name: str
 
 
@@ -29,28 +48,33 @@ def list_projects(session: Session = Depends(get_session)) -> List[Project]:
 def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> Project:
     p = Project(name=body.name.strip())
     session.add(p)
-    session.commit()
+    _commit(session)
     session.refresh(p)
     return p
 
 
 @router.delete("/projects/{project_id}", dependencies=[Depends(require_admin)])
 def delete_project(project_id: int, session: Session = Depends(get_session)) -> dict:
-    p = session.get(Project, project_id)
-    if not p:
-        raise HTTPException(404, "Project not found")
-    # cascade by hand: halls → disciplines → labels
-    halls = session.exec(select(DataHall).where(DataHall.project_id == project_id)).all()
-    for h in halls:
-        _delete_hall(session, h)
-    session.delete(p)
-    session.commit()
-    return {"deleted": project_id}
+    try:
+        begin_label_mutation(session)
+        p = session.get(Project, project_id)
+        if not p:
+            raise HTTPException(404, "Project not found")
+        # cascade by hand: halls → disciplines → labels
+        halls = session.exec(select(DataHall).where(DataHall.project_id == project_id)).all()
+        for h in halls:
+            _delete_hall(session, h)
+        session.delete(p)
+        _commit(session)
+        return {"deleted": project_id}
+    except Exception:
+        session.rollback()
+        raise
 
 
 # ─────────── DataHall ───────────
 
-class HallIn(BaseModel):
+class HallIn(NamedInput):
     project_id: int
     name: str
 
@@ -72,19 +96,24 @@ def create_hall(body: HallIn, session: Session = Depends(get_session)) -> DataHa
         raise HTTPException(404, "Project not found")
     h = DataHall(project_id=body.project_id, name=body.name.strip())
     session.add(h)
-    session.commit()
+    _commit(session)
     session.refresh(h)
     return h
 
 
 @router.delete("/halls/{hall_id}", dependencies=[Depends(require_admin)])
 def delete_hall(hall_id: int, session: Session = Depends(get_session)) -> dict:
-    h = session.get(DataHall, hall_id)
-    if not h:
-        raise HTTPException(404, "Data hall not found")
-    _delete_hall(session, h)
-    session.commit()
-    return {"deleted": hall_id}
+    try:
+        begin_label_mutation(session)
+        h = session.get(DataHall, hall_id)
+        if not h:
+            raise HTTPException(404, "Data hall not found")
+        _delete_hall(session, h)
+        _commit(session)
+        return {"deleted": hall_id}
+    except Exception:
+        session.rollback()
+        raise
 
 
 def _delete_hall(session: Session, h: DataHall) -> None:
@@ -92,11 +121,12 @@ def _delete_hall(session: Session, h: DataHall) -> None:
     for d in discs:
         _delete_discipline(session, d)
     session.delete(h)
+    session.flush()
 
 
 # ─────────── Discipline ───────────
 
-class DisciplineIn(BaseModel):
+class DisciplineIn(NamedInput):
     data_hall_id: int
     name: str
     template_id: Optional[int] = None
@@ -104,11 +134,18 @@ class DisciplineIn(BaseModel):
     bundle_mode: bool = False
 
 
-class DisciplinePatch(BaseModel):
+class DisciplinePatch(NamedInput):
     name: Optional[str] = None
     template_id: Optional[int] = None
     color: Optional[str] = None
     bundle_mode: Optional[bool] = None
+
+    @field_validator("color", "bundle_mode")
+    @classmethod
+    def non_null(cls, value):
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
 
 
 class DisciplineDTO(BaseModel):
@@ -177,6 +214,8 @@ def create_discipline(
 ) -> Discipline:
     if not session.get(DataHall, body.data_hall_id):
         raise HTTPException(404, "Data hall not found")
+    if body.template_id is not None and not session.get(Template, body.template_id):
+        raise HTTPException(400, "Template not found")
     d = Discipline(
         data_hall_id=body.data_hall_id,
         name=body.name.strip(),
@@ -185,7 +224,7 @@ def create_discipline(
         bundle_mode=body.bundle_mode,
     )
     session.add(d)
-    session.commit()
+    _commit(session)
     session.refresh(d)
     return d
 
@@ -197,10 +236,12 @@ def update_discipline(
     d = session.get(Discipline, discipline_id)
     if not d:
         raise HTTPException(404, "Discipline not found")
+    if patch.template_id is not None and not session.get(Template, patch.template_id):
+        raise HTTPException(400, "Template not found")
     for k, v in patch.model_dump(exclude_unset=True).items():
         setattr(d, k, v)
     session.add(d)
-    session.commit()
+    _commit(session)
     session.refresh(d)
     return d
 
@@ -209,15 +250,21 @@ def update_discipline(
 def delete_discipline(
     discipline_id: int, session: Session = Depends(get_session)
 ) -> dict:
-    d = session.get(Discipline, discipline_id)
-    if not d:
-        raise HTTPException(404, "Discipline not found")
-    _delete_discipline(session, d)
-    session.commit()
-    return {"deleted": discipline_id}
+    try:
+        begin_label_mutation(session)
+        d = session.get(Discipline, discipline_id)
+        if not d:
+            raise HTTPException(404, "Discipline not found")
+        _delete_discipline(session, d)
+        _commit(session)
+        return {"deleted": discipline_id}
+    except Exception:
+        session.rollback()
+        raise
 
 
 def _delete_discipline(session: Session, d: Discipline) -> None:
-    for lbl in session.exec(select(Label).where(Label.discipline_id == d.id)).all():
-        session.delete(lbl)
+    delete_labels(session, Label.discipline_id == d.id)
+    session.exec(delete(Import).where(Import.discipline_id == d.id))
     session.delete(d)
+    session.flush()

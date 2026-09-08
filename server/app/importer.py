@@ -14,11 +14,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
+from fastapi import HTTPException
 from sqlmodel import Session, delete, select
 
-from .models import DataHall, Discipline, Import, Label, Project
+from .models import CartItem, DataHall, Discipline, Import, Label, Project
 
 log = logging.getLogger("tds.importer")
 
@@ -93,7 +96,25 @@ def _get_or_create_discipline(
     return d, True
 
 
+class InvalidWorkbookError(ValueError):
+    """The supplied workbook cannot be parsed as label input."""
+
+
 def import_workbook_into_discipline(
+    session: Session, path: Path, discipline: Discipline, *,
+    display_filename: Optional[str] = None,
+) -> ImportStats:
+    """Stage one workbook; the caller owns commit/rollback."""
+    try:
+        return _import_workbook_into_discipline(
+            session, path, discipline, display_filename=display_filename,
+        )
+    except (BadZipFile, InvalidFileException, OSError, ValueError,
+            KeyError, TypeError, IndexError, SyntaxError) as exc:
+        raise InvalidWorkbookError(f"Invalid XLSX workbook: {display_filename or path.name}") from exc
+
+
+def _import_workbook_into_discipline(
     session: Session,
     path: Path,
     discipline: Discipline,
@@ -149,23 +170,62 @@ def import_workbook_into_discipline(
                 imp.rows += 1
     finally:
         wb.close()
-    session.commit()
+    session.flush()
     return stats
+
+
+def begin_label_mutation(session: Session) -> None:
+    """Serialize destructive changes with SQLite's atomic print claims."""
+    connection = session.connection()
+    if connection.dialect.name == "sqlite":
+        raw = connection.connection.driver_connection
+        if not raw.in_transaction:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def delete_labels(session: Session, condition=None) -> int:
+    """Remove labels and their inactive carts in the caller's transaction."""
+    begin_label_mutation(session)
+    ids = select(Label.id)
+    if condition is not None:
+        ids = ids.where(condition)
+    affected = CartItem.label_id.in_(ids)
+    if session.exec(select(CartItem.id).where(
+        affected, CartItem.status.in_(["printing", "uncertain"])
+    )).first() is not None:
+        raise HTTPException(409, "Labels belong to an active or uncertain print job")
+    session.exec(delete(CartItem).where(affected))
+    statement = delete(Label)
+    if condition is not None:
+        statement = statement.where(condition)
+    return session.exec(statement.execution_options(synchronize_session="fetch")).rowcount or 0
 
 
 def scan_labels_dir(
     session: Session, root: Path, *, wipe: bool = False
 ) -> ImportStats:
-    if wipe:
-        session.exec(delete(Label))
+    """Commit a complete scan, or restore all old data on any failure."""
+    try:
+        begin_label_mutation(session)
+        result = _scan_labels_dir(session, root, wipe=wipe)
         session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _scan_labels_dir(
+    session: Session, root: Path, *, wipe: bool = False
+) -> ImportStats:
+    if not root.is_dir():
+        raise ValueError(f"Not a directory: {root}")
+    if wipe:
+        delete_labels(session)
+        session.exec(delete(Import))
         log.info("Label table wiped before scan.")
 
     total = ImportStats()
-    if not root.exists():
-        log.warning("Labels root %s does not exist; nothing imported.", root)
-        return total
-
     for project_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         project = _get_or_create_project(session, project_dir.name)
         for hall_dir in sorted(p for p in project_dir.iterdir() if p.is_dir()):
