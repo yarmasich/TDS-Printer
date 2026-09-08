@@ -298,3 +298,24 @@ def test_unset_side_with_negative_padding_cannot_allocate_huge_buffer():
                  mirror_legend=True)
     with pytest.raises(PrintError, match='text area'):
         render_label_bitmap(t, 'TEST', '')
+
+
+def test_legacy_r200_page_size_repair_previews_and_saves(render_api):
+    client, _ = render_api
+    payload = dict(name='R200X150', printer_id=1, bytes_per_row=156, height=862,
+                   left_left=70, left_right=638, left_top=170, left_bottom=325,
+                   right_left=661, right_right=1261, right_top=170, right_bottom=325,
+                   left_text='LEFT', right_text='RIGHT', mirror_legend=True)
+    response = client.post('/api/print/preview-draft', json={'template': payload, 'crop': True})
+    assert response.status_code == 422
+    assert 'right text area must fit' in response.text
+    payload.update(bytes_per_row=160, height=638)
+    response = client.post('/api/print/preview-draft', json={'template': payload, 'crop': True})
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'] == 'image/png'
+    with Image.open(BytesIO(response.content)) as image:
+        assert image.getextrema()[0] < 255
+    saved = client.post('/api/templates', json=payload)
+    assert saved.status_code in (200, 201), saved.text
+    assert saved.json()['right_right'] == 1261
+    assert saved.json()['mirror_legend'] is True

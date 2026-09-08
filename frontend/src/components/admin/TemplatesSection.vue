@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { adminAuthHeader, api, apiUrl } from "@/api/client";
+import { readApiError } from "@/api/errors";
+import { pageSizeRepair } from "@/data/templateGeometry";
 import type { Template } from "@/api/types";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
@@ -152,7 +154,7 @@ async function openPreview(t: Template) {
     const res = await fetch(`${apiUrl("/api/print/preview")}?${q}`, {
       headers: adminAuthHeader(),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await readApiError(res));
     const blob = await res.blob();
     window.open(URL.createObjectURL(blob), "_blank", "noopener");
   } catch (e: unknown) {
@@ -203,8 +205,10 @@ async function refreshPreview() {
     });
     if (seq !== previewSeq) return; // a newer call already ran
     if (!res.ok) {
-      const detail = await res.text();
-      previewError.value = `${res.status}: ${detail.slice(0, 200)}`;
+      const detail = await readApiError(res);
+      if (seq !== previewSeq) return;
+      clearPreview();
+      previewError.value = detail;
       return;
     }
     const blob = await res.blob();
@@ -290,6 +294,11 @@ const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
 
 // Available bitmap preset for this template name (R200X225 / R200X150
 // / S200X400 today). Null → form keeps whatever geometry it has.
+const suggestedPage = computed(() => pageSizeRepair(form));
+function repairPageSize() {
+  if (suggestedPage.value) Object.assign(form, suggestedPage.value);
+}
+
 const availablePreset = computed(() => findTemplatePreset(form.name || ""));
 
 // Canonical SKU shown on the Load-preset button (e.g. "R150x150" → "R150X150").
@@ -486,6 +495,12 @@ watch(
               No preview yet
             </div>
             <i v-if="previewSrc" class="pi pi-search-plus zoom-hint" aria-hidden="true" />
+          </div>
+          <div v-if="suggestedPage" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" role="status">
+            <p>The text areas exceed the current page. {{ presetSku }} uses
+              {{ suggestedPage.bytes_per_row * 8 }}×{{ suggestedPage.height }} px.
+              Update the page size while keeping your text positions and font settings, then save.</p>
+            <Button class="mt-2" label="Fix page size" severity="warn" @click="repairPageSize" />
           </div>
         </fieldset>
 
