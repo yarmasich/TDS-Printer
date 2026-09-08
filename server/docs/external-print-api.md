@@ -140,7 +140,9 @@ Content-Type: application/json
 | `printer_id`    | string   | —        | Logical printer **code** = printer name, e.g. `"WS1"` (see [§7 Printer routing](#7-printer-routing-per-workstation)). Whole batch prints to it. Omit → template default. Unknown → `404`. |
 | `stop_on_error` | bool     | —        | Stop on the first **printer/send** error (default `false` = keep going). |
 
-Provide `cables` and/or `cable` (at least one). Up to **500** cables per call.
+Provide `cables` and/or `cable` (at least one), or an explicit `bundle` for a
+bundle-mode discipline. Up to **500 distinct labels** per call, including group
+and bundle matches. Oversized ranges and batches are rejected before any send.
 
 **Range / list syntax** (same as the operator search box):
 
@@ -150,6 +152,11 @@ Provide `cables` and/or `cable` (at least one). Up to **500** cables per call.
 - `"20.*"` (or `"20."`) → the **whole group 20**: the trunk `#20` *and* every
   breakout `#20.1` … `#20.18`. (A bare `"20"` matches only the single `#20`.)
 - `["1.1", "1.5-1.8", "2.3"]` → each entry expanded, then de-duplicated.
+
+Overlapping selectors such as `["1.*", "1.1"]` print each matching label once.
+In bundle mode only a complete `N`, `N.` or `N.*` selector chooses a bundle;
+an individual `1.1` still selects that cable. Missing bundles are reported as
+`not_found` and make `ok` false even when other bundles were printed.
 
 ### Example — 50 labels
 
@@ -191,7 +198,11 @@ curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
   `error` (printer/send failed) · `skipped` (only when `stop_on_error` aborted
   the rest).
 - The endpoint returns `200` even with partial failures — inspect `results`.
-  (A `400` is returned only for an empty request or a batch over 500.)
+  Empty/malformed selectors and a batch over 500 are rejected with `400`;
+  invalid request field types or constraints return `422`.
+- `requested` counts resolved distinct labels plus unresolved selectors, rather
+  than the number of input expressions. Stopping during a group reports every
+  remaining selected label as `skipped`.
 
 > Prints are sent **serially** to one printer, so a 50-label batch is one long
 > request — set a generous client timeout.

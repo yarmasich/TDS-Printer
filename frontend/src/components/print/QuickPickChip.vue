@@ -28,8 +28,8 @@ function open(event: MouseEvent) {
   popoverRef.value?.show(event);
 }
 
-function pick(opt: T) {
-  emit("update:modelValue", String(opt[props.optionValue]));
+function pick(opt: T | undefined) {
+  emit("update:modelValue", opt == null ? "" : String(opt[props.optionValue]));
   popoverRef.value?.hide();
 }
 
@@ -40,15 +40,15 @@ function clear(e: Event) {
 </script>
 
 <template>
-  <button
-    type="button"
+  <span
     class="chip"
     :class="{ 'chip-set': modelValue }"
-    @click="open"
   >
+    <button type="button" class="chip-open" @click="open">
     <span class="chip-label">{{ label }}</span>
     <span v-if="modelValue" class="chip-value">{{ modelValue }}</span>
     <span v-else class="chip-placeholder">— set —</span>
+    </button>
     <button
       v-if="modelValue"
       type="button"
@@ -58,8 +58,8 @@ function clear(e: Event) {
     >
       ×
     </button>
-  </button>
-  <Popover ref="popoverRef" :style="{ width: '20rem' }">
+  </span>
+  <Popover ref="popoverRef" :style="{ width: '20rem', maxWidth: 'calc(100vw - 2rem)' }">
     <Listbox
       :model-value="modelValue"
       :options="options"
@@ -67,12 +67,15 @@ function clear(e: Event) {
       :option-value="optionValue as string"
       :filter="options.length > 8"
       list-style="max-height: 16rem"
-      @update:model-value="(v: unknown) => pick(options.find(o => String(o[optionValue]) === String(v)) as T)"
+      @update:model-value="(v: unknown) => pick(options.find(o => String(o[optionValue]) === String(v)) as T | undefined)"
     />
   </Popover>
 </template>
 
 <style scoped>
+.chip-open { display: inline-flex; align-items: center; gap: 8px; min-width: 0; background: transparent; border: 0; cursor: pointer; padding: 3px 0; text-align: left; }
+.chip { max-width: 100%; }
+.chip-value { overflow-wrap: anywhere; }
 .chip {
   display: inline-flex;
   align-items: center;
@@ -98,7 +101,7 @@ function clear(e: Event) {
   font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.5px;
 }
 .chip-set .chip-label {
@@ -109,14 +112,14 @@ function clear(e: Event) {
   font-weight: 600;
 }
 .chip-placeholder {
-  color: #94a3b8;
+  color: #475569;
 }
 .chip-clear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: rgba(2, 132, 199, 0.15);
   border: 0;

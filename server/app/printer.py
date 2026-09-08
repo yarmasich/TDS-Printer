@@ -14,6 +14,7 @@ Dispatch happens in ``build_print_job`` based on ``Printer.protocol``.
 from __future__ import annotations
 
 import logging
+import math
 import socket
 from io import BytesIO
 from pathlib import Path
@@ -23,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .label_geometry import is_turn_tell_300, text_rect
 from .models import Printer, Template
+from .schemas import MAX_RENDER_PIXELS, PrinterInput, TemplateInput
 
 log = logging.getLogger("tds.printer")
 
@@ -39,7 +41,9 @@ _FONT_FILES: dict[tuple[str, str], str] = {
 _FONT_DPI = 203
 
 class PrintError(Exception):
-    pass
+    def __init__(self, message: str, *, uncertain: bool = False):
+        super().__init__(message)
+        self.uncertain = uncertain
 
 
 def _align_value(field) -> str:
@@ -102,6 +106,13 @@ def _measure_block(
     ]
     if not measured:
         return measured, 0, 0.0
+    # Pillow allocates a mask for an entire line before clipping to our canvas.
+    # A long unbroken identifier at a large point size must not bypass the
+    # bitmap allocation limit through that intermediate mask.
+    for _, bbox in measured:
+        width, height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        if width > 8192 or width * height > MAX_RENDER_PIXELS:
+            raise PrintError("Text line is too wide to render; shorten it or reduce the font size")
 
     heights = _line_heights(font, measured)
     line_gap = max(round(2 * scale), int(font.size * 0.15))
@@ -156,8 +167,10 @@ def _paint_measured_lines(
         cur_y += line_h + line_gap
 
 
-def _stretch_ink_horizontal(im: Image.Image, scale_x: float) -> Image.Image:
-    """Widen drawn text in-place; keeps vertical position, centers on buffer width."""
+def _stretch_ink_horizontal(
+    im: Image.Image, scale_x: float, h_align: str = "CENTER"
+) -> Image.Image:
+    """Widen ink while preserving the selected horizontal anchor."""
     if scale_x <= 1.0:
         return im
     inv = Image.eval(im, lambda v: 255 - v)
@@ -168,9 +181,13 @@ def _stretch_ink_horizontal(im: Image.Image, scale_x: float) -> Image.Image:
     new_w = max(1, int(round(crop.width * scale_x)))
     stretched = crop.resize((new_w, crop.height), Image.Resampling.LANCZOS)
     out = Image.new("L", im.size, 255)
-    paste_x = (im.width - new_w) // 2
+    if h_align == "LEFT":
+        paste_x = bbox[0]
+    elif h_align == "RIGHT":
+        paste_x = bbox[2] - new_w
+    else:
+        paste_x = (im.width - new_w) // 2
     paste_y = bbox[1]
-    paste_x = max(0, min(paste_x, im.width - new_w))
     out.paste(stretched, (paste_x, paste_y))
     return out
 
@@ -234,6 +251,8 @@ def _draw_text_block(
 
     rect_w = x1 - x0
     rect_h = y1 - y0
+    if rect_w * rect_h > MAX_RENDER_PIXELS or rect_w > 8192 or rect_h > 8192:
+        raise PrintError("The text area is too large to render")
     wrap_w = rect_w / scale_x if scale_x > 1.0 else rect_w
     measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h, scale)
 
@@ -277,7 +296,7 @@ def _draw_text_block(
         total_h=total_h,
     )
     if scale_x > 1.0:
-        buf = _stretch_ink_horizontal(buf, scale_x)
+        buf = _stretch_ink_horizontal(buf, scale_x, h_align)
     block = (
         buf.transpose(Image.Transpose.ROTATE_180) if rotate_180 else buf
     )
@@ -289,6 +308,25 @@ def _draw_text_block(
 
 
 def render_label_bitmap(
+    template: Template, left_text: str, right_text: str, *, scale: float = 1.0
+) -> Image.Image:
+    """Validate persisted as well as draft settings before allocating a bitmap."""
+    try:
+        validated = TemplateInput.model_validate(template, from_attributes=True)
+        if not math.isfinite(scale) or not 0 < scale <= 2:
+            raise ValueError("Render scale must be positive and at most 2 (600 DPI)")
+        width = round(validated.bytes_per_row * scale) * 8
+        height = round(validated.height * scale)
+        if width < 1 or height < 1 or width * height > MAX_RENDER_PIXELS:
+            raise ValueError("Scaled bitmap dimensions are outside the supported limits")
+        if len(left_text) > 4096 or len(right_text) > 4096:
+            raise ValueError("Label text must be at most 4096 characters per side")
+        return _render_label_bitmap(validated, left_text, right_text, scale=scale)
+    except (ValueError, OSError, OverflowError, Image.DecompressionBombError) as exc:
+        raise PrintError(f"Cannot render label: {exc}") from exc
+
+
+def _render_label_bitmap(
     template: Template, left_text: str, right_text: str, *, scale: float = 1.0
 ) -> Image.Image:
     """Bitmap in printer raster space (preview == print).
@@ -386,11 +424,17 @@ def build_print_job(
     Lazy imports keep ``printer_epl2`` / ``printer_jscript`` free to import
     rendering helpers from this module without a circular dependency.
     """
+    try:
+        PrinterInput.model_validate(printer, from_attributes=True)
+    except ValueError as exc:
+        raise PrintError(f"Invalid printer settings: {exc}") from exc
     if printer.protocol == "jscript":
         from .printer_jscript import build_jscript_job
 
         return build_jscript_job(template, printer, left_text, right_text)
-    # Default: TSC EPL2 (TDP-43ME — the Android-ported engine).
+    if printer.protocol != "epl2":
+        raise PrintError(f"Unsupported printer protocol: {printer.protocol}")
+    # TSC EPL2 (TDP-43ME — the Android-ported engine).
     from .printer_epl2 import build_epl2_job
 
     return build_epl2_job(template, left_text, right_text)
@@ -398,10 +442,16 @@ def build_print_job(
 
 def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0) -> None:
     try:
-        with socket.create_connection((ip, port), timeout=timeout) as s:
+        connection = socket.create_connection((ip, port), timeout=timeout)
+    except (OSError, OverflowError) as exc:
+        raise PrintError(f"connect to {ip}:{port} failed: {exc}") from exc
+    try:
+        with connection as s:
             s.sendall(payload)
-    except OSError as e:
-        raise PrintError(f"send to {ip}:{port} failed: {e}") from e
+    except OSError as exc:
+        # sendall cannot report how many bytes reached the printer. Never
+        # imply that retrying this job is guaranteed not to produce a duplicate.
+        raise PrintError(f"send to {ip}:{port} failed: {exc}", uncertain=True) from exc
 
 
 def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Optional[float], str]:
@@ -411,7 +461,7 @@ def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Opt
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             pass
-    except OSError as e:
+    except (OSError, OverflowError) as e:
         return False, None, str(e)
     return True, round((time.perf_counter() - start) * 1000, 1), ""
 

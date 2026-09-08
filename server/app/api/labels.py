@@ -39,6 +39,8 @@ class SearchResponse(BaseModel):
     expanded: List[str]
     hits: List[SearchHit]
     total: int
+    truncated: bool = False
+    offset: int = 0
 
 
 class BundleDTO(BaseModel):
@@ -97,9 +99,13 @@ def search(
     data_hall_id: Optional[int] = None,
     discipline_id: Optional[int] = None,
     limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ) -> SearchResponse:
-    queries = parse_batch_query(q)
+    try:
+        queries = parse_batch_query(q)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     stmt = select(Label, Discipline, DataHall, Project).join(
         Discipline, Label.discipline_id == Discipline.id
@@ -115,7 +121,7 @@ def search(
     if project_id is not None:
         stmt = stmt.where(Project.id == project_id)
 
-    candidates = session.exec(stmt).all()
+    candidates = session.exec(stmt.order_by(Label.id)).all()
 
     # One row → one hit. We OR the matched_left/matched_right flags across
     # all expanded query tokens so a batch like ``45.5-7`` collapses to a
@@ -143,15 +149,15 @@ def search(
                 existing["matched_left"] = ml
                 existing["matched_right"] = mr
             else:
-                if len(matches) >= limit:
-                    continue
                 matches[label.id] = {
                     "label": label, "disc": disc, "hall": hall, "proj": proj,
                     "matched_left": ml, "matched_right": mr,
                 }
 
-    hits = [_hit(**m) for m in matches.values()]
-    return SearchResponse(query=q, expanded=queries, hits=hits, total=len(hits))
+    total = len(matches)
+    hits = [_hit(**m) for m in list(matches.values())[offset:offset + limit]]
+    return SearchResponse(query=q, expanded=queries, hits=hits, total=total,
+                          truncated=offset + len(hits) < total, offset=offset)
 
 
 def _hit(

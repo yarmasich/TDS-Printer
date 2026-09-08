@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import type { CartItem } from "@/api/types";
 import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
 import Drawer from "primevue/drawer";
@@ -18,14 +19,14 @@ const emit = defineEmits<{
   printed: [count: number];
 }>();
 
-const cart = useCart();
+const cart = useCart(props.kiosk ? "kiosk" : "print");
 const toast = useToast();
 const confirm = useConfirm();
 const drawerOpen = ref(false);
 const printing = ref(false);
 
 async function printAll() {
-  if (!cart.count) return;
+  if (!cart.queuedCount || cart.hasPrinting) return;
   printing.value = true;
   try {
     const res = await cart.printAll(props.operator, props.reason);
@@ -59,15 +60,24 @@ async function printAll() {
   }
 }
 
+function reportError(error: unknown) {
+  toast.add({ severity: "error", summary: "Cart action failed", detail: error instanceof Error ? error.message : String(error) });
+}
+async function refreshCart() { try { await cart.fetch(); } catch (error) { reportError(error); } }
+function removeItem(item: CartItem) {
+  const remove = async () => { try { await cart.remove(item.id); } catch (error) { reportError(error); } };
+  if (item.status === "uncertain") confirm.require({ header: "Remove uncertain label?", message: "This label may have printed. Check the printer before removing this record or adding it again.", acceptLabel: "Remove record", rejectLabel: "Keep", accept: remove });
+  else void remove();
+}
 function clearCart() {
   confirm.require({
     header: "Clear cart",
-    message: "Remove all labels from the cart?",
+    message: cart.items.some(i => i.status === "uncertain") ? "Some labels may have printed. Check the printer before removing their records. Remove all labels from the cart?" : "Remove all labels from the cart?",
     rejectLabel: "Cancel",
     acceptLabel: "Clear",
     accept: async () => {
-      await cart.clear();
-      drawerOpen.value = false;
+      try { await cart.clear(); drawerOpen.value = false; }
+      catch (error) { reportError(error); }
     },
   });
 }
@@ -93,13 +103,15 @@ function clearCart() {
         <div class="flex gap-2">
           <Button
             label="Clear"
+            :disabled="cart.hasPrinting"
             severity="secondary"
             :size="props.kiosk ? 'large' : 'small'"
             :fluid="props.kiosk"
             @click="clearCart"
           />
           <Button
-            label="Print all"
+             :label="`Print queued (${cart.queuedCount})`"
+            :disabled="!cart.queuedCount || cart.hasPrinting"
             icon="pi pi-print"
             :size="props.kiosk ? 'large' : undefined"
             :fluid="props.kiosk"
@@ -119,6 +131,9 @@ function clearCart() {
     :style="{ width: '32rem', maxWidth: '95vw' }"
     header="Cart"
   >
+    <Button label="Refresh cart" icon="pi pi-refresh" severity="secondary" size="small" :loading="cart.loading" @click="refreshCart" />
+    <p v-if="cart.error" role="alert" class="text-red-700 mt-2">{{ cart.error }}</p>
+    <p class="text-sm text-slate-600 my-3">Only queued labels are sent. Check uncertain labels at the printer before removing or adding them again.</p>
     <p v-if="!cart.count" class="text-slate-500">Cart is empty.</p>
     <ul v-else class="space-y-2">
       <li
@@ -128,6 +143,10 @@ function clearCart() {
       >
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold capitalize">{{ item.status }}</p>
+            <p v-if="item.status === 'printing'" class="text-sm text-sky-800">Sending to printer. Wait, then refresh. This label cannot be removed or resent while active.</p>
+            <p v-if="item.status === 'uncertain'" class="text-sm text-amber-800">May have printed. Check the printer before removing this record or adding the label again.</p>
+            <p v-if="item.error" class="text-sm text-red-700">{{ item.error }}</p>
             <div class="text-sm font-medium truncate">
               <b>L:</b> {{ (item.left_text || "—").split("\n")[0] }}
             </div>
@@ -147,7 +166,8 @@ function clearCart() {
             text
             rounded
             aria-label="Remove"
-            @click="cart.remove(item.id)"
+            :disabled="cart.printing || item.status === 'printing'"
+            @click="removeItem(item)"
           />
         </div>
       </li>
@@ -158,13 +178,13 @@ function clearCart() {
           label="Clear cart"
           severity="secondary"
           size="small"
-          :disabled="!cart.count"
+          :disabled="!cart.count || cart.hasPrinting"
           @click="clearCart"
         />
         <Button
-          label="Print all"
+           :label="`Print queued (${cart.queuedCount})`"
+            :disabled="!cart.queuedCount || cart.hasPrinting"
           icon="pi pi-print"
-          :disabled="!cart.count"
           :loading="printing"
           @click="printAll"
         />

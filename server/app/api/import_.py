@@ -18,6 +18,7 @@ from sqlmodel import Session
 from ..db import get_session
 from ..importer import (
     ImportStats,
+    InvalidWorkbookError,
     import_workbook_into_discipline,
     scan_labels_dir,
 )
@@ -35,7 +36,10 @@ def scan(
     path = Path(root).expanduser().resolve()
     if not path.is_dir():
         raise HTTPException(400, f"Not a directory: {path}")
-    return _stats_dict(scan_labels_dir(session, path, wipe=wipe))
+    try:
+        return _stats_dict(scan_labels_dir(session, path, wipe=wipe))
+    except InvalidWorkbookError as exc:
+        raise HTTPException(400, "Invalid XLSX workbook in scan") from exc
 
 
 @router.post("/upload")
@@ -52,12 +56,20 @@ async def upload(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tds-upload-"))
     try:
-        tmp_path = tmp_dir / file.filename
+        tmp_path = tmp_dir / "upload.xlsx"
         with tmp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        return _stats_dict(import_workbook_into_discipline(
+        stats = import_workbook_into_discipline(
             session, tmp_path, d, display_filename=file.filename,
-        ))
+        )
+        session.commit()
+        return _stats_dict(stats)
+    except InvalidWorkbookError as exc:
+        session.rollback()
+        raise HTTPException(400, "Invalid XLSX workbook") from exc
+    except Exception:
+        session.rollback()
+        raise
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

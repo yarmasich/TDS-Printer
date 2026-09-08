@@ -9,6 +9,7 @@ from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
 from ..printer import PrintError, render_and_send, render_label_png
+from ..schemas import TemplateInput
 
 router = APIRouter(prefix="/api/print", tags=["print"])
 
@@ -24,7 +25,7 @@ class DraftPreviewRequest(BaseModel):
     box — useful when the preview is being scaled into a small UI
     swatch and would otherwise be dominated by empty canvas.
     """
-    template: Template
+    template: TemplateInput
     left_text: str = ""
     right_text: str = ""
     crop: bool = False
@@ -34,7 +35,7 @@ class TestPrintRequest(BaseModel):
     """Send a one-off draft print to a real printer — for the 'Test'
     button on the template form. ``printer_id`` is required because the
     inline template may be brand-new (no FK persisted yet)."""
-    template: Template
+    template: TemplateInput
     printer_id: int
     operator: str = ""
     reason: str = "TEST"
@@ -73,7 +74,10 @@ def preview(
         right = right_text or tmpl.right_text
     else:
         raise HTTPException(400, "Provide label_id or template_id")
-    png = render_label_png(tmpl, left, right)
+    try:
+        png = render_label_png(tmpl, left, right)
+    except PrintError as exc:
+        raise HTTPException(400, f"Preview failed: {exc}") from exc
     return Response(content=png, media_type="image/png")
 
 
@@ -83,7 +87,10 @@ def preview_draft(req: DraftPreviewRequest):
     so what you see here is what comes out of the printer."""
     left = req.left_text or req.template.left_text
     right = req.right_text or req.template.right_text
-    png = render_label_png(req.template, left, right, crop=req.crop)
+    try:
+        png = render_label_png(req.template, left, right, crop=req.crop)
+    except PrintError as exc:
+        raise HTTPException(400, f"Preview failed: {exc}") from exc
     return Response(content=png, media_type="image/png")
 
 

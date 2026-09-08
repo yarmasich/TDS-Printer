@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
@@ -20,6 +20,12 @@ const kiosk = useKiosk();
 const printers = usePrinters();
 
 const showSetup = ref(true);
+let pingRevision = 0;
+let mounted = true;
+const isMounted = () => mounted;
+const setupError = ref("");
+const setupLoading = ref(false);
+onUnmounted(() => { mounted = false; pingRevision++; });
 /** PrimeVue Select binds full option objects, not raw ids. */
 const setupProject = ref<Project | null>(null);
 const setupDiscipline = ref<Discipline | null>(null);
@@ -69,17 +75,23 @@ function pickDiscipline(
 
 onMounted(async () => {
   kiosk.load();
+  setupLoading.value = true;
+  try {
   await projects.loadProjects();
+  if (!mounted) return;
   if (kiosk.isReady) {
     hydratingSetup = true;
     setupProject.value = pickProject(kiosk.projectId);
-    await projects.loadDisciplinesForProject(kiosk.projectId!);
+    await projects.loadDisciplinesForProject(kiosk.projectId!, isMounted);
+    if (!mounted) return;
     setupDiscipline.value = pickDiscipline(kiosk.disciplineId);
     activeDiscipline.value = setupDiscipline.value;
     hydratingSetup = false;
     showSetup.value = false;
     await refreshPrinterPing();
   }
+  } catch (error) { setupError.value = String(error); }
+  finally { hydratingSetup = false; setupLoading.value = false; }
 });
 
 watch(setupProject, async (proj, oldProj) => {
@@ -88,8 +100,10 @@ watch(setupProject, async (proj, oldProj) => {
   const oldId = oldProj?.id ?? null;
   if (id === oldId) return;
   setupDiscipline.value = null;
-  if (id != null) await projects.loadDisciplinesForProject(id);
-  else projects.disciplines = [];
+  setupError.value = "";
+  if (id != null) {
+    try { await projects.loadDisciplinesForProject(id, isMounted); } catch { /* latest failure is rendered from the projects store */ }
+  } else projects.clearDisciplines();
 });
 
 async function resolveActiveDiscipline(): Promise<Discipline | null> {
@@ -105,25 +119,32 @@ async function resolveActiveDiscipline(): Promise<Discipline | null> {
     (setupDiscipline.value?.id === disciplineId ? setupDiscipline.value : null);
 
   if (!d) {
-    await projects.loadDisciplinesForProject(projectId);
+    await projects.loadDisciplinesForProject(projectId, isMounted);
+    if (!mounted) return null;
     d = projects.disciplines.find((x) => x.id === disciplineId) ?? null;
   }
 
+  if (projectId !== kiosk.projectId || disciplineId !== kiosk.disciplineId) return null;
   activeDiscipline.value = d;
   return d;
 }
 
 async function refreshPrinterPing() {
-  if (showSetup.value) return;
+  const revision = ++pingRevision;
+  if (!mounted || showSetup.value) return;
 
-  const d = await resolveActiveDiscipline();
+  let d;
+  try { d = await resolveActiveDiscipline(); } catch (error) { if (revision === pingRevision) setupError.value = String(error); return; }
+  if (revision !== pingRevision) return;
   printerPing.value = undefined;
   if (!d?.printer_id) return;
 
   try {
     printerPing.value = null;
-    printerPing.value = await printers.pingOne(d.printer_id);
+    const result = await printers.pingOne(d.printer_id);
+    if (revision === pingRevision) printerPing.value = result;
   } catch {
+    if (revision !== pingRevision) return;
     printerPing.value = {
       printer_id: d.printer_id,
       ok: false,
@@ -141,10 +162,13 @@ watch(
 );
 
 watch(showSetup, (setup) => {
+  pingRevision++;
+  printerPing.value = undefined;
   if (!setup) void refreshPrinterPing();
 });
 
 async function startKiosk() {
+  if (setupLoading.value) return;
   const projectId = setupProject.value?.id;
   const disciplineId = setupDiscipline.value?.id;
   if (projectId == null || disciplineId == null) {
@@ -156,10 +180,12 @@ async function startKiosk() {
     return;
   }
 
+  setupLoading.value = true;
   try {
     kiosk.save(projectId, disciplineId);
     hydratingSetup = true;
-    await projects.loadDisciplinesForProject(projectId);
+    await projects.loadDisciplinesForProject(projectId, isMounted);
+    if (!mounted) return;
     setupDiscipline.value =
       projects.disciplines.find((d) => d.id === disciplineId) ??
       setupDiscipline.value;
@@ -175,18 +201,22 @@ async function startKiosk() {
       detail: e instanceof Error ? e.message : String(e),
       life: 5000,
     });
-  }
+  } finally { setupLoading.value = false; }
 }
 
 async function openSetup() {
   showSetup.value = true;
   hydratingSetup = true;
+  setupLoading.value = true;
+  try {
   if (kiosk.projectId != null) {
-    await projects.loadDisciplinesForProject(kiosk.projectId);
+    await projects.loadDisciplinesForProject(kiosk.projectId, isMounted);
+    if (!mounted) return;
   }
   setupProject.value = pickProject(kiosk.projectId);
   setupDiscipline.value = pickDiscipline(kiosk.disciplineId);
-  hydratingSetup = false;
+  } catch (error) { setupError.value = String(error); }
+  finally { hydratingSetup = false; setupLoading.value = false; }
 }
 
 function exitKiosk() {
@@ -262,12 +292,14 @@ async function tryFullscreen() {
           after that.
         </p>
 
+        <p v-if="setupError || projects.disciplineError" role="alert" class="text-red-700">{{ setupError || projects.disciplineError }}. Choose the project again or reload to retry.</p>
         <label class="kiosk-label">Project</label>
         <Select
           v-model="setupProject"
           :options="projects.projects"
           option-label="name"
           placeholder="Select project"
+          :disabled="setupLoading"
           append-to="body"
           fluid
           class="kiosk-select"
@@ -278,7 +310,8 @@ async function tryFullscreen() {
           v-model="setupDiscipline"
           :options="projects.disciplines"
           option-label="name"
-          :disabled="!setupProject"
+          :disabled="!setupProject || projects.loadingDisciplines || setupLoading"
+          :loading="projects.loadingDisciplines"
           placeholder="Select discipline"
           append-to="body"
           fluid
@@ -308,7 +341,8 @@ async function tryFullscreen() {
           size="large"
           fluid
           class="kiosk-start-btn"
-          :disabled="!canStart"
+          :disabled="!canStart || projects.loadingDisciplines || setupLoading"
+          :loading="setupLoading"
           @click="startKiosk"
         />
 

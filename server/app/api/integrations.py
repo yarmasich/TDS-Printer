@@ -335,8 +335,8 @@ class ApiBatchPrintRequest(BaseModel):
     # Provide a list of cables and/or a single range/list string. Each entry
     # may itself be a range ("1.1-50") or list ("1.1,1.2,1.5") — expanded the
     # same way the operator search box does.
-    cables: List[str] = Field(default_factory=list, description="e.g. ['1.1','1.2','1.5-1.8']")
-    cable: Optional[str] = Field(None, description="Single range/list, e.g. '1.1-50'")
+    cables: List[str] = Field(default_factory=list, max_length=500, description="e.g. ['1.1','1.2','1.5-1.8']")
+    cable: Optional[str] = Field(None, max_length=20000, description="Single range/list, e.g. '1.1-50'")
     bundle: Optional[str] = Field(
         None,
         description="Explicit bundle number to print (discipline must have bundle "
@@ -381,90 +381,71 @@ class ApiBatchPrintResponse(BaseModel):
 
 
 def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
-    """Flatten cables[] + cable into individual queries, de-duped, order-preserved."""
-    raw: List[str] = [c for c in req.cables]
-    if req.cable:
-        raw.append(req.cable)
-    out: List[str] = []
-    seen: set[str] = set()
-    for entry in raw:
-        entry = entry.strip()
-        if not entry:
-            continue
-        for q in parse_batch_query(entry):
-            if q not in seen:
-                seen.add(q)
-                out.append(q)
+    """Bound expansion before allocation, then deduplicate query strings."""
+    raw = list(req.cables) + ([req.cable] if req.cable else [])
+    if len(raw) > MAX_BATCH:
+        raise HTTPException(400, f"Too many query expressions (max {MAX_BATCH})")
+    out, seen = [], set()
+    try:
+        for entry in raw:
+            if not entry.strip():
+                continue
+            for q in parse_batch_query(entry, max_items=MAX_BATCH):
+                if q not in seen:
+                    if len(out) >= MAX_BATCH:
+                        raise ValueError(f"Too many queries (max {MAX_BATCH})")
+                    seen.add(q)
+                    out.append(q)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return out
 
 
-def _requested_bundles(req: ApiBatchPrintRequest, bundle_mode: bool) -> List[str]:
-    """Bundle numbers to print for this request.
+def _plan_batch(req: ApiBatchPrintRequest, disc: Discipline, session: Session):
+    """Resolve the complete batch without sending, deduplicating by label ID.
 
-    Explicit ``bundle`` wins. Otherwise, for a **bundle-mode** discipline, the
-    caller's usual group query ``N.*`` / ``N.`` / ``N`` (in ``cables``/``cable``)
-    is read as bundle N — so ACT keeps sending its normal format and ``1.*``
-    simply means BUNDLE #1. Non-bundle disciplines return [] (cable path).
+    A plan entry is a report and its optional label. Missing/ambiguous requests
+    remain in the plan, so partial success never hides a requested bundle.
     """
-    if req.bundle:
-        return [req.bundle.strip()]
-    if not bundle_mode:
-        return []
-    out: List[str] = []
-    seen: set[str] = set()
-    for entry in list(req.cables) + ([req.cable] if req.cable else []):
-        m = re.match(r"\s*#?\s*(\d+)", entry or "")
-        if m and m.group(1) not in seen:
-            seen.add(m.group(1))
-            out.append(m.group(1))
-    return out
-
-
-def _print_bundles(
-    bundle_nums: List[str], req: ApiBatchPrintRequest, disc: Discipline,
-    template: Template, printer: Printer, key: ApiKey, session: Session,
-) -> ApiBatchPrintResponse:
-    """Print every label tagged with any of ``bundle_nums`` in this discipline."""
-    labels = session.exec(
-        select(Label)
-        .where(Label.discipline_id == disc.id, Label.bundle.in_(bundle_nums))
-        .order_by(Label.row_idx)
-    ).all()
-    if not labels:
-        raise HTTPException(
-            404,
-            f"No labels for bundle(s) {', '.join(bundle_nums)} in "
-            f"discipline '{disc.name}'",
-        )
-    operator = f"api:{key.name}"
-    reason = req.reason or f"API bundle {','.join(bundle_nums)}"
-    results: List[BatchItemResult] = []
-    printed = 0
-    problems = False
-    aborted = False
-    for label in labels:
-        tok = _cable_token(label.left_text) or f"#{label.bundle}"
-        if aborted:
-            results.append(BatchItemResult(cable=tok, status="skipped"))
-            problems = True
-            continue
-        log_id, err = _print_label(label, template, printer, operator, reason, session)
-        if err:
-            results.append(BatchItemResult(
-                cable=tok, status="error", label_id=label.id, log_id=log_id, error=err
-            ))
-            problems = True
-            if req.stop_on_error:
-                aborted = True
+    if req.bundle is not None:
+        if not disc.bundle_mode:
+            raise HTTPException(400, "Explicit bundle requires bundle mode on the discipline")
+        if not req.bundle.strip() or len(req.bundle) > 128:
+            raise HTTPException(400, "Provide a valid bundle number")
+        queries = [req.bundle.strip()]
+    else:
+        queries = _expand_cables(req)
+    if not queries:
+        raise HTTPException(400, "Provide 'cables', 'cable' or 'bundle'")
+    labels = session.exec(select(Label).where(Label.discipline_id == disc.id).order_by(Label.id)).all()
+    seen, plan = set(), []
+    for q in queries:
+        valid, normalised = validate_query(q)
+        group = re.fullmatch(r"(\d+)(?:\.\*?)?", normalised) if disc.bundle_mode else None
+        bundle = req.bundle.strip() if req.bundle is not None else (group.group(1) if group else None)
+        if bundle is not None:
+            hits = [lb for lb in labels if lb.bundle == bundle]
+            is_group = True
+            status = "ok"
         else:
-            printed += 1
-            results.append(BatchItemResult(
-                cable=tok, status="printed", label_id=label.id, log_id=log_id
-            ))
-    return ApiBatchPrintResponse(
-        ok=not problems, requested=len(labels), printed=printed,
-        discipline=disc.name, printer=f"{printer.ip}:{printer.port}", results=results,
-    )
+            status, hits = _match_cable(labels, q)
+            is_group = bool(GROUP_RE.fullmatch(normalised))
+        if status == "invalid":
+            plan.append((BatchItemResult(cable=q, status="invalid"), None))
+        elif not hits:
+            plan.append((BatchItemResult(cable=q, status="not_found"), None))
+        elif len(hits) > 1 and not is_group:
+            plan.append((BatchItemResult(cable=q, status="ambiguous", candidates=_candidates(hits)), None))
+        else:
+            for label in hits:
+                if label.id in seen:
+                    continue
+                seen.add(label.id)
+                if len(seen) > MAX_BATCH:
+                    raise HTTPException(400, f"Batch resolves to more than {MAX_BATCH} labels; split the request")
+                cable = (_cable_token(label.left_text) or _cable_token(label.right_text) or q) if is_group else q
+                plan.append((BatchItemResult(cable=cable, status="pending", label_id=label.id), label))
+    return plan
 
 
 @router.post("/print-batch", response_model=ApiBatchPrintResponse)
@@ -473,89 +454,28 @@ def api_print_batch(
     session: Session = Depends(get_session),
     key: ApiKey = Security(require_api_key),
 ) -> ApiBatchPrintResponse:
-    """Print many cables of ONE discipline in a single call.
-
-    Expands ranges/lists (``'1.1-50'`` → 50 cables), prints each, and returns a
-    per-cable report. Cables that don't resolve to exactly one label are
-    reported (``not_found`` / ``ambiguous``) and skipped — they don't abort the
-    run unless ``stop_on_error`` is set (which only applies to printer/send
-    failures, not lookup misses).
-    """
+    """Resolve a bounded, unique label set, then print with a complete report."""
     disc = _resolve_discipline(req, session)
     template, printer = _discipline_printer(disc, session, req.printer)
-
-    # Bundle selection: explicit `bundle`, or — for a bundle-mode discipline —
-    # the caller's usual group query "N.*" read as bundle N (ACT sends its
-    # normal format, no change on their side). Empty → normal cable path.
-    bundle_nums = _requested_bundles(req, disc.bundle_mode)
-    if bundle_nums:
-        return _print_bundles(bundle_nums, req, disc, template, printer, key, session)
-
-    queries = _expand_cables(req)
-    if not queries:
-        raise HTTPException(400, "Provide 'cables' and/or 'cable'")
-    if len(queries) > MAX_BATCH:
-        raise HTTPException(
-            400, f"Batch too large: {len(queries)} cables (max {MAX_BATCH})"
-        )
-
-    labels = session.exec(select(Label).where(Label.discipline_id == disc.id)).all()
+    plan = _plan_batch(req, disc, session)
     operator = f"api:{key.name}"
-    reason = req.reason or "API batch"
-
-    results: List[BatchItemResult] = []
-    printed = 0
-    aborted = False
-    problems = False
-
-    for q in queries:
+    reason = req.reason or ("API bundle" if req.bundle else "API batch")
+    results, printed, aborted = [], 0, False
+    for result, label in plan:
         if aborted:
-            results.append(BatchItemResult(cable=q, status="skipped"))
-            problems = True
-            continue
-
-        status, hits = _match_cable(labels, q)
-        if status == "invalid":
-            results.append(BatchItemResult(cable=q, status="invalid"))
-            problems = True
-            continue
-        if not hits:
-            results.append(BatchItemResult(cable=q, status="not_found"))
-            problems = True
-            continue
-
-        # A group query ("20.*") legitimately resolves to many labels — print
-        # them all. A plain query matching >1 label is ambiguous and skipped.
-        is_group = bool(GROUP_RE.fullmatch(q))
-        if len(hits) > 1 and not is_group:
-            results.append(
-                BatchItemResult(cable=q, status="ambiguous", candidates=_candidates(hits))
-            )
-            problems = True
-            continue
-
-        for label in hits:
-            cable_label = (_cable_token(label.left_text) or q) if is_group else q
+            result.status = "skipped"
+        elif label is not None:
             log_id, err = _print_label(label, template, printer, operator, reason, session)
+            result.log_id = log_id
             if err:
-                results.append(
-                    BatchItemResult(cable=cable_label, status="error", label_id=label.id, log_id=log_id, error=err)
-                )
-                problems = True
-                if req.stop_on_error:
-                    aborted = True
-                    break
+                result.status, result.error = "error", err
+                aborted = req.stop_on_error
             else:
+                result.status = "printed"
                 printed += 1
-                results.append(
-                    BatchItemResult(cable=cable_label, status="printed", label_id=label.id, log_id=log_id)
-                )
-
+        results.append(result)
     return ApiBatchPrintResponse(
-        ok=not problems,
-        requested=len(queries),
-        printed=printed,
-        discipline=disc.name,
-        printer=f"{printer.ip}:{printer.port}",
-        results=results,
+        ok=all(r.status == "printed" for r in results),
+        requested=len(results), printed=printed, discipline=disc.name,
+        printer=f"{printer.ip}:{printer.port}", results=results,
     )

@@ -1,15 +1,25 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import PrintLog, Printer, Template
 from ..printer import PrintError, ping_printer, render_and_send
+from ..schemas import PrinterInput, PrinterPatch
 
 router = APIRouter(prefix="/api/printers", tags=["printers"])
+
+
+def _commit(session: Session, detail: str) -> None:
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, detail) from exc
 
 
 class PingResult(BaseModel):
@@ -52,24 +62,29 @@ def get_printer(printer_id: int, session: Session = Depends(get_session)) -> Pri
 
 
 @router.post("", response_model=Printer, dependencies=[Depends(require_admin)])
-def create_printer(p: Printer, session: Session = Depends(get_session)) -> Printer:
-    session.add(p)
-    session.commit()
-    session.refresh(p)
-    return p
+def create_printer(p: PrinterInput, session: Session = Depends(get_session)) -> Printer:
+    row = Printer(**p.model_dump())
+    session.add(row)
+    _commit(session, "Printer name already exists")
+    session.refresh(row)
+    return row
 
 
 @router.put("/{printer_id}", response_model=Printer, dependencies=[Depends(require_admin)])
 def update_printer(
-    printer_id: int, patch: Printer, session: Session = Depends(get_session)
+    printer_id: int, patch: PrinterPatch, session: Session = Depends(get_session)
 ) -> Printer:
     existing = session.get(Printer, printer_id)
     if not existing:
         raise HTTPException(404, "Printer not found")
-    for k, v in patch.model_dump(exclude_unset=True, exclude={"id"}).items():
+    try:
+        updated = PrinterInput.model_validate({**existing.model_dump(), **patch.model_dump(exclude_unset=True)})
+    except ValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    for k, v in updated.model_dump().items():
         setattr(existing, k, v)
     session.add(existing)
-    session.commit()
+    _commit(session, "Printer name already exists")
     session.refresh(existing)
     return existing
 
@@ -79,8 +94,10 @@ def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> 
     p = session.get(Printer, printer_id)
     if not p:
         raise HTTPException(404, "Printer not found")
+    if session.exec(select(Template.id).where(Template.printer_id == printer_id)).first() is not None:
+        raise HTTPException(409, "Printer has templates assigned; reassign them before deleting")
     session.delete(p)
-    session.commit()
+    _commit(session, "Printer is still referenced and cannot be deleted")
     return {"deleted": printer_id}
 
 

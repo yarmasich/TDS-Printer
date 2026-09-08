@@ -23,6 +23,7 @@ WorkingDirectory=/opt/tds-printer/server
 EnvironmentFile=-/opt/tds-printer/server/.env
 # No --reload in prod (it watches the cwd, and writes to data/tds.db would
 # bounce the process mid-transaction). Bind to localhost — nginx fronts it.
+ExecStartPre=/opt/tds-printer/server/.venv/bin/alembic upgrade head
 ExecStart=/opt/tds-printer/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
