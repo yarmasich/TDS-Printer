@@ -131,3 +131,36 @@ def test_individual_partial_failure_keeps_log_and_continues(data):
     assert result.printed == 1
     assert not result.ok
     assert [r.status for r in result.results] == ["error", "printed"]
+
+
+@pytest.mark.parametrize('query, expected', [('8', [0]), ('8.*', [0, 1]), ('8.', [0, 1]), ('8.1', [1])])
+def test_cable_search_does_not_match_lu_or_su_numbers(data, query, expected):
+    s, d, _ = data
+    ids = [add(s, d, t) for t in [
+        'LU#1 | SU#01 | CBL#8 | 300ft',
+        'LU#1 | SU#01 | CBL# | 8.1 | 300ft',
+        'LU#8 | SU#8 | CBL#50.1 | 300ft',
+        'LU #8 | SU #8 | CBL#80.1 | 300ft',
+        'LU#8.1 | CBL#18.1 | 300ft',
+        'CBL#8.10 | 300ft' if query == '8.1' else 'CBL#80 | 300ft',
+    ]]
+    result = labels.search(q=query, project_id=None, data_hall_id=None,
+                           discipline_id=d.id, limit=500, offset=0, session=s)
+    assert [h.label_id for h in result.hits] == [ids[i] for i in expected]
+
+
+@pytest.mark.parametrize('prefix', ['CBL#', 'CBL # | ', 'CAT6 #', 'LC #', 'MPO #', '#', '| #'])
+def test_supported_cable_markers(prefix):
+    from app.search import cable_query_pattern
+    assert cable_query_pattern('8.*').search(prefix + '8.1 | 300ft')
+    assert not cable_query_pattern('8.1').search(prefix + '8.10 | 300ft')
+
+
+def test_batch_does_not_print_lu_number_matches(data):
+    s, d, _ = data
+    wanted = add(s, d, 'LU#1 | CBL#8.1')
+    add(s, d, 'LU#8 | CBL#50.1')
+    with patch.object(integrations, 'render_and_send') as send:
+        result = batch(data, cable='8.*')
+    assert result.printed == send.call_count == 1
+    assert result.results[0].label_id == wanted

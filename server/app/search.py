@@ -1,11 +1,7 @@
-"""Cable / label text search — ported verbatim from the CLI parser
-(`utils/cable_search.py` + `parse_batch_query` from the main script).
+"""Cable ID and free-text search.
 
-Numeric queries match cable IDs inside cells. The ID always follows a
-``#``, but the prefix varies by cable type — ``CBL#1.1`` (fiber),
-``CAT6 #1.1``, ``LC #1.1``, ``MPO #1.1`` — so we anchor on ``#`` rather
-than any one prefix. Non-numeric queries are plain substring match
-(case-insensitive).
+Numeric queries match cable markers (CBL, CAT6, LC, MPO) or a standalone
+hash field, never unrelated LU/SU identifiers in the same label.
 """
 from __future__ import annotations
 
@@ -18,6 +14,9 @@ MAX_QUERY_LENGTH = 20000
 
 def cable_query_pattern(query: str) -> re.Pattern:
     query = query.strip()
+    # Bare # is supported only at the start of a field/line. Allowing any #
+    # also matches LU#8 (or LU #8) on labels whose cable is e.g. CBL#50.1.
+    marker = r"(?:(?<!\w)(?:CBL|CAT6|LC|MPO)\s*|(?:^|[|\n])\s*)#\s*\|?\s*"
 
     # Whole-group query: ``20.`` or ``20.*`` → the trunk ``#20`` *and* every
     # breakout ``#20.1`` … ``#20.18``. Use this when you want "all cables 20",
@@ -26,7 +25,7 @@ def cable_query_pattern(query: str) -> re.Pattern:
     if group:
         base = group.group(1)
         return re.compile(
-            rf"#\s*(\||)\s*(?<!\d){base}(\.\d+)?(?!\d)",
+            rf"{marker}{base}(?:\.\d+)?(?![\d.])",
             re.I,
         )
 
@@ -37,14 +36,14 @@ def cable_query_pattern(query: str) -> re.Pattern:
 
     if "." in query:
         return re.compile(
-            rf"#\s*(\||)\s*(?<!\d){re.escape(query)}(?!\d)",
+            rf"{marker}{re.escape(query)}(?![\d.])",
             re.I,
         )
     # Trailing ``(?![\d.])`` so a bare integer matches only the whole cable id
     # (``#1``) and not its decimal children (``#1.1`` … ``#1.18``) — the old
     # ``(\D|$)`` treated the dot as a boundary and over-matched.
     return re.compile(
-        rf"#\s*(\||)\s*(?<!\d){re.escape(query)}(?![\d.])",
+        rf"{marker}{re.escape(query)}(?![\d.])",
         re.I,
     )
 
