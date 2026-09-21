@@ -159,8 +159,16 @@ function del(url: string, label: string) {
   confirm.require({
     message: `Delete ${label}?`,
     accept: async () => {
-      await api.delete(url);
-      await refresh();
+      try {
+        await api.delete(url);
+        await refresh();
+      } catch (e: unknown) {
+        toast.add({
+          severity: "error",
+          summary: "Delete failed",
+          detail: e instanceof Error ? e.message : String(e),
+        });
+      }
     },
   });
 }
