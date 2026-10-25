@@ -63,6 +63,10 @@ export interface Template {
   gap_right: number;
   left_text: string;
   right_text: string;
+  auto_fit: boolean;
+  min_font_pt: number;
+  letter_spacing_px: number;
+  line_spacing_px: number | null;
   left_pt: number;
   right_pt: number;
   h_align: HAlign;

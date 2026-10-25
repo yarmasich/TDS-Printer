@@ -1,0 +1,122 @@
+[
+  {
+    "file": "PT_Sans-Web-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsans/PT_Sans-Web-Regular.ttf",
+    "sha256": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
+  },
+  {
+    "file": "PT_Sans-Web-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsans/PT_Sans-Web-Bold.ttf",
+    "sha256": "3128bd5ecf01816e59a23d54c57a7a6b14615b07db53ff277c77376010265b05"
+  },
+  {
+    "file": "ptsans-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsans/OFL.txt",
+    "sha256": "2758cf7a872827f39661cf8cc24188113c030447aefb5ca7145993650076ca8c"
+  },
+  {
+    "file": "PT_Sans-Narrow-Web-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsansnarrow/PT_Sans-Narrow-Web-Regular.ttf",
+    "sha256": "4102edda03059163771869d258df54ac8563c408fa6e9ef75b2ddc85eabea6f4"
+  },
+  {
+    "file": "PT_Sans-Narrow-Web-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsansnarrow/PT_Sans-Narrow-Web-Bold.ttf",
+    "sha256": "e69d83bcf5bd647892b4e2b22f5098dabd55c989413513197722fc156fb9f00e"
+  },
+  {
+    "file": "ptsansnarrow-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptsansnarrow/OFL.txt",
+    "sha256": "2758cf7a872827f39661cf8cc24188113c030447aefb5ca7145993650076ca8c"
+  },
+  {
+    "file": "IBMPlexMono-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
+    "sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+  },
+  {
+    "file": "IBMPlexMono-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
+    "sha256": "ac27abd6450a64dd94467580a02fe6235156d5b92f2926ebbc8e7489df64e0be"
+  },
+  {
+    "file": "ibmplexmono-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/OFL.txt",
+    "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da"
+  },
+  {
+    "file": "Carlito-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/carlito/Carlito-Regular.ttf",
+    "sha256": "f6418f708baede9789daef5d458c0f53d2a888af9820e8062934e504fedc6595"
+  },
+  {
+    "file": "Carlito-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/carlito/Carlito-Bold.ttf",
+    "sha256": "bb5d20f79b82599ec72983597437373a80f2d2085fa91fc144fd74e876a594db"
+  },
+  {
+    "file": "carlito-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/carlito/OFL.txt",
+    "sha256": "58402f82a7c332a700294988fe7554fbb0a63a8d27ccc1ee3bbc640311990a00"
+  },
+  {
+    "file": "Cousine-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/cousine/Cousine-Regular.ttf",
+    "sha256": "1da22250675fc4c42fcf3a9736c44bc0570516105331443b663fd5cfbd1412fe"
+  },
+  {
+    "file": "Cousine-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/cousine/Cousine-Bold.ttf",
+    "sha256": "17c8a7245156d2253531c9e529474937b09d9f641c5ae7695c5e33f22822eef4"
+  },
+  {
+    "file": "cousine-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/cousine/OFL.txt",
+    "sha256": "b81c4d4dc0a9f72c9155e78187316e016e2012a8102468804173dc61468b906d"
+  },
+  {
+    "file": "PT_Serif-Web-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptserif/PT_Serif-Web-Regular.ttf",
+    "sha256": "a4951fade06ff8f09b7673aa81ffb65a8cd409e24d3289a6dc670bc4dda2557a"
+  },
+  {
+    "file": "PT_Serif-Web-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptserif/PT_Serif-Web-Bold.ttf",
+    "sha256": "038ba7336bd7ea14f12ad155bed51a4345cac5153275d521dec3ba04021c526e"
+  },
+  {
+    "file": "ptserif-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ptserif/OFL.txt",
+    "sha256": "ddf311c28ddf5a5ad9747649837346b67bed9d356789c3072bb27dbce49e514d"
+  },
+  {
+    "file": "IBMPlexSerif-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexserif/IBMPlexSerif-Regular.ttf",
+    "sha256": "e882efa9c41949a528ac2369079ec5ef050c1c996bbd0bacce3c3326d44cf80d"
+  },
+  {
+    "file": "IBMPlexSerif-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexserif/IBMPlexSerif-Bold.ttf",
+    "sha256": "534c02c295999dd86e770457ece1d43db0de9256dd98bf741426f63ae904209e"
+  },
+  {
+    "file": "ibmplexserif-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexserif/OFL.txt",
+    "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da"
+  },
+  {
+    "file": "B612Mono-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/b612mono/B612Mono-Regular.ttf",
+    "sha256": "b98cb96cc8a6206dae08c063d60902df7e6d40f86139ebdb97256704253c9c69"
+  },
+  {
+    "file": "B612Mono-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/b612mono/B612Mono-Bold.ttf",
+    "sha256": "b467b1d19fdabed42be51d87e38c86645ceeff2f828f294775188d00d1fd68ca"
+  },
+  {
+    "file": "b612mono-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/b612mono/OFL.txt",
+    "sha256": "a815f65bc72d90494b01842d3171f7cb0f9f935e023d9cc260904d221ef1064a"
+  }
+]

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
-from typing import Annotated, Literal
+from typing import Annotated, Literal, ClassVar, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model, model_validator
 
@@ -58,11 +58,15 @@ class TemplateInput(InputModel):
     gap_right: Coordinate = 0
     left_text: str = Field('TEXT+12345', max_length=4096)
     right_text: str = Field('TEXT+12345', max_length=4096)
+    auto_fit: bool = False
+    min_font_pt: float = Field(4, ge=1, le=72, allow_inf_nan=False)
+    letter_spacing_px: float = Field(0, ge=0, le=20, allow_inf_nan=False)
+    line_spacing_px: float | None = Field(None, ge=0, le=100, allow_inf_nan=False)
     left_pt: PointSize = 7
     right_pt: PointSize = 7
     h_align: HAlign = HAlign.CENTER
     v_align: VAlign = VAlign.CENTER
-    font_name: Literal['Microsoft Sans Serif', 'Calibri'] = 'Microsoft Sans Serif'
+    font_name: Literal['Microsoft Sans Serif', 'Calibri', 'PT Sans', 'PT Sans Narrow', 'IBM Plex Mono', 'Carlito', 'Cousine', 'PT Serif', 'IBM Plex Serif', 'B612 Mono'] = 'Microsoft Sans Serif'
     font_style: Literal['Bold', 'Regular'] = 'Bold'
     left_offset: Coordinate = 0
     right_offset: Coordinate = 0
@@ -74,6 +78,8 @@ class TemplateInput(InputModel):
 
     @model_validator(mode='after')
     def valid_geometry(self):
+        if self.auto_fit and self.min_font_pt > min(self.left_pt, self.right_pt):
+            raise ValueError('Auto Fit minimum must not exceed either label font size')
         if self.bytes_per_row * 8 * self.height > MAX_DESIGN_PIXELS:
             raise ValueError(f'Bitmap exceeds {MAX_DESIGN_PIXELS} pixels in the design grid')
         for side in ('left', 'right'):
@@ -131,12 +137,14 @@ class PrinterInput(InputModel):
 
 
 class PatchInput(InputModel):
+    nullable_fields: ClassVar[frozenset[str]] = frozenset()
+
     @model_validator(mode='before')
     @classmethod
     def reject_explicit_null(cls, value):
         if isinstance(value, dict):
             for name in cls.model_fields:
-                if name in value and value[name] is None:
+                if name in value and value[name] is None and name not in cls.nullable_fields:
                     raise ValueError(f'{name} cannot be null')
         return value
 
@@ -148,7 +156,12 @@ def _partial_model(name: str, full: type[BaseModel]) -> type[BaseModel]:
         field = deepcopy(info)
         field.default = None
         fields[field_name] = (info.annotation | None, field)
-    return create_model(name, __base__=PatchInput, **fields)
+    model = create_model(name, __base__=PatchInput, **fields)
+    model.nullable_fields = frozenset(
+        field_name for field_name, info in full.model_fields.items()
+        if type(None) in get_args(info.annotation)
+    )
+    return model
 
 
 TemplatePatch = _partial_model('TemplatePatch', TemplateCreate)

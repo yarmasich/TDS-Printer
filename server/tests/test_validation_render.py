@@ -368,3 +368,22 @@ def test_overflow_draft_returns_actionable_error_without_sending(render_api, rou
     assert response.status_code in (400, 502), response.text
     assert 'Left label' in response.json()['detail']
     assert 'does not fit' in response.json()['detail']
+
+
+def test_template_save_accepts_auto_line_spacing_and_preserves_omitted_value(render_api):
+    client, _ = render_api
+    created = client.post('/api/templates', json=template_payload(line_spacing_px=5))
+    assert created.status_code == 200, created.text
+    row = created.json()
+    url = f"/api/templates/{row['id']}"
+    changed = client.put(url, json={'left_pt': 7})
+    assert changed.status_code == 200
+    assert changed.json()['line_spacing_px'] == 5
+    row = changed.json()
+    row['line_spacing_px'] = None
+    saved = client.put(url, json=row)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['line_spacing_px'] is None
+    assert client.get(url).json()['line_spacing_px'] is None
+    assert client.put(url, json={'height': None}).status_code == 422
+    assert client.put(url, json={'auto_fit': None}).status_code == 422

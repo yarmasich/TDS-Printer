@@ -35,6 +35,22 @@ _FONT_FILES: dict[tuple[str, str], str] = {
     ("Microsoft Sans Serif", "Regular"): "microsoft_sans_serif_regular.ttf",
     ("Calibri", "Bold"): "calibri_bold.ttf",
     ("Calibri", "Regular"): "calibri_regular.ttf",
+    ("PT Sans", "Regular"): "PT_Sans-Web-Regular.ttf",
+    ("PT Sans", "Bold"): "PT_Sans-Web-Bold.ttf",
+    ("PT Sans Narrow", "Regular"): "PT_Sans-Narrow-Web-Regular.ttf",
+    ("PT Sans Narrow", "Bold"): "PT_Sans-Narrow-Web-Bold.ttf",
+    ("IBM Plex Mono", "Regular"): "IBMPlexMono-Regular.ttf",
+    ("IBM Plex Mono", "Bold"): "IBMPlexMono-Bold.ttf",
+    ("Carlito", "Regular"): "Carlito-Regular.ttf",
+    ("Carlito", "Bold"): "Carlito-Bold.ttf",
+    ("Cousine", "Regular"): "Cousine-Regular.ttf",
+    ("Cousine", "Bold"): "Cousine-Bold.ttf",
+    ("PT Serif", "Regular"): "PT_Serif-Web-Regular.ttf",
+    ("PT Serif", "Bold"): "PT_Serif-Web-Bold.ttf",
+    ("IBM Plex Serif", "Regular"): "IBMPlexSerif-Regular.ttf",
+    ("IBM Plex Serif", "Bold"): "IBMPlexSerif-Bold.ttf",
+    ("B612 Mono", "Regular"): "B612Mono-Regular.ttf",
+    ("B612 Mono", "Bold"): "B612Mono-Bold.ttf",
 }
 
 # EasyMark page is 300 DPI; thermal head uses 203 DPI for point sizes.
@@ -58,6 +74,39 @@ def _load_font(name: str, style: str, size_pt: float) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(
         str(FONTS_DIR / fname), max(6, int(round(size_pt * pt_to_px)))
     )
+
+
+class _SpacedFont:
+    """Use the same baseline and advances for measuring and painting tracking."""
+    def __init__(self, base, spacing):
+        self.base, self.spacing, self.size = base, spacing, base.size
+    def getmetrics(self):
+        return self.base.getmetrics()
+    def glyphs(self, text):
+        x = 0.0
+        for char in text:
+            yield char, x
+            x += self.base.getlength(char) + self.spacing
+    def getlength(self, text):
+        return sum(self.base.getlength(c) for c in text) + max(0, len(text)-1)*self.spacing
+    def getbbox(self, text, **kwargs):
+        boxes = [(x+b[0], b[1], x+b[2], b[3]) for c,x in self.glyphs(text)
+                 if (b := self.base.getbbox(c, anchor="ls")) and b[2] > b[0] and b[3] > b[1]]
+        if not boxes:
+            return (0,0,0,0)
+        return (math.floor(min(b[0] for b in boxes)), 0,
+                math.ceil(max(b[2] for b in boxes)), math.ceil(max(b[3] for b in boxes)-min(b[1] for b in boxes)))
+    def draw(self, draw, xy, text):
+        top = min((self.base.getbbox(c, anchor="ls")[1] for c in text if c.strip()), default=0)
+        for char, x in self.glyphs(text):
+            draw.text((xy[0]+x, xy[1]-top), char, font=self.base, fill=0, anchor="ls")
+
+
+def _paint_line(draw, xy, text, font):
+    if isinstance(font, _SpacedFont):
+        font.draw(draw, xy, text)
+    else:
+        draw.text(xy, text, font=font, fill=0, anchor="lt")
 
 
 def _wrap_to_width(
@@ -97,11 +146,12 @@ def _measure_block(
     rect_w: float,
     rect_h: float,
     scale: float = 1.0,
+    line_spacing: float | None = None,
 ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], int, float]:
     lines = _wrap_to_width(text, font, rect_w)
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     measured = [
-        (line, probe.textbbox((0, 0), line, font=font, anchor="lt"))
+        (line, font.getbbox(line, anchor="lt") if isinstance(font, _SpacedFont) else probe.textbbox((0, 0), line, font=font, anchor="lt"))
         for line in lines
     ]
     if not measured:
@@ -115,6 +165,8 @@ def _measure_block(
             raise PrintError("Text line is too wide to render; shorten it or reduce the font size")
 
     heights = _line_heights(font, measured)
+    if line_spacing is not None:
+        return measured, line_spacing, sum(heights) + line_spacing * max(0, len(measured)-1)
     line_gap = max(round(2 * scale), int(font.size * 0.15))
     ink_h = sum(heights)
     n_lines = len(measured)
@@ -198,7 +250,7 @@ def _paint_measured_lines(
             cur_x = x1 - w
         else:
             cur_x = x0 + (rect_w - w) / 2
-        draw.text((cur_x, cur_y), line, font=font, fill=0, anchor="lt")
+        _paint_line(draw, (cur_x, cur_y), line, font)
         cur_y += line_h + line_gap
 
 
@@ -261,7 +313,7 @@ def _paint_lines_on_buffer(
             bx = pad + (rect_w - w)
         else:
             bx = pad + (rect_w - w) / 2
-        bdraw.text((bx, by), line, font=font, fill=0, anchor="lt")
+        _paint_line(bdraw, (bx, by), line, font)
         by += line_h + line_gap
 
 
@@ -280,6 +332,7 @@ def _draw_text_block(
     rotate_180: bool = False,
     scale_x: float = 1.0,
     scale: float = 1.0,
+    line_spacing: float | None = None,
 ) -> None:
     if not text:
         return
@@ -289,7 +342,7 @@ def _draw_text_block(
     if rect_w * rect_h > MAX_RENDER_PIXELS or rect_w > 8192 or rect_h > 8192:
         raise PrintError("The text area is too large to render")
     wrap_w = rect_w / scale_x if scale_x > 1.0 else rect_w
-    measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h, scale)
+    measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h, scale, line_spacing)
     _validate_text_fit(
         measured, font=font, rect_w=rect_w, rect_h=rect_h,
         h_align=h_align, v_align=v_align, y_offset=y_offset,
@@ -393,7 +446,6 @@ def _render_label_bitmap(
         (False, right_text, template.right_pt, template.right_offset),
     ):
         x0, y0, x1, y1 = text_rect(template, cable_left=cable_left, scale=scale)
-        font = _load_font(template.font_name, template.font_style, pt * scale)
         y_offset = y_offset * scale
 
         # Mirror mode prints the same text twice, stacked HEAD-TO-HEAD at the
@@ -408,6 +460,32 @@ def _render_label_bitmap(
             copies = ((ymid, y1, False), (y0, ymid, True))
         else:
             copies = ((y0, y1, turn_tell),)
+
+        line_spacing = None if template.line_spacing_px is None else template.line_spacing_px * scale
+        def candidate_font(size):
+            loaded = _load_font(template.font_name, template.font_style, size * scale)
+            return _SpacedFont(loaded, template.letter_spacing_px * scale) if template.letter_spacing_px else loaded
+        font = candidate_font(pt)
+        if template.auto_fit and text.strip():
+            if template.min_font_pt > pt:
+                raise PrintError("Auto Fit minimum must not exceed either label's font size")
+            sizes = [pt]
+            current = pt
+            while current > template.min_font_pt:
+                current = max(template.min_font_pt, round(current - .5, 4))
+                sizes.append(current)
+            for size in sizes:
+                font = candidate_font(size)
+                try:
+                    for cy0, cy1, _ in copies:
+                        measured, gap, total = _measure_block(font, text, (x1-x0)/scale_x, cy1-cy0, scale, line_spacing)
+                        _validate_text_fit(measured, font=font, rect_w=x1-x0, rect_h=cy1-cy0,
+                            h_align=h_align,v_align=v_align,y_offset=y_offset,line_gap=gap,total_h=total,scale_x=scale_x)
+                    break
+                except PrintError:
+                    if size == template.min_font_pt:
+                        side = "Left" if cable_left else "Right"
+                        raise PrintError(f"{side} label: Text cannot fit at the Auto Fit minimum ({size:g} pt). Shorten text, reduce spacing or lower the minimum.")
 
         for cy0, cy1, flip in copies:
             try:
@@ -425,6 +503,7 @@ def _render_label_bitmap(
                     rotate_180=flip,
                     scale_x=scale_x,
                     scale=scale,
+                    line_spacing=line_spacing,
                 )
             except PrintError as exc:
                 side = "Left" if cable_left else "Right"
