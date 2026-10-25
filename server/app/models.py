@@ -97,6 +97,10 @@ class Template(SQLModel, table=True):
     right_text: str = "TEXT+12345"
 
     # Typography
+    auto_fit: bool = False
+    min_font_pt: float = 4
+    letter_spacing_px: float = 0
+    line_spacing_px: float | None = None
     left_pt: float = 7
     right_pt: float = 7
     h_align: HAlign = HAlign.CENTER

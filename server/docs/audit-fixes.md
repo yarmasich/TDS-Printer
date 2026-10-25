@@ -191,3 +191,18 @@ The template editor has a separate **Printer & material calibration** section fo
 Every JScript job looks up the actual destination printer's exact SKU correction, including integration printer overrides, and translates the oriented raster at native DPI. The preview uses the same correction at the 300-DPI design scale. The carrier outline and guides stay nominal. A correction that clips ink at a raster edge, printhead width, or configured material height is rejected before sending. 600-DPI rounding may differ from the 300-DPI preview by one native dot. Check the full **Carrier raster** view, because the illustrative label view crops to the white strip.
 
 `PUT /api/printers/{id}/calibration/{sku}` requires admin access and uses compare-and-swap to reject concurrent changes instead of overwriting another profile. A stale general printer form cannot replace saved calibrations. Changing printer model, IP, or port clears its corrections; recalibrate after hardware changes. No physical print was sent during implementation. Physical accuracy, feed direction on installed equipment, and repeatability still need operator verification on each model and roll.
+
+## Auto Fit and text spacing (2026-10-25)
+
+Migration `d48b6f0e2159` follows `c37a5e9d1048`. Back up the database, run
+`alembic upgrade head`, and rebuild frontend assets. Defaults preserve existing
+rendering: auto_fit=false, min_font_pt=4, letter_spacing_px=0,
+line_spacing_px=null (legacy automatic line gap).
+
+Auto Fit tries each side's configured maximum down to the minimum in 0.5-point
+steps (including the exact minimum). Both mirrored halves must fit. The saved
+maximum is unchanged; impossible text is rejected before sending. Spacing uses
+300-DPI design pixels and scales with the head resolution. Explicit line gaps
+are not compressed automatically. Nonzero character spacing uses individual
+glyph advances on a shared baseline; zero preserves existing font shaping.
+The physical result still requires sample validation on installed printers.

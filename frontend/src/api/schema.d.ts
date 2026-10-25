@@ -1750,6 +1750,23 @@ export interface components {
              */
             right_text: string;
             /**
+             * Auto Fit
+             * @default false
+             */
+            auto_fit: boolean;
+            /**
+             * Min Font Pt
+             * @default 4
+             */
+            min_font_pt: number;
+            /**
+             * Letter Spacing Px
+             * @default 0
+             */
+            letter_spacing_px: number;
+            /** Line Spacing Px */
+            line_spacing_px?: number | null;
+            /**
              * Left Pt
              * @default 7
              */
@@ -1890,6 +1907,23 @@ export interface components {
              */
             right_text: string;
             /**
+             * Auto Fit
+             * @default false
+             */
+            auto_fit: boolean;
+            /**
+             * Min Font Pt
+             * @default 4
+             */
+            min_font_pt: number;
+            /**
+             * Letter Spacing Px
+             * @default 0
+             */
+            letter_spacing_px: number;
+            /** Line Spacing Px */
+            line_spacing_px?: number | null;
+            /**
              * Left Pt
              * @default 7
              */
@@ -1908,7 +1942,7 @@ export interface components {
              * @default Microsoft Sans Serif
              * @enum {string}
              */
-            font_name: "Microsoft Sans Serif" | "Calibri";
+            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono";
             /**
              * Font Style
              * @default Bold
@@ -2041,6 +2075,23 @@ export interface components {
              */
             right_text: string;
             /**
+             * Auto Fit
+             * @default false
+             */
+            auto_fit: boolean;
+            /**
+             * Min Font Pt
+             * @default 4
+             */
+            min_font_pt: number;
+            /**
+             * Letter Spacing Px
+             * @default 0
+             */
+            letter_spacing_px: number;
+            /** Line Spacing Px */
+            line_spacing_px?: number | null;
+            /**
              * Left Pt
              * @default 7
              */
@@ -2059,7 +2110,7 @@ export interface components {
              * @default Microsoft Sans Serif
              * @enum {string}
              */
-            font_name: "Microsoft Sans Serif" | "Calibri";
+            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono";
             /**
              * Font Style
              * @default Bold
@@ -2140,6 +2191,14 @@ export interface components {
             left_text?: string | null;
             /** Right Text */
             right_text?: string | null;
+            /** Auto Fit */
+            auto_fit?: boolean | null;
+            /** Min Font Pt */
+            min_font_pt?: number | null;
+            /** Letter Spacing Px */
+            letter_spacing_px?: number | null;
+            /** Line Spacing Px */
+            line_spacing_px?: number | null;
             /** Left Pt */
             left_pt?: number | null;
             /** Right Pt */
@@ -2147,7 +2206,7 @@ export interface components {
             h_align?: components["schemas"]["HAlign"] | null;
             v_align?: components["schemas"]["VAlign"] | null;
             /** Font Name */
-            font_name?: ("Microsoft Sans Serif" | "Calibri") | null;
+            font_name?: ("Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono") | null;
             /** Font Style */
             font_style?: ("Bold" | "Regular") | null;
             /** Left Offset */
