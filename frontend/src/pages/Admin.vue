@@ -57,17 +57,17 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
 </script>
 
 <template>
-  <div class="flex flex-col md:flex-row gap-4">
+  <div class="flex flex-col xl:flex-row gap-4">
     <!-- Settings menu -->
     <nav
-      class="md:w-60 shrink-0 md:sticky md:top-4 md:self-start
+      class="min-w-0 xl:w-64 shrink-0 xl:sticky xl:top-4 xl:self-start
              bg-white border border-slate-200 rounded-2xl p-2 shadow-sm"
     >
-      <ul class="flex md:flex-col flex-wrap gap-1">
-        <li v-for="s in sections" :key="s.key" class="flex-1 md:flex-none">
+      <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1 gap-1">
+        <li v-for="s in sections" :key="s.key" class="min-w-0">
           <button
             type="button"
-            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-left
+            class="w-full min-w-0 flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-xl text-base text-left
                    transition-colors"
             :class="
               active === s.key
@@ -78,7 +78,7 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
             @click="select(s.key)"
           >
             <i :class="s.icon" class="text-base shrink-0" />
-            <span class="truncate">{{ s.label }}</span>
+            <span class="min-w-0 whitespace-normal break-words leading-snug">{{ s.label }}</span>
           </button>
         </li>
       </ul>

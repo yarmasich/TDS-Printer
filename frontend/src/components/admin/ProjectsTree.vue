@@ -19,6 +19,9 @@ const halls = ref<DataHall[]>([]);
 const disciplines = ref<Discipline[]>([]);
 const templates = ref<Template[]>([]);
 
+const savingRfid = ref(new Set<number>());
+const rfidErrors = ref<Record<number, string>>({});
+
 const projectDialog = ref(false);
 const hallDialog = ref(false);
 const discDialog = ref(false);
@@ -114,6 +117,26 @@ async function bindTemplate(d: Discipline, templateId: number | null) {
       summary: "Bind failed",
       detail: e instanceof Error ? e.message : String(e),
     });
+  }
+}
+
+async function toggleRfid(project: Project, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const previous = Boolean(project.require_rfid);
+  if (savingRfid.value.has(project.id)) { input.checked = previous; return; }
+  const next = input.checked;
+  savingRfid.value.add(project.id);
+  delete rfidErrors.value[project.id];
+  try {
+    await api.patch(`/api/projects/${project.id}`, { require_rfid: next });
+    project.require_rfid = next;
+    toast.add({ severity: "success", summary: next ? "RFID required for this project" : "RFID requirement disabled", life: 2500 });
+  } catch (e) {
+    input.checked = previous;
+    project.require_rfid = previous;
+    rfidErrors.value[project.id] = e instanceof Error ? e.message : String(e);
+  } finally {
+    savingRfid.value.delete(project.id);
   }
 }
 
@@ -217,6 +240,20 @@ function del(url: string, label: string) {
           />
         </div>
       </div>
+
+      <label class="inline-flex min-h-12 items-center gap-3 cursor-pointer text-sm font-semibold">
+        <input
+          type="checkbox"
+          class="h-5 w-5 accent-sky-600"
+          :checked="Boolean(p.require_rfid)"
+          :disabled="savingRfid.has(p.id)"
+          @change="toggleRfid(p, $event)"
+        />
+        RFID required before printing
+        <span v-if="savingRfid.has(p.id)" role="status" class="font-normal text-slate-500">Saving…</span>
+      </label>
+      <p class="text-xs text-slate-500">Requires a configured RFID lookup service. Off by default.</p>
+      <p v-if="rfidErrors[p.id]" role="alert" class="text-sm text-red-700">Could not save: {{ rfidErrors[p.id] }}</p>
 
       <div
         v-for="h in hallsByProject.get(p.id) ?? []"

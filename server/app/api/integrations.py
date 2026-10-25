@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_api_key
+from .. import rfid
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..print_idempotency import run_print_request
@@ -44,6 +45,7 @@ class ApiPrintRequest(BaseModel):
     data_hall: Optional[str] = None
     discipline: Optional[str] = None
     reason: str = ""
+    rfid_code: Optional[str] = Field(default=None, max_length=256)
     copies: int = Field(1, ge=1, le=50)
     printer: Optional[str] = Field(
         None,
@@ -216,13 +218,14 @@ def _cable_token(text: str) -> Optional[str]:
 
 def _print_label(
     label: Label, template: Template, printer: Printer,
-    operator: str, reason: str, session: Session,
+    operator: str, reason: str, session: Session, identity: rfid.OperatorIdentity,
 ) -> tuple[Optional[int], Optional[str]]:
     """Render+send one label, log it, return ``(log_id, error)``."""
+    project = rfid.project_for_label(session, label)
     log = PrintLog(
+        **identity.audit(project),
         template_name=template.name,
         printer_ip=f"{printer.ip}:{printer.port}",
-        operator=operator,
         reason=reason,
         left_text=label.left_text,
         right_text=label.right_text,
@@ -297,12 +300,14 @@ def _api_print(
 
     label = _resolve_label(disc, req.cable, session)
     left, right = label.left_text, label.right_text
-    operator = f"api:{key.name}"
+    project = rfid.project_for_label(session, label)
+    identity = rfid.identify([project], req.rfid_code, f"api:{key.name}", "api")
+    operator = identity.name
     reason = req.reason or "API"
 
     log_ids: List[int] = []
     for _ in range(req.copies):
-        log_id, err = _print_label(label, template, printer, operator, reason, session)
+        log_id, err = _print_label(label, template, printer, operator, reason, session, identity)
         if err:
             raise HTTPException(
                 502,
@@ -349,6 +354,7 @@ class ApiBatchPrintRequest(BaseModel):
     data_hall: Optional[str] = None
     discipline: Optional[str] = None
     reason: str = ""
+    rfid_code: Optional[str] = Field(default=None, max_length=256)
     printer: Optional[str] = Field(
         None,
         alias="printer_id",
@@ -457,14 +463,16 @@ def _api_print_batch(
     disc = _resolve_discipline(req, session)
     template, printer = _discipline_printer(disc, session, req.printer)
     plan = _plan_batch(req, disc, session)
-    operator = f"api:{key.name}"
+    projects = [rfid.project_for_label(session, label) for _, label in plan if label is not None]
+    identity = rfid.identify(projects, req.rfid_code, f"api:{key.name}", "api")
+    operator = identity.name
     reason = req.reason or ("API bundle" if req.bundle else "API batch")
     results, printed, aborted = [], 0, False
     for result, label in plan:
         if aborted:
             result.status = "skipped"
         elif label is not None:
-            log_id, err = _print_label(label, template, printer, operator, reason, session)
+            log_id, err = _print_label(label, template, printer, operator, reason, session, identity)
             result.log_id = log_id
             if err:
                 result.status, result.error = "error", err

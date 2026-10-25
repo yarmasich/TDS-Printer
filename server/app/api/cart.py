@@ -13,7 +13,7 @@ from uuid import uuid4
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import exists, update
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, delete, select
@@ -21,6 +21,7 @@ from sqlmodel import Session, delete, select
 from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..printer import PrintError, render_and_send
+from .. import rfid
 
 logger = logging.getLogger("tds.cart")
 router = APIRouter(prefix="/api/cart", tags=["cart"])
@@ -46,6 +47,7 @@ class AddRequest(BaseModel):
 
 
 class PrintAllRequest(BaseModel):
+    rfid_code: Optional[str] = Field(default=None, max_length=256)
     sid: str
     operator: str = ""
     reason: str = ""
@@ -181,6 +183,13 @@ class PrintAllResult(BaseModel):
     log_ids: List[int]
 
 
+@router.get("/print-policy")
+def print_policy(sid: str = Query(...), db: Session = Depends(get_session)) -> dict:
+    items = db.exec(select(CartItem).where(CartItem.session_id == sid, CartItem.status == "queued")).all()
+    projects = [rfid.project_for_label(db, db.get(Label, item.label_id) if item.label_id else None) for item in items]
+    return {"requires_rfid": any(project.require_rfid for project in projects), "configured": rfid.configured()}
+
+
 @router.post("/print", response_model=PrintAllResult)
 def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> PrintAllResult:
     _expire_claims(db, req.sid)
@@ -205,6 +214,20 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
 
     ids = list(db.exec(select(CartItem.id).where(CartItem.claim_token == token)
                        .order_by(CartItem.added_at, CartItem.id)).all())
+    # Validate the projects of the actual claimed rows, before any physical send.
+    try:
+        projects = {}
+        for item_id in ids:
+            item = db.get(CartItem, item_id)
+            label = db.get(Label, item.label_id) if item and item.label_id else None
+            projects[item_id] = rfid.project_for_label(db, label)
+        identity = rfid.identify(list(projects.values()), req.rfid_code, req.operator)
+    except Exception:
+        db.rollback()
+        db.execute(update(CartItem).where(CartItem.claim_token == token,
+            CartItem.status == "printing").values(status="queued", claim_token="", claimed_at=None))
+        db.commit()
+        raise
     ok, errors, log_ids = 0, [], []
     current_id = None
     try:
@@ -219,7 +242,7 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
             if not item or item.status != "printing" or item.claim_token != token:
                 errors.append({"item_id": item_id, "error": "Print claim interrupted; item was not resent."})
                 continue
-            log = PrintLog(operator=req.operator, reason=req.reason,
+            log = PrintLog(**identity.audit(projects[item_id]), reason=req.reason,
                            left_text=item.left_text, right_text=item.right_text)
             error, uncertain = None, False
             try:
@@ -231,7 +254,7 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
                     raise PrintError("Label, template or printer is missing; check the discipline settings.")
                 log.template_name = tmpl.name
                 log.printer_ip = f"{printer.ip}:{printer.port}"
-                render_and_send(tmpl, printer, item.left_text, item.right_text, req.operator, req.reason)
+                render_and_send(tmpl, printer, item.left_text, item.right_text, identity.name, req.reason)
             except PrintError as exc:
                 error, uncertain = str(exc), exc.uncertain
             except Exception as exc:

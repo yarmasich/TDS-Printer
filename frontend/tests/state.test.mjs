@@ -19,8 +19,8 @@ test('latest search wins and old failures do not erase current results',async()=
  const {useLatestResource}=await import('../src/composables/latestResource.ts');const state=useLatestResource();let reject;const first=state.run(()=>new Promise((_,r)=>reject=r));await state.run(async()=>({hits:[2]}));reject(new Error('old error'));await first;assert.deepEqual(state.data.value,{hits:[2]});assert.equal(state.error.value,'');
 });
 test('print failure refreshes cart and never resends uncertain items',async()=>{
- setup();let posts=0;globalThis.fetch=async(url,init)=>{if(init.method==='POST'){posts++;return new Response(JSON.stringify({detail:'active'}),{status:409});}return new Response(JSON.stringify([{id:1,status:'uncertain',error:'Check printer'}]));};
- const cart=useCart('kiosk');cart.items=[{id:1,status:'queued'}];await assert.rejects(cart.printAll(),/already active/);assert.equal(cart.items[0].status,'uncertain');assert.equal(cart.printing,false);await assert.rejects(cart.printAll(),/No queued labels/);assert.equal(posts,1);
+ setup();let posts=0;globalThis.fetch=async(url,init)=>{if(init.method==='POST'){posts++;return new Response(JSON.stringify({detail:'This cart is already printing.'}),{status:409});}return new Response(JSON.stringify([{id:1,status:'uncertain',error:'Check printer'}]));};
+ const cart=useCart('kiosk');cart.items=[{id:1,status:'queued'}];await assert.rejects(cart.printAll(),/already printing/);assert.equal(cart.items[0].status,'uncertain');assert.equal(cart.printing,false);await assert.rejects(cart.printAll(),/No queued labels/);assert.equal(posts,1);
 });
 test('all kiosk cart actions retain the kiosk session',async()=>{
  setup();const requests=[];globalThis.fetch=async(url,init)=>{requests.push({url,body:JSON.parse(init.body||'null')});return new Response(JSON.stringify(init.method==='GET'?[{id:1,status:'queued'}]:{ok:1,errors:[],log_ids:[]}));};
@@ -28,6 +28,32 @@ test('all kiosk cart actions retain the kiosk session',async()=>{
 });
 test('clearing cart during active printing is blocked before mutation',async()=>{setup();let called=false;globalThis.fetch=async()=>{called=true;return new Response('[]');};const cart=useCart();cart.items=[{id:1,status:'printing'}];await assert.rejects(cart.clear(),/Printing/);assert.equal(called,false);});
 test('clearing project invalidates pending discipline requests',async()=>{setup();const a=deferred();globalThis.fetch=()=>a.promise;const projects=useProjects();const pending=projects.loadDisciplinesForProject(1);projects.clearDisciplines();a.resolve(new Response('[{"id":1}]'));await pending;assert.deepEqual(projects.disciplines,[]);assert.equal(projects.loadingDisciplines,false);});
-test('cart refresh failure preserves active-print explanation',async()=>{setup();globalThis.fetch=async(url,init)=>init.method==='POST'?new Response('{"detail":"active"}',{status:409}):new Response('{"detail":"offline"}',{status:503});const cart=useCart();cart.items=[{id:1,status:'queued'}];await assert.rejects(cart.printAll(),/already active/);assert.equal(cart.printing,false);assert.equal(cart.error,'offline');});
+test('cart refresh failure preserves active-print explanation',async()=>{setup();globalThis.fetch=async(url,init)=>init.method==='POST'?new Response('{"detail":"This cart is already printing."}',{status:409}):new Response('{"detail":"offline"}',{status:503});const cart=useCart();cart.items=[{id:1,status:'queued'}];await assert.rejects(cart.printAll(),/already printing/);assert.equal(cart.printing,false);assert.equal(cart.error,'offline');});
 test('unmounted project owner cannot publish a pending response',async()=>{setup();const a=deferred();globalThis.fetch=()=>a.promise;const projects=useProjects();let active=true;const pending=projects.loadDisciplinesForProject(1,()=>active);active=false;a.resolve(new Response('[{"id":1}]'));await pending;assert.deepEqual(projects.disciplines,[]);});
 test('unmounted project owner cannot publish a pending failure',async()=>{setup();const a=deferred();globalThis.fetch=()=>a.promise;const projects=useProjects();let active=true;const pending=projects.loadDisciplinesForProject(1,()=>active);active=false;a.resolve(new Response('{"detail":"old project failed"}',{status:500}));await assert.rejects(pending);assert.equal(projects.disciplineError,'');});
+test('RFID policy and print use the same cart session without storing card data', async () => {
+ setup(); const requests=[];
+ globalThis.fetch=async(url,init)=>{
+  requests.push({url,body:JSON.parse(init.body||'null')});
+  return new Response(JSON.stringify(url.includes('print-policy')?{requires_rfid:true,configured:true}:init.method==='GET'?[]:{ok:1,errors:[],log_ids:[1]}));
+ };
+ const cart=useCart('kiosk'); cart.items=[{id:1,status:'queued'}];
+ assert.deepEqual(await cart.printPolicy(),{requires_rfid:true,configured:true});
+ await cart.printAll('manual','reason','000123');
+ const sid=localStorage.getItem('tds.sid.kiosk');
+ assert.ok(requests[0].url.endsWith(encodeURIComponent(sid)));
+ assert.deepEqual(requests[1].body,{sid,operator:'manual',reason:'reason',rfid_code:'000123'});
+ assert.equal(JSON.stringify(cart.$state).includes('000123'),false);
+ assert.equal(localStorage.getItem('rfid_code'),undefined);
+});
+
+test('cart preserves missing-project conflict instead of reporting active printing', async () => {
+ setup();
+ globalThis.fetch = async (url, init) => init.method === 'POST'
+  ? new Response(JSON.stringify({detail: 'Label project is missing; refresh the cart before printing.'}), {status: 409})
+  : new Response(JSON.stringify([{id: 1, status: 'queued'}]));
+ const cart = useCart(); cart.items = [{id: 1, status: 'queued'}];
+ await assert.rejects(cart.printAll(), /Label project is missing/);
+ assert.equal(cart.printing, false);
+ assert.equal(cart.items[0].status, 'queued');
+});

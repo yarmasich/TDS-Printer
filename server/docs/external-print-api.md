@@ -380,3 +380,17 @@ removes protection for affected jobs. Reservations consume database storage and
 must be retained for as long as callers could retry. Install database migration
 `a6d9b2e71c40` before using this header; a missing reservation table fails closed
 before sending a keyed job.
+
+## RFID identity
+
+Both integration print requests accept an optional `rfid_code` string (maximum
+256 characters before normalization, 64 after). It is required when any selected label belongs to a project
+with `require_rfid=true`. The server resolves it through the configured RFID
+service before sending labels; the returned `full_name` becomes the audited
+operator; the stable `employee_id` is retained in the audit record. Only one
+active directory match with the same normalized RFID is accepted. An API key or manual operator name does not bypass this policy.
+An unconfigured/unavailable lookup returns 503; an unknown card returns 403.
+RFID codes are not stored in print history. The idempotency request digest
+includes the supplied code, so changing it requires a new idempotency key.
+A completed replay returns the saved response without another lookup or print.
+See the server README for the lookup service contract and configuration.

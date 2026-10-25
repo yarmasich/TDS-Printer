@@ -2,10 +2,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from ..auth_admin import require_admin
+from ..auth_admin import require_admin, decode_admin_token
+from .. import rfid
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
 from ..printer import PrintError, render_and_send, render_label_png
@@ -134,6 +136,7 @@ def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -
 
 
 class PrintRequest(BaseModel):
+    rfid_code: Optional[str] = Field(default=None, max_length=256)
     """Either supply ``label_id`` (uses the discipline's bound template) OR
     ``template_id`` + ``left_text`` / ``right_text``."""
     label_id: Optional[int] = None
@@ -144,9 +147,17 @@ class PrintRequest(BaseModel):
     reason: str = ""
 
 
+def _require_custom_print_admin(credentials) -> None:
+    if not isinstance(credentials, HTTPAuthorizationCredentials) or credentials.scheme.lower() != "bearer":
+        raise HTTPException(401, "Admin login required for custom-text printing")
+    decode_admin_token(credentials.credentials)
+
+
 @router.post("")
-def submit_print(req: PrintRequest, session: Session = Depends(get_session)) -> dict:
+def submit_print(req: PrintRequest, session: Session = Depends(get_session),
+                 credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))) -> dict:
     template: Template
+    project = None
     left = req.left_text
     right = req.right_text
 
@@ -164,10 +175,14 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session)) -> 
         template = session.get(Template, disc.template_id)
         if not template:
             raise HTTPException(500, "Discipline points at a missing template")
+        project = rfid.project_for_label(session, label)
+        if (left and left != label.left_text) or (right and right != label.right_text):
+            _require_custom_print_admin(credentials)
         # If the caller didn't override, use the label's own text.
         left = left or label.left_text
         right = right or label.right_text
     elif req.template_id is not None:
+        _require_custom_print_admin(credentials)
         template = session.get(Template, req.template_id)
         if not template:
             raise HTTPException(404, "Template not found")
@@ -178,16 +193,17 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session)) -> 
     if not printer:
         raise HTTPException(500, "Template points at a missing printer")
 
+    identity = rfid.identify([project] if project else [], req.rfid_code, req.operator)
     log = PrintLog(
+        **identity.audit(project),
         template_name=template.name,
         printer_ip=f"{printer.ip}:{printer.port}",
-        operator=req.operator,
         reason=req.reason,
         left_text=left,
         right_text=right,
     )
     try:
-        render_and_send(template, printer, left, right, req.operator, req.reason)
+        render_and_send(template, printer, left, right, identity.name, req.reason)
     except PrintError as e:
         log.status = "uncertain" if e.uncertain else "error"
         log.error = str(e)

@@ -259,7 +259,8 @@ export interface paths {
         delete: operations["delete_project_api_projects__project_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Project */
+        patch: operations["update_project_api_projects__project_id__patch"];
         trace?: never;
     };
     "/api/halls": {
@@ -610,6 +611,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cart/print-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Print Policy */
+        get: operations["print_policy_api_cart_print_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cart/print": {
         parameters: {
             query?: never;
@@ -719,6 +737,23 @@ export interface paths {
         };
         /** List History */
         get: operations["list_history_api_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History Summary */
+        get: operations["history_summary_api_history_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -899,6 +934,8 @@ export interface components {
              * @default
              */
             reason: string;
+            /** Rfid Code */
+            rfid_code?: string | null;
             /**
              * Printer Id
              * @description Logical printer code (= printer name), e.g. 'WS1'. Sent as 'printer_id'. Set by the calling workstation; overrides the template's printer. Whole batch prints to it. Omit → template default. Unknown → 404.
@@ -990,6 +1027,8 @@ export interface components {
              * @default
              */
             reason: string;
+            /** Rfid Code */
+            rfid_code?: string | null;
             /**
              * Copies
              * @default 1
@@ -1375,6 +1414,8 @@ export interface components {
         };
         /** PrintAllRequest */
         PrintAllRequest: {
+            /** Rfid Code */
+            rfid_code?: string | null;
             /** Sid */
             sid: string;
             /**
@@ -1406,6 +1447,25 @@ export interface components {
         };
         /** PrintLog */
         PrintLog: {
+            /** Project Id */
+            project_id?: number | null;
+            /**
+             * Project Name
+             * @default
+             */
+            project_name: string;
+            /**
+             * Operator Source
+             * @default manual
+             */
+            operator_source: string;
+            /**
+             * Operator Verified
+             * @default false
+             */
+            operator_verified: boolean;
+            /** Operator Employee Id */
+            operator_employee_id?: string | null;
             /** Id */
             id?: number | null;
             /**
@@ -1454,12 +1514,10 @@ export interface components {
              */
             error: string;
         };
-        /**
-         * PrintRequest
-         * @description Either supply ``label_id`` (uses the discipline's bound template) OR
-         *     ``template_id`` + ``left_text`` / ``right_text``.
-         */
+        /** PrintRequest */
         PrintRequest: {
+            /** Rfid Code */
+            rfid_code?: string | null;
             /** Label Id */
             label_id?: number | null;
             /** Template Id */
@@ -1608,6 +1666,11 @@ export interface components {
         };
         /** Project */
         Project: {
+            /**
+             * Require Rfid
+             * @default false
+             */
+            require_rfid: boolean;
             /** Id */
             id?: number | null;
             /** Name */
@@ -1617,6 +1680,11 @@ export interface components {
         ProjectIn: {
             /** Name */
             name: string;
+        };
+        /** ProjectPatch */
+        ProjectPatch: {
+            /** Require Rfid */
+            require_rfid: boolean;
         };
         /** Reason */
         Reason: {
@@ -2933,6 +3001,41 @@ export interface operations {
             };
         };
     };
+    update_project_api_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_halls_api_halls_get: {
         parameters: {
             query?: {
@@ -3755,6 +3858,39 @@ export interface operations {
             };
         };
     };
+    print_policy_api_cart_print_policy_get: {
+        parameters: {
+            query: {
+                sid: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     print_all_api_cart_print_post: {
         parameters: {
             query?: never;
@@ -3929,6 +4065,10 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                since?: string | null;
+                until?: string | null;
+                project_id?: number | null;
+                operator?: string | null;
             };
             header?: never;
             path?: never;
@@ -3943,6 +4083,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrintLog"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_summary_api_history_summary_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+                until?: string | null;
+                project_id?: number | null;
+                operator?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

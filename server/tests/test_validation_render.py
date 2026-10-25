@@ -128,7 +128,11 @@ def test_draft_endpoints_validate_alignment(render_api, route):
     assert response.status_code == 422, response.text
 
 
-def test_legacy_bad_template_preview_and_print_are_handled(render_api):
+def test_legacy_bad_template_preview_and_print_are_handled(render_api, monkeypatch):
+    from app.auth_admin import create_admin_token
+    monkeypatch.setenv("ADMIN_USERNAME", "test")
+    monkeypatch.setenv("ADMIN_PASSWORD", "test-password")
+    monkeypatch.setenv("ADMIN_JWT_SECRET", "test-only-secret-with-at-least-32-bytes")
     client, engine = render_api
     with Session(engine) as session:
         row = Template(**{**template_payload(), 'height': -1})
@@ -138,7 +142,7 @@ def test_legacy_bad_template_preview_and_print_are_handled(render_api):
         ident = row.id
     preview = client.get('/api/print/preview', params={'template_id': ident})
     assert preview.status_code == 400, preview.text
-    printed = client.post('/api/print', json={'template_id': ident})
+    printed = client.post('/api/print', json={'template_id': ident}, headers={'Authorization': f'Bearer {create_admin_token("test")}'})
     assert printed.status_code == 502, printed.text
     with Session(engine) as session:
         logs = session.exec(select(PrintLog)).all()
