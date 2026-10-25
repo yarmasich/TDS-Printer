@@ -34,26 +34,18 @@ def require_project(session):
     return project
 
 
-def test_direct_and_integration_cannot_bypass(db, monkeypatch):
-    from app.api import print as direct, integrations
-    from app.models import ApiKey, Label
+def test_direct_operator_print_still_requires_rfid(db, monkeypatch):
+    from app.api import print as direct
+    from app.models import Label
     session, _ = db
     require_project(session)
     monkeypatch.delenv('RFID_API_URL', raising=False)
     label = session.exec(select(Label)).first()
-    key = ApiKey(name='client', prefix='prefix', key_hash='hash')
-    actions = [
-        lambda: direct.submit_print(direct.PrintRequest(label_id=label.id, operator='Manual'), session),
-        lambda: integrations._api_print(integrations.ApiPrintRequest(discipline_id=label.discipline_id, cable='1.0'), session, key),
-        lambda: integrations._api_print_batch(integrations.ApiBatchPrintRequest(discipline_id=label.discipline_id, cable='1.*'), session, key),
-    ]
-    with patch.object(direct, 'render_and_send') as direct_send, patch.object(integrations, 'render_and_send') as api_send:
-        for action in actions:
-            with pytest.raises(HTTPException) as error:
-                action()
-            assert error.value.status_code == 503
-    direct_send.assert_not_called()
-    api_send.assert_not_called()
+    with patch.object(direct, 'render_and_send') as send:
+        with pytest.raises(HTTPException) as error:
+            direct.submit_print(direct.PrintRequest(label_id=label.id, operator='Manual'), session)
+        assert error.value.status_code == 503
+    send.assert_not_called()
 
 
 def test_verified_identity_overrides_manual_and_claim_blocks_overlap(db):
@@ -200,7 +192,8 @@ from test_integration_idempotency import setup
 
 
 @pytest.mark.parametrize('path', ['/print', '/print-batch'])
-def test_rfid_api_replay_audit_and_no_plaintext_storage(setup, path):
+@pytest.mark.parametrize('card', [None, '001234'])
+def test_api_print_skips_rfid_and_audits_key_with_replay(setup, path, card):
     import json
     from app import rfid
     from app.api import integrations
@@ -209,20 +202,21 @@ def test_rfid_api_replay_audit_and_no_plaintext_storage(setup, path):
     client, payload, _, engine = setup
     with Session(engine) as session:
         require_project(session)
-    payload = {**payload, 'rfid_code': '001234'}
+    payload = {**payload, **({'rfid_code': card} if card is not None else {})}
     with patch.object(rfid, 'resolve_employee', return_value=rfid.OperatorIdentity('Jane Worker', 'rfid', True, 'employee-123')) as lookup, patch.object(integrations, 'render_and_send') as send:
         first = client.post('/api/v1' + path, json=payload, headers={'Idempotency-Key': 'rfid-job'})
         replay = client.post('/api/v1' + path, json=payload, headers={'Idempotency-Key': 'rfid-job'})
         changed = client.post('/api/v1' + path, json={**payload, 'rfid_code': '002345'}, headers={'Idempotency-Key': 'rfid-job'})
     assert first.status_code == replay.status_code == 200, first.text
     assert changed.status_code == 409
-    assert send.call_count == lookup.call_count == 1
-    assert send.call_args.args[4] == 'Jane Worker'
+    assert send.call_count == 1
+    lookup.assert_not_called()
+    assert send.call_args.args[4] == 'api:test'
     with Session(engine) as session:
         log = session.exec(select(PrintLog)).one()
-        assert log.operator == 'Jane Worker' and log.operator_source == 'rfid' and log.operator_verified
+        assert log.operator == 'api:test' and log.operator_source == 'api' and not log.operator_verified
         assert log.project_id and log.project_name == 'P'
-        assert log.operator_employee_id == 'employee-123'
+        assert log.operator_employee_id is None
         stored = session.exec(select(IntegrationPrintRequest)).one()
         assert '001234' not in json.dumps(stored.model_dump(mode='json'))
         assert '001234' not in json.dumps(log.model_dump(mode='json'))
