@@ -19,6 +19,26 @@ const halls = ref<DataHall[]>([]);
 const disciplines = ref<Discipline[]>([]);
 const templates = ref<Template[]>([]);
 
+// Keep expansion across data refreshes and navigation within Admin.
+const collapsedProjects = ref(new Set<number>());
+const expandedHalls = ref(new Set<number>());
+function toggleProject(id: number) {
+  if (collapsedProjects.value.has(id)) collapsedProjects.value.delete(id);
+  else collapsedProjects.value.add(id);
+}
+function toggleHall(id: number) {
+  if (expandedHalls.value.has(id)) expandedHalls.value.delete(id);
+  else expandedHalls.value.add(id);
+}
+function collapseAll() {
+  collapsedProjects.value = new Set(projects.value.map(p => p.id));
+  expandedHalls.value.clear();
+}
+function expandAll() {
+  collapsedProjects.value.clear();
+  expandedHalls.value = new Set(halls.value.map(h => h.id));
+}
+
 const savingRfid = ref(new Set<number>());
 const rfidErrors = ref<Record<number, string>>({});
 
@@ -92,6 +112,7 @@ async function createHall() {
     name: newHall.value.name,
   });
   hallDialog.value = false;
+  collapsedProjects.value.delete(newHall.value.projectId);
   await refresh();
 }
 
@@ -103,6 +124,7 @@ async function createDisc() {
     color: newDisc.value.color,
   });
   discDialog.value = false;
+  expandedHalls.value.add(newDisc.value.hallId);
   await refresh();
 }
 
@@ -199,7 +221,7 @@ function del(url: string, label: string) {
 
 <template>
   <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex flex-wrap gap-3 items-center justify-between mb-3">
       <h2 class="text-lg font-bold">Projects · Halls · Disciplines</h2>
       <Button
         label="Add project"
@@ -212,6 +234,11 @@ function del(url: string, label: string) {
       />
     </div>
 
+    <div v-if="projects.length" class="flex flex-wrap gap-2 mb-4">
+      <Button label="Expand all" icon="pi pi-angle-double-down" text severity="secondary" class="min-h-11" @click="expandAll" />
+      <Button label="Collapse all" icon="pi pi-angle-double-up" text severity="secondary" class="min-h-11" @click="collapseAll" />
+    </div>
+
     <p v-if="projects.length === 0" class="text-slate-500">
       No projects yet.
     </p>
@@ -221,8 +248,12 @@ function del(url: string, label: string) {
       :key="p.id"
       class="bg-slate-50 rounded-xl p-3 mb-3 space-y-2"
     >
-      <div class="flex justify-between items-center">
-        <b>📁 {{ p.name }}</b>
+      <div class="flex flex-wrap gap-2 justify-between items-center">
+        <button type="button" class="tree-toggle" :aria-expanded="!collapsedProjects.has(p.id)" :aria-controls="`project-content-${p.id}`" @click="toggleProject(p.id)">
+          <i :class="collapsedProjects.has(p.id) ? 'pi pi-chevron-right' : 'pi pi-chevron-down'" aria-hidden="true" />
+          <b>{{ p.name }}</b>
+          <span class="tree-count">{{ hallsByProject.get(p.id)?.length ?? 0 }} halls</span>
+        </button>
         <div class="flex gap-1">
           <Button
             label="+ hall"
@@ -241,6 +272,7 @@ function del(url: string, label: string) {
         </div>
       </div>
 
+      <div v-if="!collapsedProjects.has(p.id)" :id="`project-content-${p.id}`" class="space-y-2">
       <label class="inline-flex min-h-12 items-center gap-3 cursor-pointer text-sm font-semibold">
         <input
           type="checkbox"
@@ -258,10 +290,14 @@ function del(url: string, label: string) {
       <div
         v-for="h in hallsByProject.get(p.id) ?? []"
         :key="h.id"
-        class="ml-5 bg-white border border-slate-200 rounded-lg p-3 space-y-2"
+        class="sm:ml-5 bg-white border border-slate-200 rounded-lg p-3 space-y-2"
       >
-        <div class="flex justify-between items-center">
-          <span>🏢 {{ h.name }}</span>
+        <div class="flex flex-wrap gap-2 justify-between items-center">
+          <button type="button" class="tree-toggle" :aria-expanded="expandedHalls.has(h.id)" :aria-controls="`hall-content-${h.id}`" @click="toggleHall(h.id)">
+            <i :class="expandedHalls.has(h.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-hidden="true" />
+            <span class="font-semibold">{{ h.name }}</span>
+            <span class="tree-count">{{ discByHall.get(h.id)?.length ?? 0 }} disciplines</span>
+          </button>
           <div class="flex gap-1">
             <Button
               label="+ discipline"
@@ -280,10 +316,12 @@ function del(url: string, label: string) {
           </div>
         </div>
 
+        <div v-if="expandedHalls.has(h.id)" :id="`hall-content-${h.id}`" class="space-y-2">
+        <p v-if="!discByHall.get(h.id)?.length" class="text-sm text-slate-500 px-3 py-2">No disciplines yet.</p>
         <div
           v-for="d in discByHall.get(h.id) ?? []"
           :key="d.id"
-          class="ml-5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex justify-between items-center gap-2"
+          class="sm:ml-5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2"
         >
           <div class="flex items-center gap-2 min-w-0">
             <ColorPicker
@@ -331,6 +369,8 @@ function del(url: string, label: string) {
             />
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </div>
 
@@ -399,3 +439,11 @@ function del(url: string, label: string) {
     </Dialog>
   </section>
 </template>
+
+<style scoped>
+.tree-toggle { display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-height:44px; padding:6px 8px; min-width:0; text-align:left; border-radius:8px; cursor:pointer; overflow-wrap:anywhere; }
+.tree-toggle:hover { background:#e0f2fe; }
+.tree-toggle:focus-visible { outline:2px solid #0284c7; outline-offset:2px; }
+.tree-toggle > i { font-size:12px; flex-shrink:0; }
+.tree-count { font-size:13px; font-weight:400; color:#64748b; }
+</style>
