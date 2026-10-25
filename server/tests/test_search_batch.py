@@ -164,3 +164,41 @@ def test_batch_does_not_print_lu_number_matches(data):
         result = batch(data, cable='8.*')
     assert result.printed == send.call_count == 1
     assert result.results[0].label_id == wanted
+
+
+@pytest.mark.parametrize('query', ['8', '8.1'])
+def test_exact_numeric_search_excludes_extended_identifiers(data, query):
+    s, d, _ = data
+    wanted = add(s, d, f'LU#1 | CBL#{query} | 300ft')
+    for suffix in ['-B', '-B.1', '-B.6', 'A', '_B', '.1', '0']:
+        add(s, d, f'LU#1 | CBL#{query}{suffix} | 300ft')
+    result = labels.search(q=query, project_id=None, data_hall_id=None,
+                           discipline_id=d.id, limit=500, offset=0, session=s)
+    assert [hit.label_id for hit in result.hits] == [wanted]
+
+
+def test_exact_batch_does_not_print_hyphenated_cable_family(data):
+    s, d, _ = data
+    wanted = add(s, d, 'CBL#8 | 300ft')
+    add(s, d, 'CBL#8-B | 300ft')
+    add(s, d, 'CBL#8-B.1 | 300ft')
+    with patch.object(integrations, 'render_and_send') as send:
+        result = batch(data, cable='8')
+    assert result.printed == send.call_count == 1
+    assert result.results[0].label_id == wanted
+
+
+@pytest.mark.parametrize('query', ['8.', '8.*'])
+def test_numeric_group_excludes_other_identifier_families(data, query):
+    s, d, _ = data
+    wanted = [add(s, d, f'CBL#{cable}') for cable in ['8', '8.1', '8.2']]
+    for cable in ['80', '8-B', '8-B.1', '8.1-B', '8A', '8_B']:
+        add(s, d, f'CBL#{cable}')
+    result = labels.search(q=query, project_id=None, data_hall_id=None,
+                           discipline_id=d.id, limit=500, offset=0, session=s)
+    assert [hit.label_id for hit in result.hits] == wanted
+
+
+def test_hyphenated_identifier_is_still_searchable_as_text():
+    from app.search import cable_query_pattern
+    assert cable_query_pattern('8-B').search('CBL#8-B.1 | 300ft')

@@ -66,13 +66,15 @@ def _align_value(field) -> str:
     return field.value if hasattr(field, "value") else str(field)
 
 
-def _load_font(name: str, style: str, size_pt: float) -> ImageFont.FreeTypeFont:
+def _load_font(name: str, style: str, size_pt: float, *, scale: float = 1.0) -> ImageFont.FreeTypeFont:
     fname = _FONT_FILES.get((name, style)) or _FONT_FILES.get((name, "Regular"))
     pt_to_px = _FONT_DPI / 72.0
     if not fname:
         return ImageFont.load_default()
     return ImageFont.truetype(
-        str(FONTS_DIR / fname), max(6, int(round(size_pt * pt_to_px)))
+        # The legacy six-pixel minimum is in the 300-DPI design grid.
+        # Scale that floor too, or small fonts shrink physically at 600 DPI.
+        str(FONTS_DIR / fname), max(round(6 * scale), int(round(size_pt * pt_to_px * scale)))
     )
 
 
@@ -463,7 +465,7 @@ def _render_label_bitmap(
 
         line_spacing = None if template.line_spacing_px is None else template.line_spacing_px * scale
         def candidate_font(size):
-            loaded = _load_font(template.font_name, template.font_style, size * scale)
+            loaded = _load_font(template.font_name, template.font_style, size, scale=scale)
             return _SpacedFont(loaded, template.letter_spacing_px * scale) if template.letter_spacing_px else loaded
         font = candidate_font(pt)
         if template.auto_fit and text.strip():
@@ -539,14 +541,8 @@ def bitmap_to_mono_raster(img: Image.Image, bytes_per_row: int, height: int) -> 
     return bytes(out)
 
 
-def build_print_job(
-    template: Template, printer: Printer, left_text: str, right_text: str
-) -> bytes:
-    """Pick the framing dialect based on ``printer.protocol`` and return wire bytes.
-
-    Lazy imports keep ``printer_epl2`` / ``printer_jscript`` free to import
-    rendering helpers from this module without a circular dependency.
-    """
+def validate_print_settings(template: Template, printer: Printer) -> Printer:
+    """Shared printer/material preflight for preview and wire generation."""
     try:
         settings = PrinterInput.model_validate(printer, from_attributes=True)
         printer = Printer(**{**printer.model_dump(), **settings.model_dump()})
@@ -562,6 +558,18 @@ def build_print_job(
             raise PrintError(material.limitation)
         if printer.model == 'custom' or printer.protocol != 'jscript':
             raise PrintError("Catalog materials require a Panduit model profile in Admin → Printers")
+    return printer
+
+
+def build_print_job(
+    template: Template, printer: Printer, left_text: str, right_text: str
+) -> bytes:
+    """Pick the framing dialect based on ``printer.protocol`` and return wire bytes.
+
+    Lazy imports keep ``printer_epl2`` / ``printer_jscript`` free to import
+    rendering helpers from this module without a circular dependency.
+    """
+    printer = validate_print_settings(template, printer)
     if printer.protocol == "jscript":
         from .printer_jscript import build_jscript_job
 

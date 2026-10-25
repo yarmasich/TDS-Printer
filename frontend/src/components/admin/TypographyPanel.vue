@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { boundedNumber } from '@/data/numericInput';
 import type { Template } from '@/api/types';
 const props = defineProps<{ model: Omit<Template, 'id'> }>();
 const units = ref('mm');
@@ -12,13 +13,25 @@ function display(key: PositionKey) { return Number((props.model[key] * (units.va
 function position(key: PositionKey, e: Event) {
   const value = (e.target as HTMLInputElement).valueAsNumber;
   if (Number.isFinite(value)) props.model[key] = value * (units.value === 'mm' ? 300 / 25.4 : 1);
+  (e.target as HTMLInputElement).value = String(display(key));
 }
 function size(side: 'left_pt'|'right_pt', value: number) {
   if (!Number.isFinite(value)) return;
   props.model[side] = Math.max(1, Math.min(72, value));
   if (linked.value) props.model.left_pt = props.model.right_pt = props.model[side];
 }
-function sizeInput(side: 'left_pt'|'right_pt', e: Event) { size(side, (e.target as HTMLInputElement).valueAsNumber); }
+function sizeInput(side: 'left_pt'|'right_pt', e: Event) {
+  const input = e.target as HTMLInputElement;
+  size(side, input.valueAsNumber);
+  input.value = String(props.model[side]);
+}
+function spacingInput(key: 'min_font_pt' | 'letter_spacing_px' | 'line_spacing_px', e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (key === 'line_spacing_px' && input.value === '') { props.model[key] = null; return; }
+  const max = key === 'min_font_pt' ? Math.min(props.model.left_pt, props.model.right_pt) : key === 'letter_spacing_px' ? 20 : 100;
+  props.model[key] = boundedNumber(input.valueAsNumber, props.model[key] ?? 0, key === 'min_font_pt' ? 1 : 0, max);
+  input.value = String(props.model[key]);
+}
 function reset() { Object.assign(props.model, { font_name:'Microsoft Sans Serif',font_style:'Regular',left_pt:7,right_pt:7,h_align:'CENTER',v_align:'CENTER',scale_x:1,left_offset:0,right_offset:0,auto_fit:false,min_font_pt:4,letter_spacing_px:0,line_spacing_px:null }); }
 </script>
 <template>
@@ -37,13 +50,13 @@ function reset() { Object.assign(props.model, { font_name:'Microsoft Sans Serif'
     <div class="type-row type-presets" aria-label="Font size presets"><span>Both labels</span><button v-for="pt in [5,6,7,8,10,12]" :key="pt" type="button" @click="model.left_pt = model.right_pt = pt">{{ pt }}</button></div>
     <div class="type-grid">
       <label class="type-link"><input type="checkbox" v-model="model.auto_fit" /> Auto Fit</label>
-      <label>Minimum size · pt<input type="number" v-model.number="model.min_font_pt" min="1" :max="Math.min(model.left_pt, model.right_pt)" step="0.5" :disabled="!model.auto_fit" /></label>
+      <label>Minimum size · pt<input type="number" :value="model.min_font_pt" @change="spacingInput('min_font_pt', $event)" min="1" :max="Math.min(model.left_pt, model.right_pt)" step="0.5" :disabled="!model.auto_fit" /></label>
     </div>
     <p v-if="model.auto_fit" class="type-help">Sizes above are maximums. Each label shrinks independently, down to the minimum. Text that still cannot fit is rejected.</p>
     <details class="type-spacing"><summary>Line & character spacing</summary>
       <div class="type-grid">
-        <label>Character gap · px<input type="number" v-model.number="model.letter_spacing_px" min="0" max="20" step="0.5" /></label>
-        <label>Line gap · px<input type="number" :value="model.line_spacing_px ?? ''" min="0" max="100" step="0.5" placeholder="Auto" @input="model.line_spacing_px = ($event.target as HTMLInputElement).value === '' ? null : ($event.target as HTMLInputElement).valueAsNumber" /></label>
+        <label>Character gap · px<input type="number" :value="model.letter_spacing_px" @change="spacingInput('letter_spacing_px', $event)" min="0" max="20" step="0.5" /></label>
+        <label>Line gap · px<input type="number" :value="model.line_spacing_px ?? ''" min="0" max="100" step="0.5" placeholder="Auto" @change="spacingInput('line_spacing_px', $event)" /></label>
       </div>
       <p class="type-help">300 dpi design pixels. Blank line gap keeps automatic spacing; 0 adds no gap between line boxes. Character gap adds space without stretching glyphs.</p>
     </details>

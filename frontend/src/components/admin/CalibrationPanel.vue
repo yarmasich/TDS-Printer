@@ -14,13 +14,14 @@ watch(() => [props.printer?.id, props.sku, saved.value.x_mm, saved.value.y_mm], 
   measuredX.value = 0; measuredY.value = 0; error.value = ''; message.value = '';
 }, { immediate: true });
 function correctMeasured() {
+  if (![x.value, y.value, measuredX.value, measuredY.value].every(v => typeof v === 'number' && Number.isFinite(v))) { error.value = 'Enter a number for both measured displacements.'; return; }
   const nextX = Math.round((x.value - measuredX.value) * 100) / 100;
   const nextY = Math.round((y.value - measuredY.value) * 100) / 100;
   if (![nextX,nextY].every(v => Number.isFinite(v) && Math.abs(v) <= 5)) { error.value = 'Correction must be within ±5 mm. Check material and feed settings.'; return; }
   x.value = nextX; y.value = nextY; measuredX.value = 0; measuredY.value = 0; error.value = '';
 }
 async function save() {
-  if (!props.printer || !enabled.value) return;
+  if (busy.value || !props.printer || !enabled.value) return;
   if (![x.value,y.value].every(v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 5)) { error.value = 'Enter corrections between −5 and +5 mm.'; return; }
   busy.value = true; error.value = ''; message.value = '';
   const printerId = props.printer.id, sku = props.sku;
@@ -28,7 +29,7 @@ async function save() {
     const result = await api.put<Printer>(`/api/printers/${printerId}/calibration/${encodeURIComponent(sku)}`, { x_mm: x.value, y_mm: y.value });
     emit('saved', result);
     if (props.printer?.id === printerId && props.sku === sku) message.value = 'Calibration saved. Print another test to verify alignment.';
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { if (props.printer?.id === printerId && props.sku === sku) error.value = e instanceof Error ? e.message : String(e); }
   finally { busy.value = false; }
 }
 </script>

@@ -1,7 +1,7 @@
 """POST /api/auth/login — issue JWT for the admin UI."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ..auth_admin import (
@@ -9,6 +9,10 @@ from ..auth_admin import (
     create_admin_token,
     verify_admin_login,
 )
+
+from ..login_limits import LoginLimiter
+
+login_limiter = LoginLimiter()
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -33,7 +37,15 @@ def auth_status() -> AuthStatusOut:
 
 
 @router.post("/login", response_model=LoginOut)
-def login(body: LoginIn) -> LoginOut:
+def login(body: LoginIn, request: Request) -> LoginOut:
+    # Do not read forwarded headers here. Proxy trust belongs in server config.
+    client = request.client.host if request.client else "unknown"
+    retry_after = login_limiter.retry_after(client)
+    if retry_after:
+        raise HTTPException(
+            429, "Too many login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
     if not admin_auth_configured():
         raise HTTPException(
             503,

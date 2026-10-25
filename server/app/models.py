@@ -243,3 +243,20 @@ class ApiKey(SQLModel, table=True):
     enabled: bool = True
     created_at: datetime = Field(default_factory=_utcnow, index=True)
     last_used_at: Optional[datetime] = None
+
+
+class IntegrationPrintRequest(SQLModel, table=True):
+    """Permanent send reservation; never expire automatically or cascade-delete.
+
+    Credential hash scopes requests without retaining plaintext credentials or
+    depending on API-key row IDs (SQLite may reuse those after deletion).
+    """
+    credential_hash: str = Field(primary_key=True)
+    idempotency_key: str = Field(primary_key=True, max_length=200)
+    request_hash: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    # reserved includes interrupted/uncertain attempts; it is never reclaimed.
+    state: str = "reserved"
+    status_code: Optional[int] = None
+    response_body: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    response_headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))

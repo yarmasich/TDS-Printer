@@ -87,10 +87,25 @@ def update_printer(
     updated.material_calibrations = {sku: MaterialCalibration.model_validate(value) for sku, value in existing.material_calibrations.items()}
     if updated.model != existing.model or updated.ip != existing.ip or updated.port != existing.port:
         updated.material_calibrations = {}
-    for k, v in updated.model_dump().items():
-        setattr(existing, k, v)
-    session.add(existing)
-    _commit(session, "Printer name already exists")
+    # Pair saves and settings edits must both compare their read snapshot.
+    # In particular, assigning {} to an originally empty ORM field would not
+    # issue an UPDATE for it, leaving a concurrently saved correction attached
+    # to newly selected hardware.
+    snapshot = {name: getattr(existing, name) for name in PrinterInput.model_fields}
+    try:
+        result = session.execute(
+            update(Printer).where(
+                Printer.id == printer_id,
+                *(getattr(Printer, name) == value for name, value in snapshot.items()),
+            ).values(**updated.model_dump()).execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            session.rollback()
+            raise HTTPException(409, "Printer settings or calibration changed elsewhere; reload and try again")
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, "Printer name already exists") from exc
     session.refresh(existing)
     return existing
 

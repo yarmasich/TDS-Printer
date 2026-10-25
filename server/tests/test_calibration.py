@@ -42,7 +42,7 @@ def test_preview_uses_same_shift_at_design_dpi():
     p,t=pair(dpi=600)
     im=Image.new('L',(1000,500),255); im.putpixel((100,100),0)
     buf=BytesIO();im.save(buf,format='PNG')
-    with patch('app.calibration.render_label_png',return_value=buf.getvalue()):
+    with patch('app.calibration.render_label_png',return_value=buf.getvalue()), patch('app.printer_jscript.prepare_jscript_bitmap'):
         result=Image.open(BytesIO(render_preview_png(t,'a','b',printer=p)))
     assert ImageOps.invert(result).getbbox()==(112,88,113,89)
 
@@ -60,7 +60,7 @@ def test_preview_normalizes_stale_named_printer_profile():
     t.material_sku='r200x150v1t'
     im=Image.new('L',(1000,500),255); im.putpixel((100,100),0)
     buf=BytesIO(); im.save(buf,format='PNG')
-    with patch('app.calibration.render_label_png',return_value=buf.getvalue()):
+    with patch('app.calibration.render_label_png',return_value=buf.getvalue()), patch('app.printer_jscript.prepare_jscript_bitmap'):
         result=Image.open(BytesIO(render_preview_png(t,'a','b',printer=p)))
     assert ImageOps.invert(result).getbbox()==(112,88,113,89)
 

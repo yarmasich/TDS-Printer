@@ -22,6 +22,7 @@ from ..importer import (
     import_workbook_into_discipline,
     scan_labels_dir,
 )
+from ..import_limits import ImportLimitError, ImportLimits, copy_upload
 from ..models import Discipline
 
 router = APIRouter(prefix="/api/import", tags=["import"])
@@ -38,6 +39,8 @@ def scan(
         raise HTTPException(400, f"Not a directory: {path}")
     try:
         return _stats_dict(scan_labels_dir(session, path, wipe=wipe))
+    except ImportLimitError as exc:
+        raise HTTPException(413, str(exc)) from exc
     except InvalidWorkbookError as exc:
         raise HTTPException(400, "Invalid XLSX workbook in scan") from exc
 
@@ -58,12 +61,15 @@ async def upload(
     try:
         tmp_path = tmp_dir / "upload.xlsx"
         with tmp_path.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
+            copy_upload(file.file, out, ImportLimits.from_env())
         stats = import_workbook_into_discipline(
             session, tmp_path, d, display_filename=file.filename,
         )
         session.commit()
         return _stats_dict(stats)
+    except ImportLimitError as exc:
+        session.rollback()
+        raise HTTPException(413, str(exc)) from exc
     except InvalidWorkbookError as exc:
         session.rollback()
         raise HTTPException(400, "Invalid XLSX workbook") from exc

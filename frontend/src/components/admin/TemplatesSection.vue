@@ -35,6 +35,7 @@ const previewSrc = ref<string | null>(null);
 const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
 const testing = ref(false);
+const saving = ref(false);
 
 // Click-to-zoom: opens a full-screen Dialog with the same preview at
 // max size so the operator can actually read the small text.
@@ -84,7 +85,8 @@ async function refresh() {
   templates.value = await api.get<Template[]>("/api/templates");
 }
 onMounted(async () => {
-  await Promise.all([printers.loadAll(), refresh()]);
+  try { await Promise.all([printers.loadAll(), refresh()]); }
+  catch (e) { toast.add({ severity: "error", summary: "Could not load templates or printers", detail: String(e) }); }
 });
 
 const printerById = computed(
@@ -120,6 +122,8 @@ function openDuplicate(t: Template) {
 }
 
 async function save() {
+  if (saving.value || testing.value) return;
+  saving.value = true;
   try {
     if (editId.value) {
       await api.put<Template>(`/api/templates/${editId.value}`, form);
@@ -127,23 +131,26 @@ async function save() {
       await api.post<Template>("/api/templates", form);
     }
     dialogOpen.value = false;
-    await refresh();
     toast.add({ severity: "success", summary: "Saved", life: 2000 });
+    try { await refresh(); }
+    catch (e) { toast.add({ severity: "warn", summary: "Saved, but the list could not refresh", detail: String(e) }); }
   } catch (e: unknown) {
     toast.add({
       severity: "error",
       summary: "Save failed",
       detail: e instanceof Error ? e.message : String(e),
     });
-  }
+  } finally { saving.value = false; }
 }
 
 function remove(t: Template) {
   confirm.require({
     message: `Delete template "${t.name}"?`,
     accept: async () => {
-      await api.delete(`/api/templates/${t.id}`);
-      await refresh();
+      try {
+        await api.delete(`/api/templates/${t.id}`);
+        templates.value = templates.value.filter(template => template.id !== t.id);
+      } catch (e) { toast.add({ severity: "error", summary: "Delete failed", detail: String(e) }); }
     },
   });
 }
@@ -192,6 +199,8 @@ function calibrationSaved(printer: Printer) {
 }
 
 async function refreshPreview() {
+  const seq = ++previewSeq;
+  if (!dialogOpen.value) return;
   // Skip if the form is half-filled — printer must be picked for the
   // template to even validate server-side.
   if (!form.printer_id) {
@@ -199,7 +208,6 @@ async function refreshPreview() {
     previewLoading.value = false;
     return;
   }
-  const seq = ++previewSeq;
   previewLoading.value = true;
   previewError.value = null;
   try {
@@ -261,6 +269,7 @@ watch(dialogOpen, (open) => {
   if (open) {
     refreshPreview();
   } else {
+    zoomOpen.value = false;
     ++previewSeq;
     previewLoading.value = false;
     if (previewTimer !== null) {
@@ -280,6 +289,7 @@ onUnmounted(() => {
 // ──────────────── test print ────────────────
 
 async function testPrint() {
+  if (testing.value || saving.value) return;
   if (!form.printer_id) {
     toast.add({
       severity: "warn",
@@ -425,9 +435,11 @@ const presetSku = computed(() => {
       modal
       :header="editId ? 'Edit template' : 'Add template'"
       :style="{ width: '88rem', maxWidth: '96vw' }"
+      :closable="!saving"
+      :close-on-escape="!saving"
       content-class="template-dialog"
     >
-      <div class="template-editor">
+      <fieldset class="template-editor" :disabled="saving">
         <div class="editor-identity">
         <fieldset class="grid grid-cols-2 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
@@ -469,7 +481,7 @@ const presetSku = computed(() => {
             </span>
           </legend>
           <div class="zoomable" role="button" tabindex="0" aria-label="Open print workspace"
-            @click="zoomOpen = true" @keydown.enter="zoomOpen = true" @keydown.space.prevent="zoomOpen = true">
+            @click="!saving && (zoomOpen = true)" @keydown.enter="!saving && (zoomOpen = true)" @keydown.space.prevent="!saving && (zoomOpen = true)">
             <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" compact />
           </div>
           <div v-if="suggestedPage" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" role="status">
@@ -565,7 +577,7 @@ const presetSku = computed(() => {
             </details>
           </div>
         </div>
-      </div>
+      </fieldset>
 
       <template #footer>
         <div class="editor-footer">
@@ -574,12 +586,12 @@ const presetSku = computed(() => {
             icon="pi pi-bolt"
             severity="secondary"
             :loading="testing"
-            :disabled="!form.printer_id"
+            :disabled="!form.printer_id || testing || saving"
             @click="testPrint"
           />
           <div class="flex gap-2">
-            <Button label="Cancel" severity="secondary" @click="dialogOpen = false" />
-            <Button :label="editId ? 'Save' : 'Create'" @click="save" />
+            <Button label="Cancel" severity="secondary" :disabled="saving" @click="dialogOpen = false" />
+            <Button :label="editId ? 'Save' : 'Create'" :loading="saving" :disabled="saving || testing" @click="save" />
           </div>
         </div>
       </template>
