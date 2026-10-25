@@ -53,7 +53,7 @@ function clear(e: Event) {
       v-if="modelValue"
       type="button"
       class="chip-clear"
-      aria-label="Clear"
+      :aria-label="`Clear ${label}`"
       @click="clear"
     >
       ×
@@ -61,6 +61,7 @@ function clear(e: Event) {
   </span>
   <Popover ref="popoverRef" :style="{ width: '20rem', maxWidth: 'calc(100vw - 2rem)' }">
     <Listbox
+      class="quick-pick-list"
       :model-value="modelValue"
       :options="options"
       :option-label="optionLabel as string"
@@ -131,5 +132,12 @@ function clear(e: Event) {
 }
 .chip-clear:hover {
   background: rgba(2, 132, 199, 0.3);
+}
+@media (max-width: 1100px), (pointer: coarse) {
+  .chip { padding: 0 10px; }
+  .chip-open { min-height: 48px; touch-action: manipulation; }
+  .chip-clear { width: 44px; height: 44px; flex-shrink: 0; }
+  .quick-pick-list :deep(.p-listbox-option) { min-height: 48px; font-size: 16px; }
+  .quick-pick-list :deep(input) { min-height: 44px; font-size: 16px; }
 }
 </style>

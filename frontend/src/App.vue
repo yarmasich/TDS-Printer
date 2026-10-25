@@ -28,7 +28,7 @@ function logoutAdmin() {
       v-if="!isKiosk"
       class="bg-gradient-to-r from-slate-900 to-indigo-900 text-white shadow-lg"
     >
-      <div class="mx-auto max-w-7xl px-6 py-4 flex items-center gap-6">
+      <div class="app-navigation mx-auto max-w-7xl px-6 py-4 flex items-center gap-6">
         <h1 class="text-2xl font-bold tracking-tight">TDS Printer</h1>
         <nav class="flex gap-2 flex-wrap">
           <RouterLink
@@ -95,5 +95,12 @@ function logoutAdmin() {
   max-width: none;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 1100px), (pointer: coarse) {
+  .app-navigation nav a { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (max-width: 600px) {
+  .app-navigation { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+  main:not(.kiosk-main) { padding: 16px 12px; }
 }
 </style>
