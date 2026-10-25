@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref, watch } from "vue";
+import { useRfidPrint } from "@/composables/useRfidPrint";
+import Dialog from "primevue/dialog";
 import type { CartItem } from "@/api/types";
 import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
@@ -23,13 +25,29 @@ const cart = useCart(props.kiosk ? "kiosk" : "print");
 const toast = useToast();
 const confirm = useConfirm();
 const drawerOpen = ref(false);
-const printing = ref(false);
+const scanInput = ref<HTMLInputElement | null>(null);
+const {
+  open: scanOpen, code: scanCode, error: printError, checking,
+  submitting, ready: scanReady, busy: printing, start, submit, close: closeScan,
+} = useRfidPrint(() => cart.printPolicy(), executePrint);
+
+async function focusScan() {
+  await nextTick();
+  scanInput.value?.focus();
+}
+watch(submitting, (active) => { if (!active && scanOpen.value) void focusScan(); });
 
 async function printAll() {
-  if (!cart.queuedCount || cart.hasPrinting) return;
-  printing.value = true;
+  if (!cart.queuedCount || cart.hasPrinting || printing.value) return;
+  await start();
+  if (printError.value && !scanOpen.value) {
+    toast.add({ severity: "error", summary: "Cannot print", detail: printError.value });
+  }
+}
+
+async function executePrint(rfidCode?: string) {
   try {
-    const res = await cart.printAll(props.operator, props.reason);
+    const res = await cart.printAll(props.operator, props.reason, rfidCode);
     if (res.errors.length === 0) {
       toast.add({
         severity: "success",
@@ -50,13 +68,8 @@ async function printAll() {
       if (res.ok > 0) emit("printed", res.ok);
     }
   } catch (e: unknown) {
-    toast.add({
-      severity: "error",
-      summary: "Print all failed",
-      detail: e instanceof Error ? e.message : String(e),
-    });
-  } finally {
-    printing.value = false;
+    // The scan dialog or the initiating Print button reports the error.
+    throw e;
   }
 }
 
@@ -103,15 +116,15 @@ function clearCart() {
         <div class="flex gap-2">
           <Button
             label="Clear"
-            :disabled="cart.hasPrinting"
+            :disabled="cart.hasPrinting || printing || scanOpen"
             severity="secondary"
             :size="props.kiosk ? 'large' : 'small'"
             :fluid="props.kiosk"
             @click="clearCart"
           />
           <Button
-             :label="`Print queued (${cart.queuedCount})`"
-            :disabled="!cart.queuedCount || cart.hasPrinting"
+             :label="checking ? 'Checking print requirements…' : `Print queued (${cart.queuedCount})`"
+            :disabled="!cart.queuedCount || cart.hasPrinting || printing || scanOpen"
             icon="pi pi-print"
             :size="props.kiosk ? 'large' : undefined"
             :fluid="props.kiosk"
@@ -167,7 +180,7 @@ function clearCart() {
             text
             rounded
             aria-label="Remove"
-            :disabled="cart.printing || item.status === 'printing'"
+            :disabled="printing || scanOpen || cart.printing || item.status === 'printing'"
             @click="removeItem(item)"
           />
         </div>
@@ -179,12 +192,12 @@ function clearCart() {
           label="Clear cart"
           severity="secondary"
           size="small"
-          :disabled="!cart.count || cart.hasPrinting"
+          :disabled="!cart.count || cart.hasPrinting || printing || scanOpen"
           @click="clearCart"
         />
         <Button
-           :label="`Print queued (${cart.queuedCount})`"
-            :disabled="!cart.queuedCount || cart.hasPrinting"
+           :label="checking ? 'Checking print requirements…' : `Print queued (${cart.queuedCount})`"
+            :disabled="!cart.queuedCount || cart.hasPrinting || printing || scanOpen"
           icon="pi pi-print"
           :loading="printing"
           @click="printAll"
@@ -192,6 +205,50 @@ function clearCart() {
       </div>
     </template>
   </Drawer>
+
+  <Dialog
+    :visible="scanOpen"
+    modal
+    header="Scan your RFID badge"
+    :style="{ width: '30rem', maxWidth: '95vw' }"
+    :closable="!printing"
+    :close-on-escape="!printing"
+    class="rfid-print-dialog"
+    @update:visible="(visible) => { if (!visible) closeScan(); }"
+    @show="focusScan"
+  >
+    <p class="mb-4 text-slate-600">Scan your badge with the reader to identify yourself and print this batch.</p>
+    <form v-if="scanReady" @submit.prevent="submit">
+      <label for="rfid-scan" class="block font-semibold mb-2">RFID badge</label>
+      <input
+        id="rfid-scan"
+        ref="scanInput"
+        v-model="scanCode"
+        type="text"
+        autocomplete="off"
+        autocapitalize="off"
+        autocorrect="off"
+        :spellcheck="false"
+        :disabled="printing"
+        class="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg"
+        placeholder="Waiting for badge…"
+      />
+      <p v-if="submitting" role="status" class="mt-3 text-sky-800">Checking badge and printing… Please wait.</p>
+      <Button
+        type="submit"
+        label="Verify badge and print"
+        icon="pi pi-print"
+        size="large"
+        class="w-full mt-4"
+        :loading="submitting"
+        :disabled="printing || !scanCode.trim()"
+      />
+    </form>
+    <p v-if="printError" role="alert" class="mt-3 text-red-700">{{ printError }}</p>
+    <template #footer>
+      <Button label="Cancel" severity="secondary" size="large" :disabled="printing" @click="closeScan" />
+    </template>
+  </Dialog>
 </template>
 
 <style scoped>

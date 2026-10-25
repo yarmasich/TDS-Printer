@@ -53,6 +53,22 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> 
     return p
 
 
+class ProjectPatch(BaseModel):
+    require_rfid: bool
+
+
+@router.patch("/projects/{project_id}", response_model=Project, dependencies=[Depends(require_admin)])
+def update_project(project_id: int, body: ProjectPatch, session: Session = Depends(get_session)) -> Project:
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    project.require_rfid = body.require_rfid
+    session.add(project)
+    _commit(session)
+    session.refresh(project)
+    return project
+
+
 @router.delete("/projects/{project_id}", dependencies=[Depends(require_admin)])
 def delete_project(project_id: int, session: Session = Depends(get_session)) -> dict:
     try:

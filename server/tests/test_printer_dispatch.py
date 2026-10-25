@@ -93,7 +93,8 @@ def test_non_cart_routes_preserve_uncertain_log(route):
     from fastapi import HTTPException
     from sqlmodel import Session, SQLModel, create_engine, select
     from app.api import print as print_api, printers, integrations
-    from app.models import Label, Printer, PrintLog, Template
+    from app.models import DataHall, Discipline, Label, Printer, PrintLog, Project, Template
+    from app.rfid import OperatorIdentity
 
     engine = create_engine('sqlite://')
     SQLModel.metadata.create_all(engine)
@@ -105,15 +106,24 @@ def test_non_cart_routes_preserve_uncertain_log(route):
         session.add(template)
         session.commit()
         session.refresh(template)
+        project = Project(name='Project')
+        session.add(project); session.commit()
+        hall = DataHall(project_id=project.id, name='Hall')
+        session.add(hall); session.commit()
+        disc = Discipline(data_hall_id=hall.id, name='Discipline', template_id=template.id)
+        session.add(disc); session.commit()
+        label = Label(discipline_id=disc.id)
+        session.add(label); session.commit()
+        session.refresh(template)
         error = PrintError('Outcome unknown; check physical labels before retrying.', uncertain=True)
         if route == 'integration':
             with patch.object(integrations, 'render_and_send', side_effect=error):
-                integrations._print_label(Label(discipline_id=1), template, device, '', '', session)
+                integrations._print_label(label, template, device, '', '', session, OperatorIdentity('', 'api'))
         else:
             module = printers if route == 'printer' else print_api
             with patch.object(module, 'render_and_send', side_effect=error), pytest.raises(HTTPException):
                 if route == 'direct':
-                    print_api.submit_print(print_api.PrintRequest(template_id=template.id), session)
+                    print_api.submit_print(print_api.PrintRequest(label_id=label.id), session)
                 elif route == 'draft':
                     print_api.test_print(print_api.TestPrintRequest(template=template.model_dump(), printer_id=device.id), session)
                 else:

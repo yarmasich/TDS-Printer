@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
-import { api, ApiError } from "@/api/client";
-import type { CartItem, PrintAllResult } from "@/api/types";
+import { api } from "@/api/client";
+import type { CartItem, PrintAllResult, PrintPolicy } from "@/api/types";
 import { useSession, type CartScope } from "./session";
 
 const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
@@ -62,7 +62,11 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
       await api.delete(`/api/cart?sid=${encodeURIComponent(sid)}`);
       await this.fetch();
     },
-    async printAll(operator?: string, reason?: string) {
+    async printPolicy() {
+      const sid = useSession().ensure(scope);
+      return api.get<PrintPolicy>(`/api/cart/print-policy?sid=${encodeURIComponent(sid)}`);
+    },
+    async printAll(operator?: string, reason?: string, rfidCode?: string) {
       const sid = useSession().ensure(scope);
       if (this.hasPrinting) throw new Error("Printing is already active. Wait, then refresh the cart.");
       if (!this.queuedCount) throw new Error("No queued labels. Check uncertain labels at the printer before deciding to print again.");
@@ -70,10 +74,8 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
       try {
         return await api.post<PrintAllResult>("/api/cart/print", {
           sid, operator: operator ?? "", reason: reason ?? "",
+          ...(rfidCode === undefined ? {} : { rfid_code: rfidCode }),
         });
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 409) throw new Error("Printing is already active. Wait, then refresh the cart; do not resend labels.");
-        throw error;
       } finally {
         try { await this.fetch(); }
         catch {

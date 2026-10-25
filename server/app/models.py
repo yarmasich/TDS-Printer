@@ -128,6 +128,7 @@ class Template(SQLModel, table=True):
 # ──────────────────────────── project hierarchy ────────────────────────────
 
 class Project(SQLModel, table=True):
+    require_rfid: bool = False
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
 
@@ -214,6 +215,11 @@ class CartItem(SQLModel, table=True):
 
 
 class PrintLog(SQLModel, table=True):
+    project_id: Optional[int] = None
+    project_name: str = ""
+    operator_source: str = "manual"
+    operator_verified: bool = False
+    operator_employee_id: Optional[str] = None
     id: Optional[int] = Field(default=None, primary_key=True)
     ts: datetime = Field(default_factory=_utcnow, index=True)
     template_name: str = ""

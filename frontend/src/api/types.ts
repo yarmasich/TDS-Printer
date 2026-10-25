@@ -87,6 +87,7 @@ export interface Template {
 export interface Project {
   id: number;
   name: string;
+  require_rfid: boolean;
 }
 
 export interface DataHall {
@@ -154,6 +155,11 @@ export interface CartItem {
   added_at: string;
 }
 
+export interface PrintPolicy {
+  requires_rfid: boolean;
+  configured: boolean;
+}
+
 export interface PrintAllResult {
   ok: number;
   errors: { item_id: number; error: string }[];
@@ -190,6 +196,11 @@ export interface PrintLog {
   template_name: string;
   printer_ip: string;
   operator: string;
+  project_id: number | null;
+  project_name: string;
+  operator_source: string;
+  operator_verified: boolean;
+  operator_employee_id: string | null;
   reason: string;
   left_text: string;
   right_text: string;

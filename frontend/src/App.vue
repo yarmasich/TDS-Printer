@@ -28,7 +28,7 @@ function logoutAdmin() {
       v-if="!isKiosk"
       class="bg-gradient-to-r from-slate-900 to-indigo-900 text-white shadow-lg"
     >
-      <div class="app-navigation mx-auto max-w-7xl px-6 py-4 flex items-center gap-6">
+      <div class="app-navigation app-shell py-4 flex items-center gap-6">
         <h1 class="text-2xl font-bold tracking-tight">TDS Printer</h1>
         <nav class="flex gap-2 flex-wrap">
           <RouterLink
@@ -75,7 +75,7 @@ function logoutAdmin() {
       </div>
     </header>
 
-    <main :class="isKiosk ? 'kiosk-main' : 'mx-auto max-w-7xl px-6 py-6'">
+    <main :class="isKiosk ? 'kiosk-main' : 'app-shell py-6'">
       <RouterView />
     </main>
 
@@ -85,6 +85,12 @@ function logoutAdmin() {
 </template>
 
 <style>
+.app-shell {
+  width: 100%;
+  min-width: 0;
+  padding-inline: clamp(16px, 2vw, 40px);
+}
+
 .kiosk-app {
   height: 100dvh;
   overflow: visible;
