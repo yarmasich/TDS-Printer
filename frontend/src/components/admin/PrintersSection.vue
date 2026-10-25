@@ -20,17 +20,18 @@ const toast = useToast();
 const confirm = useConfirm();
 
 const protocolOptions: { label: string; value: PrinterProtocol }[] = [
-  { label: "EPL2 — TSC TDP-43ME", value: "epl2" },
+  { label: "Legacy EZPL — existing settings", value: "epl2" },
+  { label: "EZPL — Panduit TDP43ME", value: "ezpl" },
   { label: "JScript — Panduit / cab", value: "jscript" },
 ];
 
 const modelOptions = [
   { label: "Custom / existing settings", value: "custom" },
-  ...["DP4300M", "DP4300H", "DP4600H", "DP4300HD"].map(value => ({ label: value, value })),
+  ...["DP4300M", "DP4300H", "DP4600H", "DP4300HD", "TDP43ME"].map(value => ({ label: value, value })),
 ];
 function applyModel() {
   if (form.model !== "custom") {
-    form.protocol = "jscript";
+    form.protocol = form.model === "TDP43ME" ? "ezpl" : "jscript";
     form.dpi = form.model === "DP4600H" ? 600 : 300;
   }
 }
@@ -195,7 +196,7 @@ async function remove(p: Printer) {
             {{ data.protocol }}
           </span>
           <span
-            v-if="data.protocol === 'jscript'"
+            v-if="data.protocol !== 'epl2'"
             class="ml-1 px-2 py-0.5 rounded text-xs font-mono bg-slate-100 text-slate-600"
           >
             {{ data.dpi ?? 300 }} dpi
@@ -293,11 +294,15 @@ async function remove(p: Printer) {
             class="w-full"
           />
           <p class="mt-1 text-xs text-slate-500">
-            Pick by printer model. EPL2 = TSC TDP-43ME-class; JScript = cab
-            (DP4300H, DP4600H — "Made in Germany", MAC starts 00:02:e7).
+            Select TDP43ME for EZPL over the network. DP-series models use JScript.
+            Legacy EZPL preserves existing printer settings.
           </p>
         </div>
-        <div v-if="form.protocol === 'jscript'">
+        <p v-if="form.model === 'TDP43ME'" class="text-sm text-slate-600">
+          Network printing · 300 dpi. Enter this printer’s IP and RAW TCP port (normally 9100).
+          Verify alignment with a test label before production printing.
+        </p>
+        <div v-if="form.protocol !== 'epl2'">
           <label class="block text-xs font-bold text-slate-600 mb-1">
             Printhead resolution
           </label>

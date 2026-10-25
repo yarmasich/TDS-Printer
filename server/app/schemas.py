@@ -116,7 +116,7 @@ class PrinterInput(InputModel):
     ip: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=253)]
     port: int = Field(9100, ge=1, le=65535)
     notes: str = Field('', max_length=4096)
-    protocol: Literal['epl2', 'jscript'] = 'epl2'
+    protocol: Literal['epl2', 'jscript', 'ezpl'] = 'epl2'
     dpi: Literal[203, 300, 600] = 300
     model: PrinterModel = 'custom'
     material_calibrations: dict[Annotated[str, StringConstraints(min_length=1, max_length=100)], MaterialCalibration] = Field(default={}, max_length=2000)
@@ -131,7 +131,7 @@ class PrinterInput(InputModel):
             normalized[key] = correction
         self.material_calibrations = normalized
         if self.model in PROFILES:
-            self.protocol = 'jscript'
+            self.protocol = 'ezpl' if self.model == 'TDP43ME' else 'jscript'
             self.dpi = PROFILES[self.model][0]
         return self
 

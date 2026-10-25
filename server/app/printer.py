@@ -556,7 +556,7 @@ def validate_print_settings(template: Template, printer: Printer) -> Printer:
             raise PrintError("Unknown material SKU; select a material from the catalog") from exc
         if not material.supported:
             raise PrintError(material.limitation)
-        if printer.model == 'custom' or printer.protocol != 'jscript':
+        if printer.model == 'custom' or printer.protocol not in ('jscript', 'ezpl'):
             raise PrintError("Catalog materials require a Panduit model profile in Admin → Printers")
     return printer
 
@@ -574,9 +574,12 @@ def build_print_job(
         from .printer_jscript import build_jscript_job
 
         return build_jscript_job(template, printer, left_text, right_text)
+    if printer.protocol == "ezpl":
+        from .printer_ezpl import build_ezpl_job
+        return build_ezpl_job(template, printer, left_text, right_text)
     if printer.protocol != "epl2":
         raise PrintError(f"Unsupported printer protocol: {printer.protocol}")
-    # TSC EPL2 (TDP-43ME — the Android-ported engine).
+    # Historical epl2 key retains the original Android EZPL byte stream.
     from .printer_epl2 import build_epl2_job
 
     return build_epl2_job(template, left_text, right_text)

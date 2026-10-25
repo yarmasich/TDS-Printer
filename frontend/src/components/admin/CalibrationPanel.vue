@@ -6,7 +6,7 @@ const props = defineProps<{ printer?: Printer; sku: string; testing: boolean }>(
 const emit = defineEmits<{ saved: [Printer]; test: [] }>();
 const x = ref(0), y = ref(0), measuredX = ref(0), measuredY = ref(0);
 const busy = ref(false), error = ref(''), message = ref('');
-const enabled = computed(() => !!props.sku && !!props.printer && props.printer.model !== 'custom' && props.printer.protocol === 'jscript');
+const enabled = computed(() => !!props.sku && !!props.printer && props.printer.model !== 'custom' && ['jscript', 'ezpl'].includes(props.printer.protocol));
 const saved = computed(() => props.printer?.material_calibrations?.[props.sku] ?? { x_mm: 0, y_mm: 0 });
 const dirty = computed(() => x.value !== saved.value.x_mm || y.value !== saved.value.y_mm);
 watch(() => [props.printer?.id, props.sku, saved.value.x_mm, saved.value.y_mm], () => {

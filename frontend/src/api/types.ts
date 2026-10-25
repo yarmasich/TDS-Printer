@@ -8,9 +8,10 @@
  */
 
 /** Wire protocol the printer speaks on port 9100.
- *  - "epl2"    — TSC EPL2 dialect (TDP-43ME-class), default.
+ *  - "epl2"    — legacy EZPL framing, retained for existing configurations.
+ *  - "ezpl"    — Panduit TDP43ME, model-aware media settings.
  *  - "jscript" — cab JScript (Panduit DP4300H/DP4600H, OEM cab Produkttechnik). */
-export type PrinterProtocol = "epl2" | "jscript";
+export type PrinterProtocol = "epl2" | "ezpl" | "jscript";
 
 export interface Printer {
   material_calibrations?: Record<string, { x_mm: number; y_mm: number }>;
@@ -23,7 +24,7 @@ export interface Printer {
   /** Printhead resolution. DP4300H = 300, DP4600H = 600. Scales the raster so
    *  every model prints at the same physical size. */
   dpi: number;
-  model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD";
+  model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD" | "TDP43ME";
 }
 
 export interface PingResult {

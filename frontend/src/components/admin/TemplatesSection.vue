@@ -502,7 +502,7 @@ const presetSku = computed(() => {
             <details class="editor-card editor-advanced">
               <summary>Advanced layout<span>Feed, page size and text areas</span></summary>
               <div class="advanced-content">
-        <fieldset v-if="printerById.get(form.printer_id)?.protocol === 'jscript'" class="grid grid-cols-2 gap-3">
+        <fieldset v-if="['jscript', 'ezpl'].includes(printerById.get(form.printer_id)?.protocol ?? '')" class="grid grid-cols-2 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">Material feed</legend>
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Label height (mm; 0 = automatic)</label>
