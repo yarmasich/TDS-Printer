@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { adminAuthHeader, api, apiUrl } from "@/api/client";
 import { readApiError } from "@/api/errors";
 import { pageSizeRepair } from "@/data/templateGeometry";
-import type { Template } from "@/api/types";
+import type { Printer, Template } from "@/api/types";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
@@ -16,14 +16,11 @@ import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
-import ProgressSpinner from "primevue/progressspinner";
-import LabelShape from "@/components/admin/LabelShape.vue";
-import AlignmentGrid from "@/components/admin/AlignmentGrid.vue";
-import {
-  parsePanduitSku,
-  findTemplatePreset,
-  TEMPLATE_PRESET_SKUS,
-} from "@/data/panduit";
+
+import CalibrationPanel from "@/components/admin/CalibrationPanel.vue";
+import MaterialPicker from "@/components/admin/MaterialPicker.vue";
+import TypographyPanel from "@/components/admin/TypographyPanel.vue";
+import PrintWorkspace from "@/components/admin/PrintWorkspace.vue";
 
 const printers = usePrinters();
 const toast = useToast();
@@ -72,6 +69,9 @@ const blank = (): Omit<Template, "id"> => ({
   right_offset: 0,
   scale_x: 1,
   mirror_legend: false,
+  material_sku: "",
+  media_height_mm: 0,
+  media_gap_mm: 3,
 });
 
 const form = reactive<Omit<Template, "id">>(blank());
@@ -97,7 +97,7 @@ function openEdit(t: Template) {
   editId.value = t.id;
   const { id: _id, ...rest } = t;
   void _id;
-  Object.assign(form, rest);
+  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest);
   dialogOpen.value = true;
 }
 
@@ -105,7 +105,7 @@ function openDuplicate(t: Template) {
   editId.value = null; // saving will POST a new row
   const { id: _id, ...rest } = t;
   void _id;
-  Object.assign(form, rest);
+  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest);
   // Auto-suffix until the name is unique among existing templates.
   const taken = new Set(templates.value.map((x) => x.name));
   let candidate = `${t.name} copy`;
@@ -181,11 +181,18 @@ function clearPreview() {
   previewError.value = null;
 }
 
+function calibrationSaved(printer: Printer) {
+  const index = printers.printers.findIndex(p => p.id === printer.id);
+  if (index >= 0) printers.printers[index] = printer;
+  if (dialogOpen.value && form.printer_id === printer.id) refreshPreview();
+}
+
 async function refreshPreview() {
   // Skip if the form is half-filled — printer must be picked for the
   // template to even validate server-side.
   if (!form.printer_id) {
     clearPreview();
+    previewLoading.value = false;
     return;
   }
   const seq = ++previewSeq;
@@ -198,16 +205,15 @@ async function refreshPreview() {
         "Content-Type": "application/json",
         ...adminAuthHeader(),
       },
-      // crop=true so the preview is the text-bbox only — without
-      // it the bitmap is mostly blank canvas and the actual text
-      // shrinks to dots when scaled into the small Print-On swatch.
-      body: JSON.stringify({ template: form, crop: true }),
+      // Preserve the full 300-DPI canvas so guides match the server raster.
+      body: JSON.stringify({ template: form, printer_id: form.printer_id, crop: false }),
     });
     if (seq !== previewSeq) return; // a newer call already ran
     if (!res.ok) {
       const detail = await readApiError(res);
       if (seq !== previewSeq) return;
-      clearPreview();
+      // Keep the last successful frame retained during width-slider edits.
+      // The workspace marks it stale; rejected settings are never shown as valid.
       previewError.value = detail;
       return;
     }
@@ -227,8 +233,17 @@ async function refreshPreview() {
 
 watch(
   () => ({ ...form }),
-  () => {
+  (current, previous) => {
     if (!dialogOpen.value) return;
+    ++previewSeq;
+    // A slider emits continuously: retain its last rendered frame during
+    // debounce. Geometry changes still clear it to avoid misleading guides.
+    const widthOnly = previous && Object.keys(current).every(key =>
+      key === 'scale_x' || current[key as keyof typeof current] === previous[key as keyof typeof previous],
+    );
+    if (!widthOnly) clearPreview();
+    previewError.value = null;
+    previewLoading.value = true;
     if (previewTimer !== null) window.clearTimeout(previewTimer);
     previewTimer = window.setTimeout(() => {
       previewTimer = null;
@@ -242,6 +257,8 @@ watch(dialogOpen, (open) => {
   if (open) {
     refreshPreview();
   } else {
+    ++previewSeq;
+    previewLoading.value = false;
     if (previewTimer !== null) {
       window.clearTimeout(previewTimer);
       previewTimer = null;
@@ -250,7 +267,11 @@ watch(dialogOpen, (open) => {
   }
 });
 
-onUnmounted(clearPreview);
+onUnmounted(() => {
+  ++previewSeq;
+  if (previewTimer !== null) window.clearTimeout(previewTimer);
+  clearPreview();
+});
 
 // ──────────────── test print ────────────────
 
@@ -285,58 +306,25 @@ async function testPrint() {
   }
 }
 
-const FONTS = ["Microsoft Sans Serif", "Calibri"];
-const STYLES = ["Bold", "Regular"];
 
-// Recognised PANDUIT SKU at the start of the template name (e.g.
-// 'R200X225V1T' → R200X225 preset). Null when the name doesn't match.
-const panduitSpec = computed(() => parsePanduitSku(form.name || ""));
+function applyMaterial(geometry: Partial<Template>) {
+  Object.assign(form, geometry);
+  if (!form.name) form.name = form.material_sku;
+  toast.add({ severity: "info", summary: "Material applied to draft", detail: "Review preview and save to keep these settings.", life: 3500 });
+}
 
-// Available bitmap preset for this template name (R200X225 / R200X150
-// / S200X400 today). Null → form keeps whatever geometry it has.
+// Repair legacy pages without replacing calibrated text rectangles.
 const suggestedPage = computed(() => pageSizeRepair(form));
 function repairPageSize() {
   if (suggestedPage.value) Object.assign(form, suggestedPage.value);
 }
 
-const availablePreset = computed(() => findTemplatePreset(form.name || ""));
-
-// Canonical SKU shown on the Load-preset button (e.g. "R150x150" → "R150X150").
-// Mirrors findTemplatePreset's key derivation — a stray inline regex here used
-// to render "Load undefined preset" when the button was shown.
+// SKU used by the legacy page-size repair hint.
 const presetSku = computed(() => {
   const m = (form.name || "").match(/^([RS])(\d{3})[xX](\d{3})/i);
   return m ? `${m[1]!.toUpperCase()}${m[2]}X${m[3]}` : null;
 });
 
-function applyPreset() {
-  const preset = availablePreset.value;
-  if (!preset) return;
-  // Only touch raster/geometry fields — leave typography, text,
-  // printer, name untouched.
-  Object.assign(form, preset);
-  toast.add({
-    severity: "success",
-    summary: "Preset applied",
-    detail: `Geometry set for ${form.name}. Adjust pt / font as needed.`,
-    life: 3500,
-  });
-}
-
-// Auto-apply the SKU preset while the operator is *creating* a new
-// template — that's when blank()'s default geometry is irrelevant and
-// is almost certainly wrong for the SKU they just named. In edit mode
-// we never touch the geometry automatically (the row already has its
-// own tuned values; the Load-preset button stays available as an
-// explicit opt-in).
-watch(
-  () => form.name,
-  (newName) => {
-    if (editId.value !== null) return;
-    const preset = findTemplatePreset(newName);
-    if (preset) Object.assign(form, preset);
-  },
-);
 </script>
 
 <template>
@@ -432,69 +420,53 @@ watch(
       v-model:visible="dialogOpen"
       modal
       :header="editId ? 'Edit template' : 'Add template'"
-      :style="{ width: '52rem', maxWidth: '95vw' }"
+      :style="{ width: '88rem', maxWidth: '96vw' }"
       content-class="template-dialog"
     >
-      <div class="space-y-4">
+      <div class="template-editor">
+        <div class="editor-identity">
+        <fieldset class="grid grid-cols-2 gap-3">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
+            Template & printer
+          </legend>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-name">Template name</label>
+            <InputText id="template-name" v-model="form.name" class="w-full" />
+
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-printer">Printer</label>
+            <Select
+              input-id="template-printer" v-model="form.printer_id"
+              :options="printers.printers"
+              option-label="name"
+              option-value="id"
+              class="w-full"
+            />
+            <p v-if="printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" class="printer-ready">
+              {{ printerById.get(form.printer_id)?.model }} · {{ printerById.get(form.printer_id)?.dpi }} dpi
+            </p>
+            <p v-else class="printer-setup-note" role="status">
+              To use catalog materials, set this printer’s model in Admin → Printers.
+              You can still edit this template manually.
+            </p>
+          </div>
+        </fieldset>
+
+        </div>
+        <div class="editor-workspace">
+          <aside class="editor-preview">
+            <div class="preview-caption"><span>PRINT WORKSPACE</span><span>{{ form.material_sku || 'Custom layout' }}</span></div>
         <fieldset class="preview-pane">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1">
-            Preview
+            Live preview
             <span class="text-slate-400 font-normal normal-case">
               ({{ form.bytes_per_row * 8 }}×{{ form.height }}px)
             </span>
           </legend>
-          <!-- When we recognise the SKU, render the label silhouette
-               with the live bitmap embedded inside its Print-On Area.
-               Otherwise fall back to the plain bitmap frame. Click
-               anywhere on the preview to open it full-size. -->
-          <div
-            v-if="panduitSpec"
-            class="shape-frame zoomable"
-            role="button"
-            tabindex="0"
-            aria-label="Zoom preview"
-            @click="zoomOpen = true"
-            @keydown.enter="zoomOpen = true"
-            @keydown.space.prevent="zoomOpen = true"
-          >
-            <LabelShape
-              :spec="panduitSpec"
-              :preview-src="previewSrc"
-              :loading="previewLoading"
-            />
-            <i class="pi pi-search-plus zoom-hint" aria-hidden="true" />
-            <p v-if="previewError" class="preview-msg text-red-600 text-xs mt-2">
-              {{ previewError }}
-            </p>
-          </div>
-          <div
-            v-else
-            class="preview-frame zoomable"
-            role="button"
-            tabindex="0"
-            aria-label="Zoom preview"
-            @click="previewSrc && (zoomOpen = true)"
-            @keydown.enter="previewSrc && (zoomOpen = true)"
-            @keydown.space.prevent="previewSrc && (zoomOpen = true)"
-          >
-            <ProgressSpinner
-              v-if="previewLoading"
-              class="preview-spinner"
-              stroke-width="4"
-            />
-            <img
-              v-if="previewSrc"
-              :src="previewSrc"
-              :alt="`Preview of ${form.name || 'draft'}`"
-              class="preview-img"
-            />
-            <div v-else-if="previewError" class="preview-msg text-red-600">
-              {{ previewError }}
-            </div>
-            <div v-else-if="!previewLoading" class="preview-msg text-slate-400">
-              No preview yet
-            </div>
-            <i v-if="previewSrc" class="pi pi-search-plus zoom-hint" aria-hidden="true" />
+          <div class="zoomable" role="button" tabindex="0" aria-label="Open print workspace"
+            @click="zoomOpen = true" @keydown.enter="zoomOpen = true" @keydown.space.prevent="zoomOpen = true">
+            <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" compact />
           </div>
           <div v-if="suggestedPage" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" role="status">
             <p>The text areas exceed the current page. {{ presetSku }} uses
@@ -504,43 +476,28 @@ watch(
           </div>
         </fieldset>
 
-        <fieldset class="grid grid-cols-2 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
-            Identity
-          </legend>
+            <div class="preview-edit-action"><Button label="Edit text & typography" icon="pi pi-pencil" @click="zoomOpen = true" /></div>
+          </aside>
+          <div class="editor-settings">
+            <section class="editor-card">
+        <MaterialPicker :sku="form.material_sku" :enabled="!!printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" @apply="applyMaterial" />
+            </section>
+            <CalibrationPanel :printer="printerById.get(form.printer_id)" :sku="form.material_sku" :testing="testing" @saved="calibrationSaved" @test="testPrint" />
+            <details class="editor-card editor-advanced">
+              <summary>Advanced layout<span>Feed, page size and text areas</span></summary>
+              <div class="advanced-content">
+        <fieldset v-if="printerById.get(form.printer_id)?.protocol === 'jscript'" class="grid grid-cols-2 gap-3">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">Material feed</legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Name</label>
-            <InputText v-model="form.name" class="w-full" />
-            <div class="mt-1 text-xs">
-              <Button
-                v-if="availablePreset"
-                :label="`Load ${presetSku} preset`"
-                icon="pi pi-download"
-                size="small"
-                text
-                @click="applyPreset"
-              />
-              <span v-else class="text-slate-400">
-                Built-in presets: {{ TEMPLATE_PRESET_SKUS.join(", ") }}.
-                Name your template starting with one of these to load
-                its bitmap geometry.
-              </span>
-            </div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Label height (mm; 0 = automatic)</label>
+            <InputNumber v-model="form.media_height_mm" :min="0" :max="2000" :max-fraction-digits="3" class="w-full" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Printer</label>
-            <Select
-              v-model="form.printer_id"
-              :options="printers.printers"
-              option-label="name"
-              option-value="id"
-              class="w-full"
-            />
-            <span class="text-xs text-slate-400">
-              Default printer. API jobs override it per-request via
-              <code class="text-[10px]">printer_id</code>.
-            </span>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Gap between labels (mm)</label>
+            <InputNumber v-model="form.media_gap_mm" :min="0" :max="100" :max-fraction-digits="3" class="w-full" />
           </div>
+          <p class="col-span-2 text-xs text-slate-500">Use the dimensions of the loaded material.
+            Automatic height preserves the existing feed setting. Gap detection remains enabled.</p>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 gap-3">
@@ -558,7 +515,7 @@ watch(
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-4">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Left rectangle (edges)
           </legend>
           <div><label class="block text-xs text-slate-600">Top</label>
@@ -572,7 +529,7 @@ watch(
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-4">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Right rectangle (edges)
           </legend>
           <div><label class="block text-xs text-slate-600">Top</label>
@@ -586,7 +543,7 @@ watch(
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-4">
+          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Gap (px)
           </legend>
           <div><label class="block text-xs text-slate-600">Top</label>
@@ -599,85 +556,15 @@ watch(
             <InputNumber v-model="form.gap_right" class="w-full" /></div>
         </fieldset>
 
-        <fieldset class="grid grid-cols-2 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
-            Default text
-            <span class="text-slate-400 font-normal normal-case">
-              — press Enter for a new line; the preview updates live
-            </span>
-          </legend>
-          <div>
-            <label class="block text-xs text-slate-600">Left</label>
-            <Textarea
-              v-model="form.left_text"
-              :rows="4"
-              auto-resize
-              class="w-full font-mono"
-            />
-          </div>
-          <div>
-            <label class="block text-xs text-slate-600">Right</label>
-            <Textarea
-              v-model="form.right_text"
-              :rows="4"
-              auto-resize
-              class="w-full font-mono"
-            />
-          </div>
-        </fieldset>
 
-        <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-4">
-            Typography
-          </legend>
-          <div><label class="block text-xs text-slate-600">Font</label>
-            <Select v-model="form.font_name" :options="FONTS" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Style</label>
-            <Select v-model="form.font_style" :options="STYLES" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Left pt</label>
-            <InputNumber v-model="form.left_pt" :min-fraction-digits="0" :max-fraction-digits="2" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Right pt</label>
-            <InputNumber v-model="form.right_pt" :min-fraction-digits="0" :max-fraction-digits="2" class="w-full" /></div>
-          <div class="col-span-2 md:col-span-4">
-            <AlignmentGrid v-model:h-align="form.h_align" v-model:v-align="form.v_align" />
+              </div>
+            </details>
           </div>
-          <div><label class="block text-xs text-slate-600">L offset</label>
-            <InputNumber v-model="form.left_offset" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">R offset</label>
-            <InputNumber v-model="form.right_offset" class="w-full" /></div>
-          <div class="md:col-span-2">
-            <label class="block text-xs text-slate-600">Stretch width</label>
-            <InputNumber
-              v-model="form.scale_x"
-              :min="1"
-              :max="1.5"
-              :step="0.01"
-              :min-fraction-digits="2"
-              :max-fraction-digits="2"
-              class="w-full"
-            />
-            <span class="text-[10px] text-slate-400 block mt-0.5">
-              1.00 = normal width · 1.12 = slightly wider letters (Turn-Tell)
-            </span>
-          </div>
-          <div class="col-span-2 md:col-span-4">
-            <label class="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-              <input
-                type="checkbox"
-                v-model="form.mirror_legend"
-                class="h-4 w-4 accent-orange-600"
-              />
-              <span>
-                <b>Mirror legend (×2)</b> — print the text twice (top rotated
-                180°) so a self-laminating wrap reads from either side
-              </span>
-            </label>
-          </div>
-        </fieldset>
+        </div>
       </div>
 
       <template #footer>
-        <div class="flex justify-between w-full">
+        <div class="editor-footer">
           <Button
             label="Send test print"
             icon="pi pi-bolt"
@@ -703,215 +590,32 @@ watch(
       v-model:visible="zoomOpen"
       modal
       dismissable-mask
-      :header="form.name || 'Preview'"
-      :style="{ width: '92vw', maxWidth: '1400px' }"
+      :header="`Print workspace · ${form.name || 'Untitled template'}`"
+      :style="{ width: '1120px', maxWidth: '96vw', maxHeight: '90vh' }"
       content-class="zoom-dialog"
     >
       <div class="zoom-layout">
         <div class="zoom-preview">
-          <div v-if="panduitSpec" class="zoom-shape">
-            <LabelShape
-              :spec="panduitSpec"
-              :preview-src="previewSrc"
-              :loading="previewLoading"
-            />
-          </div>
-          <div v-else class="zoom-bitmap">
-            <ProgressSpinner
-              v-if="previewLoading"
-              class="preview-spinner"
-              stroke-width="4"
-            />
-            <img
-              v-if="previewSrc"
-              :src="previewSrc"
-              :alt="`Preview of ${form.name || 'draft'}`"
-            />
-          </div>
+          <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" />
 
-          <!-- Geometry block: bitmap envelope + the two text rectangles
-               that live inside it. Lives next to the cassette meta
-               (Print-On area, wrap tails, wire range) because it's the
-               same kind of thing — physical/raster layout. The right
-               panel stays focused on "how the text is laid out". -->
-          <div class="zoom-geometry">
-            <div class="zoom-card">
-              <h4 class="zoom-card-title">Bitmap</h4>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="zoom-field-label">Bytes/row</label>
-                  <InputNumber
-                    v-model="form.bytes_per_row"
-                    :use-grouping="false"
-                    class="w-full"
-                  />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Height (px)</label>
-                  <InputNumber
-                    v-model="form.height"
-                    :use-grouping="false"
-                    class="w-full"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div class="zoom-card">
-              <h4 class="zoom-card-title">Left rect (px)</h4>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="zoom-field-label">Top</label>
-                  <InputNumber v-model="form.left_top" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Bottom</label>
-                  <InputNumber v-model="form.left_bottom" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Left</label>
-                  <InputNumber v-model="form.left_left" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Right</label>
-                  <InputNumber v-model="form.left_right" :min-fraction-digits="0" class="w-full" />
-                </div>
-              </div>
-            </div>
-
-            <div class="zoom-card">
-              <h4 class="zoom-card-title">Right rect (px)</h4>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="zoom-field-label">Top</label>
-                  <InputNumber v-model="form.right_top" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Bottom</label>
-                  <InputNumber v-model="form.right_bottom" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Left</label>
-                  <InputNumber v-model="form.right_left" :min-fraction-digits="0" class="w-full" />
-                </div>
-                <div>
-                  <label class="zoom-field-label">Right</label>
-                  <InputNumber v-model="form.right_right" :min-fraction-digits="0" class="w-full" />
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <aside class="zoom-controls">
-          <div class="zoom-card">
-            <h4 class="zoom-card-title">Default text</h4>
-            <div class="space-y-2">
-              <div>
-                <label class="zoom-field-label">Left</label>
-                <Textarea
-                  v-model="form.left_text"
-                  :rows="3"
-                  auto-resize
-                  class="w-full font-mono"
-                />
-              </div>
-              <div>
-                <label class="zoom-field-label">Right</label>
-                <Textarea
-                  v-model="form.right_text"
-                  :rows="3"
-                  auto-resize
-                  class="w-full font-mono"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="zoom-card">
-            <h4 class="zoom-card-title">Gap (px)</h4>
+          <div class="zoom-card"><TypographyPanel :model="form" /></div>
+          <details class="zoom-card" open>
+            <summary class="zoom-card-title">Label content</summary>
             <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="zoom-field-label">Top</label>
-                <InputNumber v-model="form.gap_top" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">Bottom</label>
-                <InputNumber v-model="form.gap_bottom" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">Left</label>
-                <InputNumber v-model="form.gap_left" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">Right</label>
-                <InputNumber v-model="form.gap_right" class="w-full" />
-              </div>
+              <label class="zoom-field-label">Left<Textarea v-model="form.left_text" :rows="2" class="w-full" /></label>
+              <label class="zoom-field-label">Right<Textarea v-model="form.right_text" :rows="2" class="w-full" /></label>
             </div>
-          </div>
-
-          <div class="zoom-card">
-            <h4 class="zoom-card-title">Typography</h4>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="zoom-field-label">Font</label>
-                <Select v-model="form.font_name" :options="FONTS" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">Style</label>
-                <Select v-model="form.font_style" :options="STYLES" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">Left pt</label>
-                <InputNumber
-                  v-model="form.left_pt"
-                  :min-fraction-digits="0"
-                  :max-fraction-digits="2"
-                  class="w-full"
-                />
-              </div>
-              <div>
-                <label class="zoom-field-label">Right pt</label>
-                <InputNumber
-                  v-model="form.right_pt"
-                  :min-fraction-digits="0"
-                  :max-fraction-digits="2"
-                  class="w-full"
-                />
-              </div>
-              <div class="col-span-2">
-                <AlignmentGrid
-                  v-model:h-align="form.h_align"
-                  v-model:v-align="form.v_align"
-                />
-              </div>
-              <div>
-                <label class="zoom-field-label">L offset</label>
-                <InputNumber v-model="form.left_offset" class="w-full" />
-              </div>
-              <div>
-                <label class="zoom-field-label">R offset</label>
-                <InputNumber v-model="form.right_offset" class="w-full" />
-              </div>
-              <div class="col-span-2">
-                <label class="zoom-field-label">Stretch width</label>
-                <InputNumber
-                  v-model="form.scale_x"
-                  :min="1"
-                  :max="1.5"
-                  :step="0.01"
-                  :min-fraction-digits="2"
-                  :max-fraction-digits="2"
-                  class="w-full"
-                />
-                <span class="text-[10px] text-slate-400 block mt-0.5">
-                  1.00 = normal · 1.12 = Turn-Tell wider letters
-                </span>
-              </div>
-            </div>
-          </div>
+            <button type="button" class="copy-label-text" @click="form.right_text = form.left_text">Copy left text → right</button>
+          </details>
         </aside>
       </div>
+      <template #footer>
+        <span class="workspace-draft-note">Changes stay in the draft. Save in the template editor to keep them.</span>
+        <Button label="Done" icon="pi pi-check" @click="zoomOpen = false" />
+      </template>
     </Dialog>
   </section>
 </template>
@@ -995,7 +699,7 @@ watch(
 }
 .zoom-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 16px;
   align-items: start;
 }
@@ -1108,4 +812,68 @@ watch(
   padding: 24px 12px;
   text-align: center;
 }
+.template-dialog .template-editor { display: grid; gap: 1.25rem; }
+.template-dialog .editor-identity { padding: 1rem 1.25rem; border: 1px solid #dce4ed; border-radius: 12px; background: #fff; }
+.template-dialog .editor-identity legend { margin-bottom: .75rem; }
+.template-dialog .editor-workspace { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.template-dialog .editor-preview { position: sticky; top: 0; min-width: 0; padding: 1.25rem; border: 1px solid #dbe4eb; border-radius: 14px; background: #edf2f5; }
+.template-dialog .preview-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; color: #536779; font-size: 11px; letter-spacing: .06em; }
+.template-dialog .preview-caption span:last-child { font-family: ui-monospace, monospace; letter-spacing: 0; }
+.template-dialog .editor-settings { min-width: 0; display: grid; gap: 1rem; }
+.template-dialog .editor-card { min-width: 0; border: 1px solid #dce4ed; border-radius: 12px; padding: 1.1rem; background: #fff; }
+.template-dialog .editor-text { display: grid; gap: 1.5rem; }
+.template-dialog .editor-text legend { margin-bottom: .65rem; }
+.template-dialog .shape-frame { width: 100%; max-width: none; margin: 0; padding: 1rem; background: #fff; box-sizing: border-box; }
+.template-dialog .shape-frame svg { display: block; width: 100%; height: auto; }
+.template-dialog .preview-frame { min-height: 300px; padding: 1rem; }
+.template-dialog .preview-footnote { margin: .8rem 0 0; color: #64748b; text-align: center; font-size: 12px; }
+.template-dialog .printer-ready { color: #047857; font-size: 12px; margin-top: 6px; }
+.template-dialog .printer-setup-note { color: #9a5411; font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.template-dialog .editor-advanced summary { cursor: pointer; font-weight: 600; color: #334155; }
+.template-dialog .editor-advanced summary span { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: #64748b; }
+.template-dialog .editor-advanced summary:focus-visible { outline: 2px solid #059669; outline-offset: 4px; }
+.template-dialog .advanced-content { display: grid; gap: 1.25rem; padding-top: 1.5rem; }
+.editor-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .75rem; width: 100%; padding-top: .5rem; }
+@media (max-width: 980px) {
+  .template-dialog .editor-workspace { grid-template-columns: minmax(0, 1fr); }
+  .template-dialog .editor-preview { position: static; }
+  .template-dialog .shape-frame { max-width: 640px; margin: auto; }
+}
+@media (max-width: 540px) {
+  .template-dialog .editor-identity > fieldset { grid-template-columns: minmax(0, 1fr); }
+  .template-dialog .editor-identity legend { grid-column: 1; }
+  .template-dialog .editor-preview, .template-dialog .editor-card, .template-dialog .editor-identity { padding: .8rem; }
+  .template-dialog .preview-frame { min-height: 200px; }
+  .editor-footer > .p-button { flex: 1 1 100%; }
+  .editor-footer > div { width: 100%; justify-content: flex-end; }
+}
+</style>
+
+<style>
+.workspace-mirror { display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:10px; }
+.workspace-advanced { padding:16px; background:#f8fafc; border:1px solid #dbe4eb; border-radius:10px; }
+.workspace-advanced summary { cursor:pointer; font-size:13px; font-weight:600; color:#475569; padding:4px 0; }
+.workspace-advanced[open] summary { margin-bottom:12px; }
+.workspace-draft-note { margin-right:auto; color:#64748b; font-size:12px; text-align:left; }
+@media (max-width:900px) { .zoom-controls { max-height:none; overflow:visible; } }
+</style>
+
+<style>
+.zoom-dialog { max-height:72vh; overflow-y:auto; }
+.zoom-layout { grid-template-columns:minmax(0,1fr) 320px; gap:12px; }
+.zoom-controls { max-height:none; overflow:visible; padding:0; gap:10px; }
+.zoom-dialog .workspace-toolbar { padding:10px 12px; }
+.zoom-dialog .workspace-stage { padding:14px; }
+.zoom-dialog .manufacturer-reference { padding:10px 12px; }
+.zoom-dialog .manufacturer-reference dl { margin:8px 0; }
+.zoom-dialog .workspace-note { font-size:10px; padding:8px 12px; }
+.zoom-dialog .workspace-toolbar strong { font-size:13px; }
+.zoom-dialog .workspace-toolbar small { font-size:10px; }
+.zoom-dialog .zoom-card { padding:10px; }
+.copy-label-text { color:#0369a1; font-size:11px; margin-top:8px; cursor:pointer; }
+@media(max-width:850px) { .zoom-layout { grid-template-columns:1fr; } }
+</style>
+
+<style>
+.template-dialog .preview-edit-action { display:flex; justify-content:center; margin-top:12px; }
 </style>

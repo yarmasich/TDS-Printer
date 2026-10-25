@@ -129,6 +129,41 @@ def _measure_block(
     return measured, line_gap, total_h
 
 
+def _validate_text_fit(
+    measured: list[tuple[str, tuple[int, int, int, int]]],
+    *, font: ImageFont.FreeTypeFont, rect_w: float, rect_h: float,
+    h_align: str, v_align: str, y_offset: float, line_gap: int,
+    total_h: float, scale_x: float,
+) -> None:
+    """Check glyph bounds before either page or temporary-buffer clipping.
+
+    Use actual ink heights rather than the font's line-box height: descender
+    space may extend past an edge without losing any printed pixels. Rotation
+    preserves containment, so mirrored copies are checked in their own halves.
+    """
+    if v_align == "TOP":
+        y = y_offset
+    elif v_align == "BOTTOM":
+        y = rect_h - total_h + y_offset
+    else:
+        y = max(0.0, (rect_h - total_h) / 2) + y_offset
+    for (line, bbox), line_h in zip(measured, _line_heights(font, measured)):
+        if line.strip():
+            w = bbox[2] - bbox[0]
+            x = 0 if h_align == "LEFT" else rect_w - w if h_align == "RIGHT" else (rect_w - w) / 2
+            # One device pixel accommodates Pillow's fractional coordinate
+            # rounding; this is not a printable overflow allowance in mm.
+            if (w * scale_x > rect_w + 1 or x + bbox[0] < -1
+                    or x + bbox[2] > rect_w + 1
+                    or y + bbox[1] < -1 or y + bbox[3] > rect_h + 1):
+                raise PrintError(
+                    "Text does not fit in the print area. Reduce font size or character width, "
+                    "shorten the text, or adjust text insets/offsets. "
+                    "Repeated text must fit in each half of the area."
+                )
+        y += line_h + line_gap
+
+
 def _paint_measured_lines(
     draw: ImageDraw.ImageDraw,
     measured: list[tuple[str, tuple[int, int, int, int]]],
@@ -255,6 +290,11 @@ def _draw_text_block(
         raise PrintError("The text area is too large to render")
     wrap_w = rect_w / scale_x if scale_x > 1.0 else rect_w
     measured, line_gap, total_h = _measure_block(font, text, wrap_w, rect_h, scale)
+    _validate_text_fit(
+        measured, font=font, rect_w=rect_w, rect_h=rect_h,
+        h_align=h_align, v_align=v_align, y_offset=y_offset,
+        line_gap=line_gap, total_h=total_h, scale_x=scale_x,
+    )
 
     if not rotate_180 and scale_x <= 1.0:
         _paint_measured_lines(
@@ -370,21 +410,25 @@ def _render_label_bitmap(
             copies = ((y0, y1, turn_tell),)
 
         for cy0, cy1, flip in copies:
-            _draw_text_block(
-                img,
-                text,
-                x0=x0,
-                y0=cy0,
-                x1=x1,
-                y1=cy1,
-                font=font,
-                h_align=h_align,
-                v_align=v_align,
-                y_offset=y_offset,
-                rotate_180=flip,
-                scale_x=scale_x,
-                scale=scale,
-            )
+            try:
+                _draw_text_block(
+                    img,
+                    text,
+                    x0=x0,
+                    y0=cy0,
+                    x1=x1,
+                    y1=cy1,
+                    font=font,
+                    h_align=h_align,
+                    v_align=v_align,
+                    y_offset=y_offset,
+                    rotate_180=flip,
+                    scale_x=scale_x,
+                    scale=scale,
+                )
+            except PrintError as exc:
+                side = "Left" if cable_left else "Right"
+                raise PrintError(f"{side} label: {exc}") from exc
 
     return img
 
@@ -425,9 +469,20 @@ def build_print_job(
     rendering helpers from this module without a circular dependency.
     """
     try:
-        PrinterInput.model_validate(printer, from_attributes=True)
+        settings = PrinterInput.model_validate(printer, from_attributes=True)
+        printer = Printer(**{**printer.model_dump(), **settings.model_dump()})
     except ValueError as exc:
         raise PrintError(f"Invalid printer settings: {exc}") from exc
+    if template.material_sku:
+        from .materials import get_material
+        try:
+            material = get_material(template.material_sku)
+        except KeyError as exc:
+            raise PrintError("Unknown material SKU; select a material from the catalog") from exc
+        if not material.supported:
+            raise PrintError(material.limitation)
+        if printer.model == 'custom' or printer.protocol != 'jscript':
+            raise PrintError("Catalog materials require a Panduit model profile in Admin → Printers")
     if printer.protocol == "jscript":
         from .printer_jscript import build_jscript_job
 
@@ -440,7 +495,30 @@ def build_print_job(
     return build_epl2_job(template, left_text, right_text)
 
 
-def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0) -> None:
+def send_to_printer(
+    ip: str, port: int, payload: bytes, *, timeout: float = 10.0,
+    queue_timeout: float = 30.0,
+) -> None:
+    from .printer_dispatch import PrinterBusy, printer_slot
+
+    entered = False
+    try:
+        with printer_slot(ip, port, wait_timeout=queue_timeout):
+            entered = True
+            _send_locked(ip, port, payload, timeout=timeout)
+    except PrinterBusy as exc:
+        raise PrintError(str(exc)) from exc
+    except (OSError, ImportError) as exc:
+        # Fail closed if the shared lock cannot be obtained. Socket errors are
+        # already classified by _send_locked, including ambiguous sendall.
+        raise PrintError(
+            f"Printer coordination failed: {exc}" if entered else
+            f"Printer coordination unavailable; nothing was sent: {exc}",
+            uncertain=entered,
+        ) from exc
+
+
+def _send_locked(ip: str, port: int, payload: bytes, *, timeout: float) -> None:
     try:
         connection = socket.create_connection((ip, port), timeout=timeout)
     except (OSError, OverflowError) as exc:
@@ -451,7 +529,7 @@ def send_to_printer(ip: str, port: int, payload: bytes, *, timeout: float = 10.0
     except OSError as exc:
         # sendall cannot report how many bytes reached the printer. Never
         # imply that retrying this job is guaranteed not to produce a duplicate.
-        raise PrintError(f"send to {ip}:{port} failed: {exc}", uncertain=True) from exc
+        raise PrintError(f"send to {ip}:{port} failed: {exc}. Outcome unknown; check physical labels before retrying.", uncertain=True) from exc
 
 
 def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Optional[float], str]:

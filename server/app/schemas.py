@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model, model_validator
 
 from .models import HAlign, VAlign
+from .printer_profiles import PrinterModel, PROFILES
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Coordinate = Annotated[float, Field(ge=-4096, le=4096, allow_inf_nan=False)]
@@ -67,6 +68,9 @@ class TemplateInput(InputModel):
     right_offset: Coordinate = 0
     scale_x: float = Field(1, ge=1, le=1.5, allow_inf_nan=False)
     mirror_legend: bool = False
+    material_sku: str = Field("", max_length=100)
+    media_height_mm: float = Field(0, ge=0, le=2000, allow_inf_nan=False)
+    media_gap_mm: float = Field(3, ge=0, le=100, allow_inf_nan=False)
 
     @model_validator(mode='after')
     def valid_geometry(self):
@@ -96,6 +100,11 @@ class TemplateCreate(TemplateInput):
     printer_id: int = Field(..., ge=1)
 
 
+class MaterialCalibration(InputModel):
+    x_mm: float = Field(0, ge=-5, le=5, allow_inf_nan=False)
+    y_mm: float = Field(0, ge=-5, le=5, allow_inf_nan=False)
+
+
 class PrinterInput(InputModel):
     name: Name
     ip: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=253)]
@@ -103,6 +112,22 @@ class PrinterInput(InputModel):
     notes: str = Field('', max_length=4096)
     protocol: Literal['epl2', 'jscript'] = 'epl2'
     dpi: Literal[203, 300, 600] = 300
+    model: PrinterModel = 'custom'
+    material_calibrations: dict[Annotated[str, StringConstraints(min_length=1, max_length=100)], MaterialCalibration] = Field(default={}, max_length=2000)
+
+    @model_validator(mode='after')
+    def apply_model_profile(self):
+        normalized = {}
+        for sku, correction in self.material_calibrations.items():
+            key = sku.strip().upper()
+            if not key or key in normalized:
+                raise ValueError('Calibration SKUs must be nonempty and unique ignoring case')
+            normalized[key] = correction
+        self.material_calibrations = normalized
+        if self.model in PROFILES:
+            self.protocol = 'jscript'
+            self.dpi = PROFILES[self.model][0]
+        return self
 
 
 class PatchInput(InputModel):

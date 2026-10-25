@@ -11,6 +11,7 @@ __pycache__/
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+server/data/backups/
 
 # ──────────────── Node / Vite ────────────────
 node_modules/
@@ -33,3 +34,6 @@ frontend/dist/
 # if you want type-check to pass on a fresh clone without the backend up.
 # Uncomment to ignore:
 # frontend/src/api/schema.d.ts
+
+# Runtime coordination files; never remove while print workers run.
+server/data/printer-locks/

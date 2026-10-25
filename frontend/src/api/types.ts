@@ -13,6 +13,7 @@
 export type PrinterProtocol = "epl2" | "jscript";
 
 export interface Printer {
+  material_calibrations?: Record<string, { x_mm: number; y_mm: number }>;
   id: number;
   name: string;
   ip: string;
@@ -22,6 +23,7 @@ export interface Printer {
   /** Printhead resolution. DP4300H = 300, DP4600H = 600. Scales the raster so
    *  every model prints at the same physical size. */
   dpi: number;
+  model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD";
 }
 
 export interface PingResult {
@@ -73,6 +75,9 @@ export interface Template {
   scale_x: number;
   /** Print each block twice (top rotated 180°) for a two-sided wrap read. */
   mirror_legend: boolean;
+  material_sku: string;
+  media_height_mm: number;
+  media_gap_mm: number;
 }
 
 export interface Project {

@@ -113,7 +113,7 @@ def test_printer_partial_update_validates_merged_row(render_api):
 def test_draft_preview_accepts_blank_name_and_no_selected_printer(render_api):
     client, _ = render_api
     response = client.post('/api/print/preview-draft', json={
-        'template': {**template_payload(), 'name': '', 'printer_id': 0, 'id': None},
+        'template': {**template_payload(), 'name': '', 'printer_id': 0, 'id': None, 'right_text': ''},
     })
     assert response.status_code == 200, response.text
     assert Image.open(BytesIO(response.content)).size == (640, 100)
@@ -319,3 +319,52 @@ def test_legacy_r200_page_size_repair_previews_and_saves(render_api):
     assert saved.status_code in (200, 201), saved.text
     assert saved.json()['right_right'] == 1261
     assert saved.json()['mirror_legend'] is True
+
+
+def test_printer_profile_api_create_and_partial_update(render_api):
+    client, _ = render_api
+    response = client.post('/api/printers', json={'name':'DP', 'ip':'unused', 'model':'DP4600H'})
+    assert response.status_code == 200, response.text
+    row = response.json()
+    assert (row['model'], row['dpi'], row['protocol']) == ('DP4600H', 600, 'jscript')
+    response = client.put(f"/api/printers/{row['id']}", json={'model':'DP4300HD'})
+    assert response.status_code == 200, response.text
+    assert response.json()['dpi'] == 300
+    response = client.put(f"/api/printers/{row['id']}", json={'notes':'retained profile'})
+    assert response.status_code == 200
+    assert response.json()['model'] == 'DP4300HD'
+
+
+def test_template_material_api_round_trip(render_api):
+    client, _ = render_api
+    response = client.post('/api/templates', json=template_payload(media_height_mm=12.5,media_gap_mm=2.5))
+    assert response.status_code == 200, response.text
+    row = response.json()
+    assert (row['media_height_mm'],row['media_gap_mm']) == (12.5,2.5)
+    response = client.put(f"/api/templates/{row['id']}", json={'media_height_mm':0})
+    assert response.status_code == 200
+    assert response.json()['media_gap_mm'] == 2.5
+
+
+def test_catalog_selection_survives_template_save_and_rename(render_api):
+    from app.materials import get_material, template_geometry
+    client,_=render_api
+    response=client.post('/api/templates',json={**template_geometry(get_material('R200X150V1T')),'name':'Rack A','printer_id':1})
+    assert response.status_code == 200,response.text
+    row=response.json()
+    response=client.put(f"/api/templates/{row['id']}",json={'name':'Rack B'})
+    assert response.status_code == 200,response.text
+    assert response.json()['material_sku'] == 'R200X150V1T'
+    assert response.json()['media_gap_mm'] == 3.175
+
+
+@pytest.mark.parametrize('route', ['/api/print/preview-draft', '/api/print/test'])
+def test_overflow_draft_returns_actionable_error_without_sending(render_api, route):
+    client, _ = render_api
+    response = client.post(route, json={
+        'template': {**template_payload(), 'left_text': 'W' * 40, 'right_text': ''},
+        'printer_id': 1,
+    })
+    assert response.status_code in (400, 502), response.text
+    assert 'Left label' in response.json()['detail']
+    assert 'does not fit' in response.json()['detail']

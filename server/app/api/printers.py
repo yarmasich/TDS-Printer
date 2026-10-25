@@ -3,13 +3,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
 from ..db import get_session
 from ..models import PrintLog, Printer, Template
 from ..printer import PrintError, ping_printer, render_and_send
-from ..schemas import PrinterInput, PrinterPatch
+from ..schemas import MaterialCalibration, PrinterInput, PrinterPatch
 
 router = APIRouter(prefix="/api/printers", tags=["printers"])
 
@@ -81,6 +82,11 @@ def update_printer(
         updated = PrinterInput.model_validate({**existing.model_dump(), **patch.model_dump(exclude_unset=True)})
     except ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
+    # Calibration is edited through its dedicated pair endpoint, never through
+    # a potentially stale full printer form. Changing hardware invalidates it.
+    updated.material_calibrations = {sku: MaterialCalibration.model_validate(value) for sku, value in existing.material_calibrations.items()}
+    if updated.model != existing.model or updated.ip != existing.ip or updated.port != existing.port:
+        updated.material_calibrations = {}
     for k, v in updated.model_dump().items():
         setattr(existing, k, v)
     session.add(existing)
@@ -152,7 +158,7 @@ def test_print(
     try:
         render_and_send(template, printer, left, right, "admin", "TEST PRINTER")
     except PrintError as e:
-        log.status = "error"
+        log.status = "uncertain" if e.uncertain else "error"
         log.error = str(e)
         session.add(log)
         session.commit()
@@ -162,3 +168,35 @@ def test_print(
     session.commit()
     session.refresh(log)
     return TestPrintResult(ok=True, log_id=log.id, template_used=template.name)
+
+
+@router.put("/{printer_id}/calibration/{sku}", response_model=Printer, dependencies=[Depends(require_admin)])
+def save_calibration(printer_id: int, sku: str, correction: MaterialCalibration, session: Session = Depends(get_session)):
+    from ..materials import get_material
+    printer = session.get(Printer, printer_id)
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+    if printer.model == "custom" or printer.protocol != "jscript":
+        raise HTTPException(400, "Select a Panduit model profile before calibrating")
+    try:
+        material = get_material(sku)
+    except KeyError as exc:
+        raise HTTPException(404, "Material not found") from exc
+    if not material.supported:
+        raise HTTPException(400, material.limitation)
+    # Compare-and-swap prevents concurrent saves for different SKUs from losing
+    # each other's corrections. A concurrent hardware edit must also conflict.
+    old = printer.material_calibrations
+    result = session.execute(
+        update(Printer).where(
+            Printer.id == printer_id, Printer.material_calibrations == old,
+            Printer.model == printer.model, Printer.ip == printer.ip, Printer.port == printer.port,
+        ).values(material_calibrations={**old, material.sku: correction.model_dump()})
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise HTTPException(409, "Printer calibration changed elsewhere; reload and try again")
+    _commit(session, "Could not save calibration")
+    session.refresh(printer)
+    return printer

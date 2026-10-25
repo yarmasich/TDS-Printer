@@ -17,6 +17,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
+from sqlalchemy import Column, JSON
 
 
 def _utcnow() -> datetime:
@@ -52,6 +53,9 @@ class Printer(SQLModel, table=True):
     # the JScript raster is rendered at this density — a 600-DPI head then
     # prints at the same physical label size as a 300-DPI one.
     dpi: int = 300
+    model: str = "custom"
+    # Physical print-axis corrections keyed by exact catalog material SKU.
+    material_calibrations: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
 
 
 class Template(SQLModel, table=True):
@@ -111,6 +115,10 @@ class Template(SQLModel, table=True):
     # top copy rotated 180° (same text) — so a self-laminating wrap reads from
     # either side. Off = the normal single print.
     mirror_legend: bool = False
+    # JScript material feed; zero height preserves automatic legacy geometry.
+    material_sku: str = ""
+    media_height_mm: float = 0
+    media_gap_mm: float = 3
 
 
 # ──────────────────────────── project hierarchy ────────────────────────────
