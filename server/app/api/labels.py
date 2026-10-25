@@ -177,3 +177,55 @@ def _hit(
         matched_left=matched_left,
         matched_right=matched_right,
     )
+
+
+@router.get('/{label_id}/preview')
+def label_preview(label_id: int, session: Session = Depends(get_session)):
+    """Operator preview of a stored label only; no draft input or printer send."""
+    import base64
+    import re
+    from ..models import Printer, Template
+    from ..calibration import render_preview_png
+    from ..label_geometry import is_turn_tell_300
+    from ..materials import get_material
+    from ..printer import PrintError
+
+    label = session.get(Label, label_id)
+    if not label:
+        raise HTTPException(404, 'Label not found')
+    discipline = session.get(Discipline, label.discipline_id)
+    template = session.get(Template, discipline.template_id) if discipline and discipline.template_id else None
+    if not template:
+        raise HTTPException(400, 'No template assigned to this discipline')
+    printer = session.get(Printer, template.printer_id)
+    if not printer:
+        raise HTTPException(400, 'No printer assigned to this template')
+    try:
+        png = render_preview_png(template, label.left_text or '', label.right_text or '', printer=printer)
+    except PrintError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    width = template.bytes_per_row * 8
+    areas = []
+    turn = is_turn_tell_300(template)
+    for i, name in enumerate(('Left', 'Right')):
+        side = ('right' if i == 0 else 'left') if turn else name.lower()
+        x0, x1 = getattr(template, side+'_left'), getattr(template, side+'_right')
+        y0, y1 = getattr(template, side+'_top'), getattr(template, side+'_bottom')
+        areas.append(dict(label=name, x=width-x1 if turn else x0, y=y0,
+                          width=max(1,x1-x0), height=max(1,y1-y0)))
+    material = None
+    sku = template.material_sku.strip().upper()
+    match = re.fullmatch(r'R(\d{3})X(\d{3})V(\d+)T', sku)
+    colors = {'1':'#ffffff', '2':'#0072c6', '3':'#2e8b57', '7':'#c8102e', '8':'#ffd400'}
+    if match and match[3] in colors:
+        try:
+            stock = get_material(sku)
+            if stock.supported:
+                material = dict(width_mm=round(int(match[1])*0.254,3),
+                                height_mm=round(int(match[2])*0.254,3),
+                                print_height_mm=stock.print_height_mm, color=colors[match[3]])
+        except KeyError:
+            pass
+    return dict(image='data:image/png;base64,'+base64.b64encode(png).decode('ascii'),
+                width=width, height=template.height, material_sku=sku,
+                areas=areas, material=material)

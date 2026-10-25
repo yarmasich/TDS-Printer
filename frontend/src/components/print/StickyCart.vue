@@ -130,6 +130,7 @@ function clearCart() {
     position="right"
     :style="{ width: '32rem', maxWidth: '95vw' }"
     header="Cart"
+    class="print-cart-drawer"
   >
     <Button label="Refresh cart" icon="pi pi-refresh" severity="secondary" size="small" :loading="cart.loading" @click="refreshCart" />
     <p v-if="cart.error" role="alert" class="text-red-700 mt-2">{{ cart.error }}</p>
@@ -286,5 +287,16 @@ function clearCart() {
   min-width: 140px;
   font-size: 17px;
   font-weight: 700;
+}
+</style>
+
+<style>
+@media (max-width: 1100px), (pointer: coarse) {
+  .sticky-cart .p-button, .sticky-cart .cart-summary,
+  .print-cart-drawer .p-button, .print-cart-drawer .p-drawer-close-button { min-height: 48px; min-width: 48px; touch-action: manipulation; }
+}
+@media (max-width: 600px) {
+  .sticky-cart-inner { border-radius: 16px; flex-wrap: wrap; padding: 10px; }
+  .sticky-cart-inner > div { flex: 1; justify-content: flex-end; }
 }
 </style>

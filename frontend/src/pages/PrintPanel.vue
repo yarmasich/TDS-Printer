@@ -86,6 +86,10 @@ const showAddAll = computed(
 // element.
 const queryInput = useTemplateRef<{ $el: HTMLInputElement }>("queryInput");
 
+// Tablets keep keyboard activation under the operator's control.
+function touchLayout() { return window.matchMedia('(pointer: coarse), (max-width: 1100px)').matches; }
+function focusSearch() { if (!touchLayout()) queryInput.value?.$el?.focus(); }
+
 let hydrating = false;
 let mounted = true;
 const isMounted = () => mounted;
@@ -109,7 +113,7 @@ onMounted(async () => {
     } catch (error) { setupError.value = String(error); }
     finally { hydrating = false; }
   }
-  queryInput.value?.$el?.focus();
+  focusSearch();
 });
 
 function resetResults() {
@@ -164,6 +168,7 @@ async function doSearch() {
   resetResults();
   const q = query.value.trim();
   if (!q) return;
+  if (touchLayout()) queryInput.value?.$el?.blur();
   lastQuery.value = q;
   const params = new URLSearchParams({ q });
   if (selectedProject.value) params.set("project_id", String(selectedProject.value));
@@ -173,7 +178,7 @@ async function doSearch() {
 function clearQuery() {
   query.value = "";
   resetResults();
-  queryInput.value?.$el?.focus();
+  focusSearch();
 }
 onUnmounted(() => { mounted = false; results.clear(); ping.clear(); bundleResource.clear(); });
 
@@ -236,7 +241,7 @@ async function onAddAllToCart() {
 </script>
 
 <template>
-  <div class="space-y-4 pb-24" :class="{ 'print-panel--kiosk': kiosk }">
+  <div class="print-panel space-y-4 pb-24" :class="{ 'print-panel--kiosk': kiosk }">
     <!-- ============ Context bar (desktop only) ============ -->
     <header
       v-if="!kiosk"
@@ -253,6 +258,7 @@ async function onAddAllToCart() {
           show-clear
           size="small"
           class="context-select"
+          :pt="{ overlay: { class: 'tablet-context-options' } }"
         />
         <Select
           v-model="selectedDiscipline"
@@ -265,6 +271,7 @@ async function onAddAllToCart() {
           show-clear
           size="small"
           class="context-select"
+          :pt="{ overlay: { class: 'tablet-context-options' } }"
         >
           <template #option="{ option }">
             <span
@@ -292,11 +299,12 @@ async function onAddAllToCart() {
           show-clear
           size="small"
           class="context-select"
+          :pt="{ overlay: { class: 'tablet-context-options' } }"
           @update:model-value="loadBundle"
         />
       </div>
 
-      <div v-if="currentDiscipline" class="flex items-center gap-2 text-sm">
+      <div v-if="currentDiscipline" class="printer-context flex items-center gap-2 text-sm">
         <template v-if="!currentDiscipline.template_id">
           <span class="text-red-700 font-semibold">
             ⚠ no template — printing will fail
@@ -328,6 +336,9 @@ async function onAddAllToCart() {
           aria-describedby="search-help"
           class="search-input"
           autocomplete="off"
+          autocapitalize="off"
+          :spellcheck="false"
+          enterkeyhint="search"
           @keydown.enter="doSearch"
         />
         <Button
@@ -562,5 +573,19 @@ async function onAddAllToCart() {
 
 .empty-state--kiosk p {
   font-size: 18px;
+}
+@media (max-width: 1100px), (pointer: coarse) {
+  .print-panel :deep(.p-button), .print-panel :deep(.p-select) { min-height: 48px; touch-action: manipulation; }
+  .print-panel :deep(.p-select-label) { font-size: 16px; }
+  .print-panel :deep(.p-select-dropdown) { width: 44px; }
+  .print-panel :deep(.p-select-clear-icon) { width: 44px; height: 44px; padding: 14px; flex-shrink: 0; }
+  .printer-context { flex-basis: 100%; flex-wrap: wrap; overflow-wrap: anywhere; }
+  .print-panel :deep(button[aria-label="Clear"]) { min-width: 44px; }
+}
+</style>
+
+<style>
+@media (max-width: 1100px), (pointer: coarse) {
+  .tablet-context-options .p-select-option { min-height: 48px; font-size: 16px; }
 }
 </style>
