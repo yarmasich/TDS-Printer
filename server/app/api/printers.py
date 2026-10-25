@@ -191,7 +191,7 @@ def save_calibration(printer_id: int, sku: str, correction: MaterialCalibration,
     printer = session.get(Printer, printer_id)
     if not printer:
         raise HTTPException(404, "Printer not found")
-    if printer.model == "custom" or printer.protocol != "jscript":
+    if printer.model == "custom" or printer.protocol not in ("jscript", "ezpl"):
         raise HTTPException(400, "Select a Panduit model profile before calibrating")
     try:
         material = get_material(sku)

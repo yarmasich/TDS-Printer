@@ -22,7 +22,7 @@ def apply_calibration(bitmap, template, printer: Printer, *, dpi: int):
     dy = round(correction.y_mm * dpi / 25.4)
     if not dx and not dy:
         return bitmap
-    if printer.protocol != 'jscript' or printer.model == 'custom':
+    if printer.protocol not in ('jscript', 'ezpl') or printer.model == 'custom':
         raise PrintError('Calibration requires a Panduit model profile')
     ink = ImageOps.invert(bitmap).getbbox()
     if ink and (ink[0]+dx < 0 or ink[1]+dy < 0 or ink[2]+dx > bitmap.width or ink[3]+dy > bitmap.height):
@@ -42,6 +42,9 @@ def render_preview_png(template, left, right, *, printer=None, crop=False):
             # Validate the actual native-DPI output, including rotation,
             # calibration and commanded feed, before returning any cropped view.
             prepare_jscript_bitmap(template, printer, left, right)
+        elif printer.protocol == 'ezpl':
+            from .printer_ezpl import prepare_ezpl_bitmap
+            prepare_ezpl_bitmap(template, printer, left, right)
     calibrated = bool(printer and printer.material_calibrations.get(template.material_sku.strip().upper()))
     png = render_label_png(template, left, right, crop=crop and not calibrated)
     if not calibrated:

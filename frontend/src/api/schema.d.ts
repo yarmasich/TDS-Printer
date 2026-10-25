@@ -1610,7 +1610,7 @@ export interface components {
              * @default epl2
              * @enum {string}
              */
-            protocol: "epl2" | "jscript";
+            protocol: "epl2" | "jscript" | "ezpl";
             /**
              * Dpi
              * @default 300
@@ -1622,7 +1622,7 @@ export interface components {
              * @default custom
              * @enum {string}
              */
-            model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD";
+            model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD" | "TDP43ME";
             /**
              * Material Calibrations
              * @default {}
@@ -1642,11 +1642,11 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Protocol */
-            protocol?: ("epl2" | "jscript") | null;
+            protocol?: ("epl2" | "jscript" | "ezpl") | null;
             /** Dpi */
             dpi?: (203 | 300 | 600) | null;
             /** Model */
-            model?: ("custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD") | null;
+            model?: ("custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD" | "TDP43ME") | null;
             /** Material Calibrations */
             material_calibrations?: {
                 [key: string]: components["schemas"]["MaterialCalibration"];

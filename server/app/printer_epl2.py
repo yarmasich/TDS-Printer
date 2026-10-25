@@ -1,14 +1,8 @@
-"""TSC EPL2 framing (TDP-43ME-class printers).
+"""Legacy Android EZPL wire format, retained under the historical `epl2` key.
 
-The header was reverse-engineered from the Android ``PandaRawPrinter.buildPrintJob``
-smali for the original kiosk app:
-
-    ^Q73,3 ^W106 ^AT ^H17 ^S2 ^E16 ^M0 ^B0 ^O0 ^R15 ~Q+0 ^D0 ^P1 ^L
-    Q0,0,<bpr>,<h>
-    <1-bit MSB-first raster (bpr * h bytes)>
-    E
-
-This is the EPL2 / Eltron-compatible dialect TSC printers use on TCP :9100.
+Despite that persisted name, ^Q/^L/Q/E are EZPL commands, not EPL2.
+Do not change this framing: existing installations rely on its offsets/feed.
+New TDP43ME profiles use printer_ezpl with explicit geometry and bounds checks.
 """
 from __future__ import annotations
 

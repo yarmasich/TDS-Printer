@@ -45,7 +45,8 @@ class Printer(SQLModel, table=True):
     ip: str
     port: int = 9100
     notes: str = ""
-    # "epl2" = TSC TDP-43ME-class (default, current Android-ported engine).
+    # "epl2" = historical Android EZPL framing (persisted legacy key).
+    # "ezpl" = explicit Panduit TDP43ME framing with checked geometry.
     # "jscript" = cab-OEM DP4300H/DP4600H. Determines which build_*_job runs.
     protocol: str = "epl2"
     # Printhead resolution in DPI. DP4300H = 300, DP4600H = 600. cab places a
