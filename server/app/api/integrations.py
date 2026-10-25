@@ -45,7 +45,8 @@ class ApiPrintRequest(BaseModel):
     data_hall: Optional[str] = None
     discipline: Optional[str] = None
     reason: str = ""
-    rfid_code: Optional[str] = Field(default=None, max_length=256)
+    rfid_code: Optional[str] = Field(default=None, max_length=256, deprecated=True,
+                                     description="Ignored for API-key printing; retained for compatibility.")
     copies: int = Field(1, ge=1, le=50)
     printer: Optional[str] = Field(
         None,
@@ -300,8 +301,8 @@ def _api_print(
 
     label = _resolve_label(disc, req.cable, session)
     left, right = label.left_text, label.right_text
-    project = rfid.project_for_label(session, label)
-    identity = rfid.identify([project], req.rfid_code, f"api:{key.name}", "api")
+    rfid.project_for_label(session, label)
+    identity = rfid.OperatorIdentity(f"api:{key.name}", "api")
     operator = identity.name
     reason = req.reason or "API"
 
@@ -354,7 +355,8 @@ class ApiBatchPrintRequest(BaseModel):
     data_hall: Optional[str] = None
     discipline: Optional[str] = None
     reason: str = ""
-    rfid_code: Optional[str] = Field(default=None, max_length=256)
+    rfid_code: Optional[str] = Field(default=None, max_length=256, deprecated=True,
+                                     description="Ignored for API-key printing; retained for compatibility.")
     printer: Optional[str] = Field(
         None,
         alias="printer_id",
@@ -463,8 +465,10 @@ def _api_print_batch(
     disc = _resolve_discipline(req, session)
     template, printer = _discipline_printer(disc, session, req.printer)
     plan = _plan_batch(req, disc, session)
-    projects = [rfid.project_for_label(session, label) for _, label in plan if label is not None]
-    identity = rfid.identify(projects, req.rfid_code, f"api:{key.name}", "api")
+    for _, label in plan:
+        if label is not None:
+            rfid.project_for_label(session, label)
+    identity = rfid.OperatorIdentity(f"api:{key.name}", "api")
     operator = identity.name
     reason = req.reason or ("API bundle" if req.bundle else "API batch")
     results, printed, aborted = [], 0, False

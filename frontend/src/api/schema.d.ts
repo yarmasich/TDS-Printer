@@ -934,7 +934,11 @@ export interface components {
              * @default
              */
             reason: string;
-            /** Rfid Code */
+            /**
+             * Rfid Code
+             * @deprecated
+             * @description Ignored for API-key printing; retained for compatibility.
+             */
             rfid_code?: string | null;
             /**
              * Printer Id
@@ -1027,7 +1031,11 @@ export interface components {
              * @default
              */
             reason: string;
-            /** Rfid Code */
+            /**
+             * Rfid Code
+             * @deprecated
+             * @description Ignored for API-key printing; retained for compatibility.
+             */
             rfid_code?: string | null;
             /**
              * Copies
