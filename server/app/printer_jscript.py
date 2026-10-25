@@ -17,35 +17,25 @@ the ASCII-hex format expects (top-to-bottom, left-to-right, bit 7 of byte 0
 is the top-left pixel) — we just wrap each scanline in the ``80 NN`` "direct
 data" frame the manual documents at p. 44.
 
-Geometry assumptions for v1:
-
-* DPI is fixed at 300 (matches DP4300H / DP4600H).
-* Inter-label gap is fixed at 3 mm (typical Panduit T100X025 cassettes).
-
-If you start seeing physical misalignment, surface DPI and gap on the
-``Printer`` row instead of hard-coding them here.
+Material feed can be configured on Template. Zero media_height_mm preserves
+legacy geometry. Explicit printer profiles enforce native DPI and head width.
 """
 from __future__ import annotations
 
-from PIL import Image
+import math
+
+from PIL import Image, ImageOps
 
 from .label_geometry import is_turn_tell_300
 from .models import Printer, Template
-from .printer import bitmap_to_mono_raster, render_label_bitmap
+from .printer import PrintError, bitmap_to_mono_raster, render_label_bitmap
+from .printer_profiles import PROFILES
 
 # Design/raster reference resolution. Templates store geometry in this grid;
 # DP4300H prints it 1:1. DP4600H is 600 DPI, so its raster is rendered 2× (see
 # ``_dpi_scale``) to keep the physical label size identical.
 _DPI = 300
-# Distance between the trailing edge of one label and the leading edge of the
-# next. Used in the S command's 4th parameter (total_height).
-_GAP_MM = 3.0
-# DP4300H physical printhead width per the spec sheet. cab's JScript parser
-# rejects ``S … wd>printhead`` with "No label size" — TSC silently accepts
-# oversize values, cab does not. Panduit Turn-Tell carriers are 4.25" (108 mm)
-# but the printable rectangle on those labels still fits under the 4" head, so
-# clamping ``wd`` here just drops the empty right-edge padding from the S
-# declaration. The full bitmap raster is still transmitted unchanged.
+# Legacy custom-printer width limit; explicit model profiles use driver limits.
 _PRINTHEAD_MM = 104
 # Canonical Turn-Tell carrier height per panduit.ts (4.25" × 2.125" @ 300 DPI:
 # 160 BPR × 638 px = 108 × 54 mm). Some templates in the DB ship a taller
@@ -64,10 +54,7 @@ def _px_to_mm(px: int) -> float:
 
 
 def _px_to_mm_int(px: int) -> int:
-    """For the S command. cab JScript in ``m m`` mode rejects decimal dots
-    (",`" is reserved as the parameter separator) — examples in the manual
-    are always integer mm. ±1 mm is within the gap-sensor tolerance.
-    """
+    """Legacy integer sizing, retained for existing custom configurations."""
     return round(px / _DPI * 25.4)
 
 
@@ -124,6 +111,27 @@ def build_jscript_job(
     if is_turn_tell_300(template):
         bitmap = bitmap.transpose(Image.Transpose.ROTATE_180)
 
+    from .calibration import apply_calibration
+    bitmap = apply_calibration(bitmap, template, printer, dpi=printer.dpi)
+
+    profile = PROFILES.get(printer.model)
+    if profile:
+        max_dots = profile[1]
+        ink = ImageOps.invert(bitmap).getbbox()
+        if ink and ink[2] > max_dots:
+            raise PrintError(
+                f"Text exceeds {printer.model} printable width (105.7 mm). "
+                "Move or narrow the text areas; printing was not sent."
+            )
+        # Keep byte alignment; only white right-hand padding may be discarded.
+        if bitmap.width > max_dots:
+            bitmap = bitmap.crop((0, 0, math.ceil(max_dots / 8) * 8, bitmap.height))
+    if template.media_height_mm > 0:
+        max_height = round(template.media_height_mm * printer.dpi / 25.4)
+        ink = ImageOps.invert(bitmap).getbbox()
+        if ink and ink[3] > max_height:
+            raise PrintError("Text exceeds the configured material height; printing was not sent")
+
     # Raster dimensions follow the (scaled) bitmap so a 600-DPI head receives 2×
     # the dots; ROTATE_180 preserves size, so width stays byte-aligned.
     scaled_bpr = bitmap.width // 8
@@ -135,7 +143,7 @@ def build_jscript_job(
     # scaled raster.
     width_px = template.bytes_per_row * 8
     height_px = template.height
-    width_mm = min(_px_to_mm_int(width_px), _PRINTHEAD_MM)
+    width_mm = min(_px_to_mm(width_px), 105.7) if profile else min(_px_to_mm_int(width_px), _PRINTHEAD_MM)
     if is_turn_tell_300(template):
         # Bitmap may be taller than the physical carrier (operator-added
         # padding). ``dy`` drives the motor advance after ``A 1``, so we feed
@@ -144,7 +152,9 @@ def build_jscript_job(
         height_mm = _TURN_TELL_LABEL_MM
     else:
         height_mm = _px_to_mm_int(height_px)
-    pitch_mm = height_mm + int(round(_GAP_MM))
+    if template.media_height_mm > 0:
+        height_mm = template.media_height_mm
+    pitch_mm = height_mm + template.media_gap_mm
 
     download = "d ASC;TDSIMG\r\n" + _ascii_hex_raster(
         raster, scaled_bpr, scaled_height
@@ -152,7 +162,7 @@ def build_jscript_job(
     job = (
         "m m\r\n"
         "J\r\n"
-        f"S l1;0,0,{height_mm},{pitch_mm},{width_mm}\r\n"
+        f"S l1;0,0,{height_mm:g},{pitch_mm:g},{width_mm:g}\r\n"
         "I:img;0,0,0;TDSIMG\r\n"
         "A 1\r\n"
     )

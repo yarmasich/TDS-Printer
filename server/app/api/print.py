@@ -10,6 +10,7 @@ from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
 from ..printer import PrintError, render_and_send, render_label_png
 from ..schemas import TemplateInput
+from ..calibration import render_preview_png
 
 router = APIRouter(prefix="/api/print", tags=["print"])
 
@@ -29,6 +30,7 @@ class DraftPreviewRequest(BaseModel):
     left_text: str = ""
     right_text: str = ""
     crop: bool = False
+    printer_id: Optional[int] = None
 
 
 class TestPrintRequest(BaseModel):
@@ -75,20 +77,23 @@ def preview(
     else:
         raise HTTPException(400, "Provide label_id or template_id")
     try:
-        png = render_label_png(tmpl, left, right)
+        png = render_preview_png(tmpl, left, right, printer=session.get(Printer, tmpl.printer_id))
     except PrintError as exc:
         raise HTTPException(400, f"Preview failed: {exc}") from exc
     return Response(content=png, media_type="image/png")
 
 
 @router.post("/preview-draft", dependencies=[Depends(require_admin)])
-def preview_draft(req: DraftPreviewRequest):
+def preview_draft(req: DraftPreviewRequest, session: Session = Depends(get_session)):
     """Render an unsaved template — same renderer as the printer path,
     so what you see here is what comes out of the printer."""
     left = req.left_text or req.template.left_text
     right = req.right_text or req.template.right_text
     try:
-        png = render_label_png(req.template, left, right, crop=req.crop)
+        printer = session.get(Printer, req.printer_id) if req.printer_id else None
+        if req.printer_id and not printer:
+            raise HTTPException(404, "Printer not found")
+        png = render_preview_png(req.template, left, right, crop=req.crop, printer=printer)
     except PrintError as exc:
         raise HTTPException(400, f"Preview failed: {exc}") from exc
     return Response(content=png, media_type="image/png")
@@ -116,7 +121,7 @@ def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -
     try:
         render_and_send(req.template, printer, left, right, req.operator, req.reason)
     except PrintError as e:
-        log.status = "error"
+        log.status = "uncertain" if e.uncertain else "error"
         log.error = str(e)
         session.add(log)
         session.commit()
@@ -184,7 +189,7 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session)) -> 
     try:
         render_and_send(template, printer, left, right, req.operator, req.reason)
     except PrintError as e:
-        log.status = "error"
+        log.status = "uncertain" if e.uncertain else "error"
         log.error = str(e)
         session.add(log)
         session.commit()

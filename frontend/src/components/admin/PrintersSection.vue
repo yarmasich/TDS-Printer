@@ -21,8 +21,19 @@ const confirm = useConfirm();
 
 const protocolOptions: { label: string; value: PrinterProtocol }[] = [
   { label: "EPL2 — TSC TDP-43ME", value: "epl2" },
-  { label: "JScript — cab DP4300H", value: "jscript" },
+  { label: "JScript — Panduit / cab", value: "jscript" },
 ];
+
+const modelOptions = [
+  { label: "Custom / existing settings", value: "custom" },
+  ...["DP4300M", "DP4300H", "DP4600H", "DP4300HD"].map(value => ({ label: value, value })),
+];
+function applyModel() {
+  if (form.model !== "custom") {
+    form.protocol = "jscript";
+    form.dpi = form.model === "DP4600H" ? 600 : 300;
+  }
+}
 
 const dpiOptions: { label: string; value: number }[] = [
   { label: "300 dpi — DP4300H", value: 300 },
@@ -39,6 +50,7 @@ const form = reactive<Omit<Printer, "id">>({
   notes: "",
   protocol: "epl2",
   dpi: 300,
+  model: "custom",
 });
 
 onMounted(async () => {
@@ -54,6 +66,7 @@ function openCreate() {
   form.notes = "";
   form.protocol = "epl2";
   form.dpi = 300;
+  form.model = "custom";
   dialogOpen.value = true;
 }
 
@@ -66,6 +79,7 @@ async function openEdit(p: Printer) {
     notes: p.notes,
     protocol: p.protocol,
     dpi: p.dpi ?? 300,
+    model: p.model ?? "custom",
   });
   dialogOpen.value = true;
 }
@@ -253,12 +267,26 @@ async function remove(p: Printer) {
           <label class="block text-xs font-bold text-slate-600 mb-1">Port</label>
           <InputNumber v-model="form.port" :use-grouping="false" class="w-full" />
         </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-bold text-slate-600 mb-1">Printer model</label>
+          <Select v-model="form.model" :options="modelOptions" option-label="label" option-value="value"
+            class="w-full" @change="applyModel" />
+          <p v-if="form.model !== 'custom'" class="mt-1 text-xs text-slate-500">
+            Native resolution and JScript are set by model. Printable width: 105.7 mm per side.
+          </p>
+          <p v-if="form.model === 'DP4300HD'" class="mt-2 text-sm text-amber-700">
+            Single-sided templates only. Configure the printer for single-sided operation
+            (Disable lower head), following the Panduit instructions. This profile does not
+            map a template to two separate printheads.
+          </p>
+        </div>
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">
             Protocol
           </label>
           <Select
             v-model="form.protocol"
+            :disabled="form.model !== 'custom'"
             :options="protocolOptions"
             option-label="label"
             option-value="value"
@@ -275,6 +303,7 @@ async function remove(p: Printer) {
           </label>
           <Select
             v-model="form.dpi"
+            :disabled="form.model !== 'custom'"
             :options="dpiOptions"
             option-label="label"
             option-value="value"

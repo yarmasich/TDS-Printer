@@ -229,7 +229,7 @@ def _print_label(
     try:
         render_and_send(template, printer, label.left_text, label.right_text, operator, reason)
     except PrintError as e:
-        log.status = "error"
+        log.status = "uncertain" if e.uncertain else "error"
         log.error = str(e)
         session.add(log)
         session.commit()

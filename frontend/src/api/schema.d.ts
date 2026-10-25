@@ -139,6 +139,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/printers/{printer_id}/calibration/{sku}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Calibration */
+        put: operations["save_calibration_api_printers__printer_id__calibration__sku__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/templates": {
         parameters: {
             query?: never;
@@ -171,6 +188,40 @@ export interface paths {
         post?: never;
         /** Delete Template */
         delete: operations["delete_template_api_templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search */
+        get: operations["search_api_materials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/materials/{sku}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_materials__sku__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1001,10 +1052,7 @@ export interface components {
         Body_upload_api_import_upload_post: {
             /** Discipline Id */
             discipline_id: number;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BundleDTO */
@@ -1173,6 +1221,8 @@ export interface components {
              * @default false
              */
             crop: boolean;
+            /** Printer Id */
+            printer_id?: number | null;
         };
         /**
          * HAlign
@@ -1230,6 +1280,67 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /** Material */
+        Material: {
+            /** Sku */
+            sku: string;
+            /** Printer Type */
+            printer_type: string;
+            /** Cut Type */
+            cut_type: string;
+            /** Rows */
+            rows: number;
+            /** Columns */
+            columns: number;
+            /** Page Width Mm */
+            page_width_mm: number;
+            /** Page Height Mm */
+            page_height_mm: number;
+            /** Left Margin Mm */
+            left_margin_mm: number;
+            /** Top Margin Mm */
+            top_margin_mm: number;
+            /** Print Width Mm */
+            print_width_mm: number;
+            /** Print Height Mm */
+            print_height_mm: number;
+            /** Column Pitch Mm */
+            column_pitch_mm: number;
+            /** Pitch Mm */
+            pitch_mm: number;
+            /** Gap Mm */
+            gap_mm: number;
+            /**
+             * Supported
+             * @default false
+             */
+            supported: boolean;
+            /**
+             * Limitation
+             * @default
+             */
+            limitation: string;
+        };
+        /** MaterialCalibration */
+        MaterialCalibration: {
+            /**
+             * X Mm
+             * @default 0
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @default 0
+             */
+            y_mm: number;
+        };
+        /** MaterialSearch */
+        MaterialSearch: {
+            /** Items */
+            items: components["schemas"]["Material"][];
+            /** Total */
+            total: number;
         };
         /** PingResult */
         PingResult: {
@@ -1385,6 +1496,15 @@ export interface components {
              * @default 300
              */
             dpi: number;
+            /**
+             * Model
+             * @default custom
+             */
+            model: string;
+            /** Material Calibrations */
+            material_calibrations?: {
+                [key: string]: unknown;
+            };
         };
         /** PrinterInput */
         PrinterInput: {
@@ -1414,6 +1534,19 @@ export interface components {
              * @enum {integer}
              */
             dpi: 203 | 300 | 600;
+            /**
+             * Model
+             * @default custom
+             * @enum {string}
+             */
+            model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD";
+            /**
+             * Material Calibrations
+             * @default {}
+             */
+            material_calibrations: {
+                [key: string]: components["schemas"]["MaterialCalibration"];
+            };
         };
         /** PrinterPatch */
         PrinterPatch: {
@@ -1429,6 +1562,12 @@ export interface components {
             protocol?: ("epl2" | "jscript") | null;
             /** Dpi */
             dpi?: (203 | 300 | 600) | null;
+            /** Model */
+            model?: ("custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD") | null;
+            /** Material Calibrations */
+            material_calibrations?: {
+                [key: string]: components["schemas"]["MaterialCalibration"];
+            } | null;
         };
         /** PrinterStatusDTO */
         PrinterStatusDTO: {
@@ -1654,6 +1793,21 @@ export interface components {
              * @default false
              */
             mirror_legend: boolean;
+            /**
+             * Material Sku
+             * @default
+             */
+            material_sku: string;
+            /**
+             * Media Height Mm
+             * @default 0
+             */
+            media_height_mm: number;
+            /**
+             * Media Gap Mm
+             * @default 3
+             */
+            media_gap_mm: number;
         };
         /** TemplateCreate */
         TemplateCreate: {
@@ -1781,6 +1935,21 @@ export interface components {
              * @default false
              */
             mirror_legend: boolean;
+            /**
+             * Material Sku
+             * @default
+             */
+            material_sku: string;
+            /**
+             * Media Height Mm
+             * @default 0
+             */
+            media_height_mm: number;
+            /**
+             * Media Gap Mm
+             * @default 3
+             */
+            media_gap_mm: number;
         };
         /**
          * TemplateInput
@@ -1917,6 +2086,21 @@ export interface components {
              * @default false
              */
             mirror_legend: boolean;
+            /**
+             * Material Sku
+             * @default
+             */
+            material_sku: string;
+            /**
+             * Media Height Mm
+             * @default 0
+             */
+            media_height_mm: number;
+            /**
+             * Media Gap Mm
+             * @default 3
+             */
+            media_gap_mm: number;
         };
         /** TemplatePatch */
         TemplatePatch: {
@@ -1974,6 +2158,12 @@ export interface components {
             scale_x?: number | null;
             /** Mirror Legend */
             mirror_legend?: boolean | null;
+            /** Material Sku */
+            material_sku?: string | null;
+            /** Media Height Mm */
+            media_height_mm?: number | null;
+            /** Media Gap Mm */
+            media_gap_mm?: number | null;
         };
         /**
          * TestPrintRequest
@@ -2028,6 +2218,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -2325,6 +2519,42 @@ export interface operations {
             };
         };
     };
+    save_calibration_api_printers__printer_id__calibration__sku__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                printer_id: number;
+                sku: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaterialCalibration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Printer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_templates_api_templates_get: {
         parameters: {
             query?: never;
@@ -2464,6 +2694,70 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_api_materials_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                supported_only?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialSearch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_materials__sku__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sku: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

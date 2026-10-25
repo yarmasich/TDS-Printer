@@ -6,11 +6,13 @@ from .models import Template
 
 def is_turn_tell_300(template: Template) -> bool:
     """4.25″×2.125″ Turn-Tell row (EasyMark @ 300 DPI)."""
+    if template.material_sku:
+        return template.material_sku.upper().startswith(("R150X150", "R200X150"))
     if template.bytes_per_row == 160 and template.height == 638:
         return True
     # Mis-saved templates (e.g. still 156×862 from form defaults) must still
     # get column/Y fixes when the SKU name is clearly Turn-Tell.
-    name = template.name.upper()
+    name = (template.material_sku or template.name).upper()
     return "X150" in name or "X200X150" in name
 
 

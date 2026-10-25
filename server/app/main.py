@@ -32,6 +32,7 @@ from .api import (
     projects,
     reasons,
     templates,
+    materials,
 )
 from .auth_admin import require_admin
 
@@ -58,6 +59,7 @@ _admin = [Depends(require_admin)]
 app.include_router(admin_auth.router)
 app.include_router(printers.router)
 app.include_router(templates.router, dependencies=_admin)
+app.include_router(materials.router, dependencies=_admin)
 app.include_router(projects.router)
 app.include_router(reasons.router)
 app.include_router(auth_names.router)
