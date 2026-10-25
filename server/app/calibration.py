@@ -6,8 +6,8 @@ Translation occurs after the Turn-Tell orientation transform. No ink may be lost
 from io import BytesIO
 from PIL import Image, ImageOps
 from .models import Printer
-from .printer import PrintError, render_label_png
-from .schemas import MaterialCalibration, PrinterInput
+from .printer import PrintError, render_label_png, validate_print_settings
+from .schemas import MaterialCalibration
 
 
 def apply_calibration(bitmap, template, printer: Printer, *, dpi: int):
@@ -36,11 +36,12 @@ def render_preview_png(template, left, right, *, printer=None, crop=False):
     # Full carrier must be retained when a physical correction is present;
     # cropping would change the coordinate origin and hide clipping.
     if printer:
-        try:
-            settings = PrinterInput.model_validate(printer, from_attributes=True)
-            printer = Printer(**{**printer.model_dump(), **settings.model_dump()})
-        except ValueError as exc:
-            raise PrintError(f'Invalid printer settings: {exc}') from exc
+        printer = validate_print_settings(template, printer)
+        if printer.protocol == 'jscript':
+            from .printer_jscript import prepare_jscript_bitmap
+            # Validate the actual native-DPI output, including rotation,
+            # calibration and commanded feed, before returning any cropped view.
+            prepare_jscript_bitmap(template, printer, left, right)
     calibrated = bool(printer and printer.material_calibrations.get(template.material_sku.strip().upper()))
     png = render_label_png(template, left, right, crop=crop and not calibrated)
     if not calibrated:

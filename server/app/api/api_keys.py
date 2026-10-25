@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..auth_apikey import generate_key
@@ -73,7 +74,11 @@ def create_key(
     plaintext, prefix, key_hash = generate_key()
     key = ApiKey(name=name, prefix=prefix, key_hash=key_hash)
     session.add(key)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(409, f"An API key named '{name}' already exists") from exc
     session.refresh(key)
     return ApiKeyCreated(**_dto(key).model_dump(), key=plaintext)
 

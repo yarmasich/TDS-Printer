@@ -214,3 +214,150 @@ def test_workbook_helper_does_not_commit_callers_transaction(import_engine, tmp_
     with Session(import_engine) as session:
         assert session.exec(select(Import)).all() == []
         assert session.exec(select(Label)).all() == []
+
+
+@pytest.mark.parametrize('setting, value, detail', [
+    ('TDS_IMPORT_MAX_FILE_BYTES', '32', 'file size'),
+    ('TDS_IMPORT_MAX_UNCOMPRESSED_BYTES', '1024', 'uncompressed'),
+    ('TDS_IMPORT_MAX_ARCHIVE_ENTRIES', '2', 'archive entries'),
+    ('TDS_IMPORT_MAX_SHEETS', '1', 'sheets'),
+    ('TDS_IMPORT_MAX_ROWS', '2', 'rows'),
+])
+def test_upload_quota_rejects_and_rolls_back(import_engine, tmp_path, monkeypatch, setting, value, detail):
+    import asyncio
+    from io import BytesIO
+    from app.api.import_ import upload
+    directory = tree(tmp_path)
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        discipline = session.exec(select(Discipline)).one()
+        wb = Workbook()
+        wb.active.append(['one', 'one'])
+        wb.active.append([None, None])
+        wb.active.append(['three', 'three'])
+        wb.create_sheet('second')
+        path = directory / 'a.xlsx'
+        wb.save(path); wb.close()
+        monkeypatch.setenv(setting, value)
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(upload(discipline.id, UploadFile(filename='a.xlsx', file=BytesIO(path.read_bytes())), session))
+        assert exc.value.status_code == 413
+        assert detail in exc.value.detail.lower()
+        assert session.exec(select(Import)).all() == []
+        assert session.exec(select(Label)).all() == []
+
+
+def test_scan_quota_rolls_back_wipe(import_engine, tmp_path, monkeypatch):
+    from app.api.import_ import scan
+    directory = tree(tmp_path)
+    workbook(directory / 'a.xlsx', 'original')
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        monkeypatch.setenv('TDS_IMPORT_MAX_FILE_BYTES', '32')
+        with pytest.raises(HTTPException) as exc:
+            scan(str(tmp_path), True, session)
+        assert exc.value.status_code == 413
+        assert [label.left_text for label in session.exec(select(Label)).all()] == ['original']
+
+
+def test_rows_quota_is_workbook_wide_including_blanks(import_engine, tmp_path, monkeypatch):
+    import asyncio
+    from io import BytesIO
+    from app.api.import_ import upload
+    directory = tree(tmp_path)
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        discipline = session.exec(select(Discipline)).one()
+        wb = Workbook()
+        wb.active.append(['one'])
+        wb.create_sheet('second').append(['two'])
+        path = directory / 'a.xlsx'; wb.save(path); wb.close()
+        monkeypatch.setenv('TDS_IMPORT_MAX_ROWS', '1')
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(upload(discipline.id, UploadFile(filename='a.xlsx', file=BytesIO(path.read_bytes())), session))
+        assert exc.value.status_code == 413
+        assert session.exec(select(Label)).all() == []
+
+
+def test_upload_copy_stops_at_limit_plus_one(monkeypatch):
+    from io import BytesIO
+    from app.import_limits import ImportLimitError, ImportLimits, copy_upload
+    monkeypatch.setenv('TDS_IMPORT_MAX_FILE_BYTES', '10')
+    source = BytesIO(b'x' * 1000)
+    target = BytesIO()
+    with pytest.raises(ImportLimitError):
+        copy_upload(source, target, ImportLimits.from_env())
+    assert source.tell() == 11
+    assert len(target.getvalue()) <= 10
+
+
+def test_import_ignores_false_dimensions_and_extra_columns(import_engine, tmp_path, monkeypatch):
+    from zipfile import ZipFile
+    from app.importer import import_workbook_into_discipline
+    directory = tree(tmp_path)
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        discipline = session.exec(select(Discipline)).one()
+        source = directory / 'source.xlsx'
+        wb = Workbook(); wb.active.append(['left', 'right', 'ignored'])
+        wb.save(source); wb.close()
+        path = directory / 'edited.xlsx'
+        with ZipFile(source) as archive, ZipFile(path, 'w') as edited:
+            for entry in archive.infolist():
+                content = archive.read(entry)
+                if entry.filename == 'xl/worksheets/sheet1.xml':
+                    content = content.replace(b'ref="A1:C1"', b'ref="A1:XFD1048576"')
+                edited.writestr(entry, content)
+        monkeypatch.setenv('TDS_IMPORT_MAX_ROWS', '1')
+        stats = import_workbook_into_discipline(session, path, discipline)
+        assert stats.rows == 1
+        label = session.exec(select(Label)).one()
+        assert (label.left_text, label.right_text) == ('left', 'right')
+
+
+def test_corrupt_compressed_member_returns_400(import_engine, tmp_path):
+    import asyncio
+    from io import BytesIO
+    from zipfile import ZipFile, ZIP_DEFLATED
+    from app.api.import_ import upload
+    directory = tree(tmp_path)
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        discipline = session.exec(select(Discipline)).one()
+        buffer = BytesIO()
+        with ZipFile(buffer, 'w', compression=ZIP_DEFLATED) as archive:
+            archive.writestr('bad.xml', b'hello' * 100)
+        content = bytearray(buffer.getvalue())
+        # Invalid DEFLATE block type in the first member, past its local header.
+        content[30 + len('bad.xml')] = 0xff
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(upload(discipline.id, UploadFile(filename='bad.xlsx', file=BytesIO(content)), session))
+        assert exc.value.status_code == 400
+        assert session.exec(select(Import)).all() == []
+
+
+@pytest.mark.parametrize('kind', ['encrypted', 'unsupported'])
+def test_unsupported_zip_member_returns_400(import_engine, tmp_path, kind):
+    import asyncio
+    from io import BytesIO
+    from zipfile import ZipFile
+    from app.api.import_ import upload
+    directory = tree(tmp_path)
+    with Session(import_engine) as session:
+        scan_labels_dir(session, tmp_path)
+        discipline = session.exec(select(Discipline)).one()
+        buffer = BytesIO()
+        with ZipFile(buffer, 'w') as archive:
+            archive.writestr('bad.xml', b'hello')
+        content = bytearray(buffer.getvalue())
+        central = content.index(b'PK\x01\x02')
+        if kind == 'encrypted':
+            content[6] |= 1
+            content[central + 8] |= 1
+        else:
+            content[8:10] = (99).to_bytes(2, 'little')
+            content[central + 10:central + 12] = (99).to_bytes(2, 'little')
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(upload(discipline.id, UploadFile(filename='bad.xlsx', file=BytesIO(content)), session))
+        assert exc.value.status_code == 400
+        assert session.exec(select(Import)).all() == []

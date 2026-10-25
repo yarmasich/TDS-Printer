@@ -93,9 +93,10 @@ def _dpi_scale(printer: Printer) -> float:
     return dpi / _DPI
 
 
-def build_jscript_job(
+def prepare_jscript_bitmap(
     template: Template, printer: Printer, left_text: str, right_text: str
-) -> bytes:
+) -> tuple[Image.Image, float, float, float]:
+    """Render and preflight native dots without packing or sending a job."""
     scale = _dpi_scale(printer)
     bitmap = render_label_bitmap(template, left_text, right_text, scale=scale)
 
@@ -126,18 +127,6 @@ def build_jscript_job(
         # Keep byte alignment; only white right-hand padding may be discarded.
         if bitmap.width > max_dots:
             bitmap = bitmap.crop((0, 0, math.ceil(max_dots / 8) * 8, bitmap.height))
-    if template.media_height_mm > 0:
-        max_height = round(template.media_height_mm * printer.dpi / 25.4)
-        ink = ImageOps.invert(bitmap).getbbox()
-        if ink and ink[3] > max_height:
-            raise PrintError("Text exceeds the configured material height; printing was not sent")
-
-    # Raster dimensions follow the (scaled) bitmap so a 600-DPI head receives 2×
-    # the dots; ROTATE_180 preserves size, so width stays byte-aligned.
-    scaled_bpr = bitmap.width // 8
-    scaled_height = bitmap.height
-    raster = bitmap_to_mono_raster(bitmap, scaled_bpr, scaled_height)
-
     # The S-command geometry is physical millimetres — invariant of head DPI —
     # so it is derived from the template's native 300-DPI pixel design, not the
     # scaled raster.
@@ -155,6 +144,29 @@ def build_jscript_job(
     if template.media_height_mm > 0:
         height_mm = template.media_height_mm
     pitch_mm = height_mm + template.media_gap_mm
+
+    # Check the actual S-command bounds, including legacy rounded dimensions
+    # and the fixed Turn-Tell carrier. A taller/wider raster may contain white
+    # padding, but the printer must never be asked to silently clip ink.
+    ink = ImageOps.invert(bitmap).getbbox()
+    max_width = round(width_mm * printer.dpi / 25.4)
+    max_height = round(height_mm * printer.dpi / 25.4)
+    if ink and ink[2] > max_width:
+        raise PrintError("Text exceeds the configured printable width; printing was not sent")
+    if ink and ink[3] > max_height:
+        raise PrintError("Text exceeds the configured material height; printing was not sent")
+
+    return bitmap, width_mm, height_mm, pitch_mm
+
+
+def build_jscript_job(template: Template, printer: Printer, left_text: str, right_text: str) -> bytes:
+    bitmap, width_mm, height_mm, pitch_mm = prepare_jscript_bitmap(template, printer, left_text, right_text)
+
+    # Raster dimensions follow the (scaled) bitmap so a 600-DPI head receives 2×
+    # the dots; ROTATE_180 preserves size, so width stays byte-aligned.
+    scaled_bpr = bitmap.width // 8
+    scaled_height = bitmap.height
+    raster = bitmap_to_mono_raster(bitmap, scaled_bpr, scaled_height)
 
     download = "d ASC;TDSIMG\r\n" + _ascii_hex_raster(
         raster, scaled_bpr, scaled_height

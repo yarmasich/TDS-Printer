@@ -11,15 +11,16 @@ manual ones.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Security
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_api_key
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
+from ..print_idempotency import run_print_request
 from ..printer import PrintError, ping_printer, render_and_send
 from ..search import cable_query_pattern, parse_batch_query, validate_query
 
@@ -286,8 +287,7 @@ def _discipline_printer(
     return template, printer
 
 
-@router.post("/print", response_model=ApiPrintResponse)
-def api_print(
+def _api_print(
     req: ApiPrintRequest,
     session: Session = Depends(get_session),
     key: ApiKey = Security(require_api_key),
@@ -448,8 +448,7 @@ def _plan_batch(req: ApiBatchPrintRequest, disc: Discipline, session: Session):
     return plan
 
 
-@router.post("/print-batch", response_model=ApiBatchPrintResponse)
-def api_print_batch(
+def _api_print_batch(
     req: ApiBatchPrintRequest,
     session: Session = Depends(get_session),
     key: ApiKey = Security(require_api_key),
@@ -478,4 +477,30 @@ def api_print_batch(
         ok=all(r.status == "printed" for r in results),
         requested=len(results), printed=printed, discipline=disc.name,
         printer=f"{printer.ip}:{printer.port}", results=results,
+    )
+
+
+@router.post("/print", response_model=ApiPrintResponse)
+def api_print(
+    req: ApiPrintRequest,
+    session: Session = Depends(get_session),
+    key: ApiKey = Security(require_api_key),
+    idempotency_key: Annotated[Optional[str], Header(description="Unique logical print request ID; reuse unchanged on retries")] = None,
+):
+    return run_print_request(
+        "/print", req, key, idempotency_key, session,
+        lambda: _api_print(req, session, key),
+    )
+
+
+@router.post("/print-batch", response_model=ApiBatchPrintResponse)
+def api_print_batch(
+    req: ApiBatchPrintRequest,
+    session: Session = Depends(get_session),
+    key: ApiKey = Security(require_api_key),
+    idempotency_key: Annotated[Optional[str], Header(description="Unique logical print request ID; reuse unchanged on retries")] = None,
+):
+    return run_print_request(
+        "/print-batch", req, key, idempotency_key, session,
+        lambda: _api_print_batch(req, session, key),
     )

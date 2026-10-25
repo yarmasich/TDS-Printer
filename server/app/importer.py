@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from fastapi import HTTPException
 from sqlmodel import Session, delete, select
 
+from .import_limits import ImportLimitError, ImportLimits, validate_archive
 from .models import CartItem, DataHall, Discipline, Import, Label, Project
 
 log = logging.getLogger("tds.importer")
@@ -109,7 +111,9 @@ def import_workbook_into_discipline(
         return _import_workbook_into_discipline(
             session, path, discipline, display_filename=display_filename,
         )
-    except (BadZipFile, InvalidFileException, OSError, ValueError,
+    except ImportLimitError:
+        raise
+    except (BadZipFile, InvalidFileException, OSError, ValueError, zlib.error,
             KeyError, TypeError, IndexError, SyntaxError) as exc:
         raise InvalidWorkbookError(f"Invalid XLSX workbook: {display_filename or path.name}") from exc
 
@@ -122,6 +126,8 @@ def _import_workbook_into_discipline(
     display_filename: Optional[str] = None,
 ) -> ImportStats:
     """Create one ``Import`` row and attach every parsed label to it."""
+    limits = ImportLimits.from_env()
+    validate_archive(path, limits)
     stats = ImportStats(files=1)
 
     imp = Import(
@@ -133,12 +139,21 @@ def _import_workbook_into_discipline(
 
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
+        if len(wb.sheetnames) > limits.sheets:
+            raise ImportLimitError(f"XLSX sheets exceed {limits.sheets}")
+        visited_rows = 0
         for sheet_name in wb.sheetnames:
             stats.sheets += 1
             imp.sheets += 1
             ws = wb[sheet_name]
+            # Dimensions are user-controlled and may claim millions of empty
+            # rows/columns. Read actual rows and only the two label columns.
+            ws.reset_dimensions()
             current_bundle: Optional[str] = None
-            for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            for idx, row in enumerate(ws.iter_rows(max_col=2, values_only=True), start=1):
+                visited_rows += 1
+                if visited_rows > limits.rows:
+                    raise ImportLimitError(f"XLSX rows exceed {limits.rows} (including blank/header rows)")
                 left = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
                 right = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
 

@@ -347,3 +347,36 @@ settings that matches the printer names configured in the admin.
 - **CORS.** The server currently allows all origins (LAN deployment). CORS does
   not matter when printing from an external backend; keep it in mind if you
   print from a browser and later tighten the settings.
+
+## Safe HTTP retries with `Idempotency-Key`
+
+For both `POST /api/v1/print` and `POST /api/v1/print-batch`, send an optional
+`Idempotency-Key` header containing a unique logical job identifier (for example
+a UUID; 1–200 visible ASCII characters without spaces). Persist this identifier
+in the caller **before the first request**, and reuse it with the same API
+credential, endpoint, and body when retrying after a timeout or lost response.
+A new intended print job needs a new identifier.
+
+The server commits a durable reservation before processing the job. Concurrent
+requests using that key cannot send again. Completed requests replay their
+original HTTP status and response body, including print errors and partial
+batch results. A changed payload or endpoint with the same key returns `409`.
+Hashing uses validated fields and defaults, so JSON property ordering and the
+`printer` / `printer_id` aliases do not change identity.
+
+An interrupted job whose final response was not saved returns `409` on retry:
+its outcome may be unknown. Inspect the printer and print history before
+creating any new job. Reservations never expire or automatically release;
+this favors preventing duplicates over automatic recovery. Even a failure
+before any labels printed may require a fresh identifier after investigation.
+Do not blindly retry a partial batch under a new key.
+
+This prevents repeated server send attempts for a retained key; it cannot prove
+physical printing completed or make printer transport transactional. Requests
+without the header retain their existing behavior and can print again on retry.
+Changing API credentials starts a different key scope. Deleting reservations,
+restoring an older database backup, or downgrading the reservation migration
+removes protection for affected jobs. Reservations consume database storage and
+must be retained for as long as callers could retry. Install database migration
+`a6d9b2e71c40` before using this header; a missing reservation table fails closed
+before sending a keyed job.

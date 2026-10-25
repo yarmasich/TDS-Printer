@@ -793,10 +793,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Api Print Batch
-         * @description Resolve a bounded, unique label set, then print with a complete report.
-         */
+        /** Api Print Batch */
         post: operations["api_print_batch_api_v1_print_batch_post"];
         delete?: never;
         options?: never;
@@ -4066,7 +4063,10 @@ export interface operations {
     api_print_api_v1_print_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique logical print request ID; reuse unchanged on retries */
+                "idempotency-key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4099,7 +4099,10 @@ export interface operations {
     api_print_batch_api_v1_print_batch_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique logical print request ID; reuse unchanged on retries */
+                "idempotency-key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

@@ -8,6 +8,7 @@ Run:
         --reload --reload-dir app --reload-dir alembic
 """
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -35,6 +36,7 @@ from .api import (
     materials,
 )
 from .auth_admin import require_admin
+from .cors_config import cors_origins
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,14 +46,15 @@ logging.basicConfig(
 
 app = FastAPI(title="TDS Printer Server", version="0.1.0")
 
-# CORS — wide-open is fine for the LAN-only deployment. Tighten to the
-# frontend's exact origin(s) when you move to a real prod environment.
+# Empty by default: same-origin browser requests need no CORS permission.
+# Opt separate frontend origins in explicitly, including localhost development.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_origins(os.getenv("CORS_ALLOWED_ORIGINS", "")),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "Idempotency-Key"],
+    expose_headers=["Retry-After"],
 )
 
 _admin = [Depends(require_admin)]

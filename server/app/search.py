@@ -25,7 +25,7 @@ def cable_query_pattern(query: str) -> re.Pattern:
     if group:
         base = group.group(1)
         return re.compile(
-            rf"{marker}{base}(?:\.\d+)?(?![\d.])",
+            rf"{marker}{base}(?:\.\d+)?(?![\w.-])",
             re.I,
         )
 
@@ -34,16 +34,10 @@ def cable_query_pattern(query: str) -> re.Pattern:
     if not is_num:
         return re.compile(re.escape(query), re.I)
 
-    if "." in query:
-        return re.compile(
-            rf"{marker}{re.escape(query)}(?![\d.])",
-            re.I,
-        )
-    # Trailing ``(?![\d.])`` so a bare integer matches only the whole cable id
-    # (``#1``) and not its decimal children (``#1.1`` … ``#1.18``) — the old
-    # ``(\D|$)`` treated the dot as a boundary and over-matched.
+    # Exact numeric IDs must end before a field separator, not another part
+    # of the identifier: #8 differs from #8.1, #8-B, #8A and #8_B.
     return re.compile(
-        rf"{marker}{re.escape(query)}(?![\d.])",
+        rf"{marker}{re.escape(query)}(?![\w.-])",
         re.I,
     )
 

@@ -154,7 +154,7 @@ def test_renderer_rejects_legacy_invalid_values(patch):
 
 
 def test_font_loading_failure_is_a_print_error(monkeypatch):
-    def missing_font(*_):
+    def missing_font(*_, **__):
         raise OSError('font resource unavailable')
     monkeypatch.setattr('app.printer._load_font', missing_font)
     with pytest.raises(PrintError, match='font resource unavailable'):

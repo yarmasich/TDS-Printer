@@ -89,7 +89,7 @@ const mm = (px: number) => (px * 25.4 / 300).toFixed(2);
 .workspace-tools button[aria-pressed=true] { color:#0369a1; border-color:#7fb3ce; background:#f0f9ff; }
 .workspace-tools :focus-visible { outline:2px solid #0369a1; outline-offset:2px; }
 .workspace-stage { padding:24px; overflow:auto; max-height:65vh; background-color:#edf2f5; background-image:radial-gradient(#cbd5df .7px, transparent .7px); background-size:16px 16px; }
-.workspace-sheet { min-width:100%; } .workspace-sheet svg { display:block; width:100%; }
+.workspace-sheet { min-width:100%; } .workspace-sheet > svg { display:block; width:100%; }
 .workspace-dimension { text-align:center; color:#637789; font:11px ui-monospace,monospace; margin-bottom:8px; }
 .workspace-status { font-size:11px; padding:10px 16px; background:#f8fafc; border-top:1px solid #d4dfe7; }
 .workspace-note,.workspace-error { padding:10px 16px; margin:0; font-size:12px; color:#64748b; } .workspace-error { color:#b91c1c; }
