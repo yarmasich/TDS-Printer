@@ -9,6 +9,7 @@ import PrintPanel from "@/pages/PrintPanel.vue";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import PingPill from "@/components/PingPill.vue";
+import { useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
 import type { Discipline, PingResult, Project } from "@/api/types";
 
@@ -18,6 +19,9 @@ const toast = useToast();
 const projects = useProjects();
 const kiosk = useKiosk();
 const printers = usePrinters();
+const stationAuth = useStationAuth();
+const targetPrinterId = computed(() => stationAuth.station?.printer_id ?? currentDiscipline.value?.printer_id);
+const targetPrinterName = computed(() => stationAuth.station?.printer_name ?? currentDiscipline.value?.printer_name);
 
 const showSetup = ref(true);
 let pingRevision = 0;
@@ -137,16 +141,17 @@ async function refreshPrinterPing() {
   try { d = await resolveActiveDiscipline(); } catch (error) { if (revision === pingRevision) setupError.value = String(error); return; }
   if (revision !== pingRevision) return;
   printerPing.value = undefined;
-  if (!d?.printer_id) return;
+  const printerId = stationAuth.station?.printer_id ?? d?.printer_id;
+  if (!printerId) return;
 
   try {
     printerPing.value = null;
-    const result = await printers.pingOne(d.printer_id);
+    const result = await printers.pingOne(printerId);
     if (revision === pingRevision) printerPing.value = result;
   } catch {
     if (revision !== pingRevision) return;
     printerPing.value = {
-      printer_id: d.printer_id,
+      printer_id: printerId,
       ok: false,
       ms: null,
       error: "check failed",
@@ -155,7 +160,7 @@ async function refreshPrinterPing() {
 }
 
 watch(
-  () => [kiosk.disciplineId, kiosk.projectId] as const,
+  () => [kiosk.disciplineId, kiosk.projectId, stationAuth.station?.printer_id] as const,
   () => {
     void refreshPrinterPing();
   },
@@ -250,8 +255,8 @@ async function tryFullscreen() {
           {{ contextLine }}
           <i class="pi pi-chevron-down kiosk-site-caret" aria-hidden="true"></i>
         </button>
-        <template v-if="currentDiscipline?.printer_id">
-          <span class="kiosk-printer">{{ currentDiscipline.printer_name }}</span>
+        <template v-if="targetPrinterId">
+          <span class="kiosk-printer">{{ targetPrinterName }}</span>
           <PingPill :ping="printerPing" />
         </template>
         <span v-else-if="currentDiscipline" class="kiosk-warn">
@@ -265,6 +270,8 @@ async function tryFullscreen() {
         </span>
       </div>
       <div class="kiosk-bar-actions">
+        <span v-if="stationAuth.station" class="text-sm">{{ stationAuth.station.display_name }}</span>
+        <Button v-if="stationAuth.station" label="Sign out" icon="pi pi-sign-out" severity="secondary" @click="stationAuth.logout(); router.replace('/login')" />
         <Button
           icon="pi pi-expand"
           severity="secondary"
@@ -287,6 +294,10 @@ async function tryFullscreen() {
     <section v-if="showSetup" class="kiosk-setup">
       <div class="kiosk-setup-card">
         <h1 class="kiosk-setup-title">Kiosk setup</h1>
+        <div v-if="stationAuth.station" class="flex items-center gap-2 flex-wrap mb-3">
+          <span class="text-sm">{{ stationAuth.station.display_name }} · {{ stationAuth.station.printer_name }}</span>
+          <Button label="Sign out" severity="secondary" text @click="stationAuth.logout(); router.replace('/login')" />
+        </div>
         <p class="kiosk-setup-lead">
           Choose the site once for this tablet. Operators only search and print
           after that.

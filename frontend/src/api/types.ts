@@ -192,6 +192,9 @@ export interface ImportDTO {
 }
 
 export interface PrintLog {
+  station_id: number | null;
+  station_name: string;
+  printer_name: string;
   id: number;
   ts: string;
   template_name: string;

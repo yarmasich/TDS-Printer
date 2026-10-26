@@ -18,6 +18,7 @@ from sqlalchemy import exists, update
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, delete, select
 
+from ..auth_station import OperatorCredentials, resolve_operator, cart_sid, station_audit
 from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..printer import PrintError, render_and_send
@@ -76,7 +77,8 @@ def _item_to_dto(item: CartItem, db: Session) -> CartItemDTO:
 
 
 @router.get("", response_model=List[CartItemDTO])
-def list_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> List[CartItemDTO]:
+def list_cart(sid: str = Query(...), db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> List[CartItemDTO]:
+    sid = cart_sid(sid, resolve_operator(db, credentials))
     _expire_claims(db, sid)
     rows = db.exec(
         select(CartItem, Label, Discipline, DataHall, Project)
@@ -107,13 +109,14 @@ def list_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> List
 
 
 @router.post("", response_model=CartItemDTO)
-def add_to_cart(req: AddRequest, db: Session = Depends(get_session)) -> CartItemDTO:
+def add_to_cart(req: AddRequest, db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> CartItemDTO:
+    sid = cart_sid(req.sid, resolve_operator(db, credentials))
     label = db.get(Label, req.label_id)
     if not label:
         raise HTTPException(404, "Label not found")
     # snapshot current text so cart still works if the label is later edited
     item = CartItem(
-        session_id=req.sid,
+        session_id=sid,
         label_id=label.id,
         left_text=label.left_text,
         right_text=label.right_text,
@@ -155,8 +158,9 @@ def _lock_cart(db: Session, sid: str) -> None:
 
 @router.delete("/{item_id}")
 def remove_item(
-    item_id: int, sid: str = Query(...), db: Session = Depends(get_session)
+    item_id: int, sid: str = Query(...), db: Session = Depends(get_session), credentials: OperatorCredentials = None
 ) -> dict:
+    sid = cart_sid(sid, resolve_operator(db, credentials))
     _expire_claims(db, sid)
     _lock_cart(db, sid)
     item = db.get(CartItem, item_id)
@@ -169,7 +173,8 @@ def remove_item(
 
 
 @router.delete("")
-def clear_cart(sid: str = Query(...), db: Session = Depends(get_session)) -> dict:
+def clear_cart(sid: str = Query(...), db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> dict:
+    sid = cart_sid(sid, resolve_operator(db, credentials))
     _expire_claims(db, sid)
     _lock_cart(db, sid)
     n = db.exec(delete(CartItem).where(CartItem.session_id == sid)).rowcount or 0
@@ -184,22 +189,32 @@ class PrintAllResult(BaseModel):
 
 
 @router.get("/print-policy")
-def print_policy(sid: str = Query(...), db: Session = Depends(get_session)) -> dict:
+def print_policy(sid: str = Query(...), db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> dict:
+    sid = cart_sid(sid, resolve_operator(db, credentials))
     items = db.exec(select(CartItem).where(CartItem.session_id == sid, CartItem.status == "queued")).all()
     projects = [rfid.project_for_label(db, db.get(Label, item.label_id) if item.label_id else None) for item in items]
     return {"requires_rfid": any(project.require_rfid for project in projects), "configured": rfid.configured()}
 
 
 @router.post("/print", response_model=PrintAllResult)
-def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> PrintAllResult:
-    _expire_claims(db, req.sid)
+def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> PrintAllResult:
+    station = resolve_operator(db, credentials)
+    sid = cart_sid(req.sid, station)
+    assigned_printer = db.get(Printer, station.printer_id) if station else None
+    if station and not assigned_printer:
+        raise HTTPException(409, "Station has no available assigned printer")
+    # A print job uses a consistent printer snapshot through per-label commits.
+    if assigned_printer:
+        assigned_printer = Printer.model_validate(assigned_printer.model_dump())
+    audit = station_audit(station)
+    _expire_claims(db, sid)
     token = uuid4().hex
     active = aliased(CartItem)
     # One SQLite write statement both checks the session and claims every
     # queued item. Concurrent workers cannot pass this condition together.
     claimed = db.execute(update(CartItem).where(
-        CartItem.session_id == req.sid, CartItem.status == "queued",
-        ~exists(select(active.id).where(active.session_id == req.sid, active.status == "printing")),
+        CartItem.session_id == sid, CartItem.status == "queued",
+        ~exists(select(active.id).where(active.session_id == sid, active.status == "printing")),
     ).values(status="printing", claim_token=token,
              claimed_at=datetime.now(timezone.utc), error=""),
         execution_options={"synchronize_session": False})
@@ -207,7 +222,7 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
     db.commit()
     if not count:
         if db.exec(select(CartItem.id).where(
-            CartItem.session_id == req.sid, CartItem.status == "printing"
+            CartItem.session_id == sid, CartItem.status == "printing"
         ).limit(1)).first() is not None:
             raise HTTPException(409, "This cart is already printing.")
         raise HTTPException(400, "No queued labels. Check any uncertain items before adding them again.")
@@ -242,18 +257,19 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
             if not item or item.status != "printing" or item.claim_token != token:
                 errors.append({"item_id": item_id, "error": "Print claim interrupted; item was not resent."})
                 continue
-            log = PrintLog(**identity.audit(projects[item_id]), reason=req.reason,
+            log = PrintLog(**identity.audit(projects[item_id]), **audit, reason=req.reason,
                            left_text=item.left_text, right_text=item.right_text)
             error, uncertain = None, False
             try:
                 label = db.get(Label, item.label_id) if item.label_id else None
                 disc = db.get(Discipline, label.discipline_id) if label else None
                 tmpl = db.get(Template, disc.template_id) if disc and disc.template_id else None
-                printer = db.get(Printer, tmpl.printer_id) if tmpl else None
+                printer = assigned_printer or (db.get(Printer, tmpl.printer_id) if tmpl else None)
                 if not (label and disc and tmpl and printer):
                     raise PrintError("Label, template or printer is missing; check the discipline settings.")
                 log.template_name = tmpl.name
                 log.printer_ip = f"{printer.ip}:{printer.port}"
+                log.printer_name = printer.name
                 render_and_send(tmpl, printer, item.left_text, item.right_text, identity.name, req.reason)
             except PrintError as exc:
                 error, uncertain = str(exc), exc.uncertain
@@ -305,5 +321,5 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session)) -> Print
         CartItem.status == "printed").values(status="queued"))
     db.execute(update(CartItem).where(CartItem.claim_token == token).values(claim_token="", claimed_at=None))
     db.commit()
-    logger.info("print_all sid=%s: ok=%d, errors=%d", req.sid, ok, len(errors))
+    logger.info("print_all sid=%s: ok=%d, errors=%d", sid, ok, len(errors))
     return PrintAllResult(ok=ok, errors=errors, log_ids=log_ids)

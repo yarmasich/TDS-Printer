@@ -3,6 +3,7 @@ import { nextTick, ref, watch } from "vue";
 import { useRfidPrint } from "@/composables/useRfidPrint";
 import Dialog from "primevue/dialog";
 import type { CartItem } from "@/api/types";
+import { useStationAuth } from "@/stores/stationAuth";
 import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
 import Drawer from "primevue/drawer";
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 }>();
 
 const cart = useCart(props.kiosk ? "kiosk" : "print");
+const stationAuth = useStationAuth();
 const toast = useToast();
 const confirm = useConfirm();
 const drawerOpen = ref(false);
@@ -29,7 +31,11 @@ const scanInput = ref<HTMLInputElement | null>(null);
 const {
   open: scanOpen, code: scanCode, error: printError, checking,
   submitting, ready: scanReady, busy: printing, start, submit, close: closeScan,
-} = useRfidPrint(() => cart.printPolicy(), executePrint);
+} = useRfidPrint(async () => {
+  await stationAuth.restore();
+  if (stationAuth.error || (stationAuth.required && !stationAuth.station)) throw new Error(stationAuth.error || "Sign in to this station before printing.");
+  return cart.printPolicy();
+}, executePrint);
 
 async function focusScan() {
   await nextTick();

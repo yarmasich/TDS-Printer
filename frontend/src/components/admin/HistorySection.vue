@@ -16,6 +16,8 @@ const projects = ref<{id:number;name:string}[]>([]);
 const error = ref('');
 const loading = ref(false);
 const projectId = ref('');
+const stationId = ref('');
+const stations = ref<{id:number;display_name:string;username:string}[]>([]);
 const operator = ref('');
 function localInput(date: Date) { return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16); }
 const since = ref(localInput(new Date(Date.now()-7*86400000)));
@@ -33,6 +35,7 @@ async function load() {
     if(since.value) params.set('since',new Date(since.value).toISOString());
     if(until.value) params.set('until',new Date(until.value).toISOString());
     if(projectId.value) params.set('project_id',projectId.value);
+    if(stationId.value) params.set('station_id',stationId.value);
     if(operator.value.trim()) params.set('operator',operator.value.trim());
     const [entries, totals]=await Promise.all([
       api.get<PrintLog[]>(`/api/history?limit=200&${params}`),
@@ -45,7 +48,12 @@ async function load() {
 }
 onMounted(async()=>{
   void load();
-  try{projects.value=await api.get('/api/projects');}catch(e){error.value=`Could not load projects: ${String(e)}`;}
+  try{
+    [projects.value,stations.value]=await Promise.all([
+      api.get<{id:number;name:string}[]>('/api/projects'),
+      api.get<{id:number;display_name:string;username:string}[]>('/api/stations'),
+    ]);
+  }catch(e){error.value=`Could not load filters: ${String(e)}`;}
 });
 onBeforeUnmount(()=>{generation++;});
 </script>
@@ -58,6 +66,7 @@ onBeforeUnmount(()=>{generation++;});
       <label>From<input type="datetime-local" v-model="since" /></label>
       <label>Until (exclusive)<input type="datetime-local" v-model="until" /></label>
       <label>Project<select v-model="projectId"><option value="">All projects</option><option v-for="p in projects" :key="p.id" :value="p.id">{{p.name}}</option></select></label>
+      <label>Station<select v-model="stationId"><option value="">All stations</option><option v-for="s in stations" :key="s.id" :value="s.id">{{s.display_name || s.username}}</option></select></label>
       <label>Operator (exact name)<input v-model="operator" placeholder="All operators" /></label>
       <Button type="submit" label="Apply / refresh" :loading="loading" :disabled="loading" />
     </form>
@@ -82,7 +91,8 @@ onBeforeUnmount(()=>{generation++;});
       <Column field="project_name" header="Project"><template #body="{data}">{{data.project_name || 'Not recorded'}}</template></Column>
       <Column field="operator" header="Operator"><template #body="{data}">{{data.operator}}<small v-if="data.operator_employee_id" class="block text-slate-500">{{data.operator_employee_id}}</small></template></Column>
       <Column header="Identity"><template #body="{data}"><Tag :value="data.operator_verified ? 'RFID verified' : data.operator_source==='api' ? 'API key' : 'Manual / legacy'" :severity="data.operator_verified ? 'success':'secondary'" /></template></Column>
-      <Column field="template_name" header="Template" /><Column field="printer_ip" header="Printer" /><Column field="reason" header="Reason" />
+      <Column field="station_name" header="Station"><template #body="{data}">{{data.station_name || '—'}}</template></Column>
+      <Column field="template_name" header="Template" /><Column field="printer_name" header="Printer"><template #body="{data}">{{data.printer_name || '—'}}<small class="block text-slate-500">{{data.printer_ip}}</small></template></Column><Column field="reason" header="Reason" />
       <Column header="Result"><template #body="{data}"><Tag :value="data.status==='ok' ? 'Sent' : data.status==='uncertain' ? 'Unknown' : data.status" :severity="data.status==='ok' ? 'success' : data.status==='uncertain' ? 'warn' : 'danger'" /><span v-if="data.error" class="text-xs text-slate-500 ml-2">{{data.error}}</span></template></Column>
       <template #empty>No attempts in this period.</template>
     </DataTable>
@@ -91,7 +101,7 @@ onBeforeUnmount(()=>{generation++;});
 <style scoped>
 .history-section :deep(.p-datatable-table-container) { overflow-x: auto; }
 .operator-history-table :deep(table) { min-width: 720px; }
-.print-history-table :deep(table) { min-width: 1120px; }
+.print-history-table :deep(table) { min-width: 1280px; }
 .history-section :deep(.p-datatable-tbody > tr > td),
 .history-section :deep(.p-datatable-thead > tr > th) { padding: 14px 12px; font-size: 16px; }
 .history-note { color:#64748b; font-size:14px; margin:8px 0 16px; }

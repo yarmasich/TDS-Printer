@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
+from ..auth_station import OperatorCredentials, resolve_operator
 from ..db import get_session
 from ..models import DataHall, Discipline, Label, Project
 from ..search import cable_query_pattern, parse_batch_query, validate_query
@@ -180,7 +181,7 @@ def _hit(
 
 
 @router.get('/{label_id}/preview')
-def label_preview(label_id: int, session: Session = Depends(get_session)):
+def label_preview(label_id: int, session: Session = Depends(get_session), credentials: OperatorCredentials = None):
     """Operator preview of a stored label only; no draft input or printer send."""
     import base64
     import re
@@ -190,6 +191,7 @@ def label_preview(label_id: int, session: Session = Depends(get_session)):
     from ..materials import get_material
     from ..printer import PrintError
 
+    station = resolve_operator(session, credentials)
     label = session.get(Label, label_id)
     if not label:
         raise HTTPException(404, 'Label not found')
@@ -197,7 +199,7 @@ def label_preview(label_id: int, session: Session = Depends(get_session)):
     template = session.get(Template, discipline.template_id) if discipline and discipline.template_id else None
     if not template:
         raise HTTPException(400, 'No template assigned to this discipline')
-    printer = session.get(Printer, template.printer_id)
+    printer = session.get(Printer, station.printer_id if station else template.printer_id)
     if not printer:
         raise HTTPException(400, 'No printer assigned to this template')
     try:

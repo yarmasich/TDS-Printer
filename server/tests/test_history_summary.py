@@ -58,3 +58,21 @@ def test_employee_identity_survives_rename_and_separates_namesakes():
         assert people['employee-1']['sent'] == 2
         assert people['employee-1']['operator'] == 'Alex'
         assert people['employee-2']['sent'] == 1
+
+
+def test_station_filter_counts_only_assigned_station_history():
+    engine = create_engine('sqlite://')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all([
+            PrintLog(operator='Alex', station_id=10, station_name='Laptop A', printer_name='Printer A', status='ok'),
+            PrintLog(operator='Alex', station_id=20, station_name='Laptop B', printer_name='Printer B', status='ok'),
+            PrintLog(operator='Legacy', status='ok'),
+        ])
+        session.commit()
+        filters = dict(since=None, until=None, project_id=None, operator=None, station_id=10, session=session)
+        assert history_summary(**filters)['totals']['sent'] == 1
+        entries = list_history(limit=20, **filters)
+        assert len(entries) == 1
+        assert entries[0].station_name == 'Laptop A'
+        assert entries[0].printer_name == 'Printer A'

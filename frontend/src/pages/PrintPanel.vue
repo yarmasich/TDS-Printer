@@ -12,6 +12,7 @@ import type {
 } from "@/api/types";
 import { useProjects } from "@/stores/projects";
 import { useCart } from "@/stores/cart";
+import { useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
 
 import Select from "primevue/select";
@@ -31,6 +32,9 @@ const projects = useProjects();
 const kioskStore = useKiosk();
 const cart = useCart(props.kiosk ? "kiosk" : "print");
 const printers = usePrinters();
+const stationAuth = useStationAuth();
+const targetPrinterId = computed(() => stationAuth.station?.printer_id ?? currentDiscipline.value?.printer_id);
+const targetPrinterName = computed(() => stationAuth.station?.printer_name ?? currentDiscipline.value?.printer_name);
 const toast = useToast();
 
 const selectedProject = ref<number | null>(null);
@@ -142,15 +146,19 @@ const currentDiscipline = computed<Discipline | undefined>(() =>
 watch(currentDiscipline, (d) => {
   ping.clear();
   bundleResource.clear();
-  if (d?.printer_id) {
-    const printerId = d.printer_id;
+  if (d?.bundle_mode) void bundleResource.run(() => api.get<Bundle[]>(`/api/labels/bundles?discipline_id=${d.id}`));
+}, { flush: "sync" });
+
+watch(targetPrinterId, () => {
+  ping.clear();
+  if (targetPrinterId.value) {
+    const printerId = targetPrinterId.value;
     void ping.run(async () => {
       try { return await printers.pingOne(printerId); }
       catch (error) { return { printer_id: printerId, ok: false, ms: null, error: String(error) }; }
     });
   }
-  if (d?.bundle_mode) void bundleResource.run(() => api.get<Bundle[]>(`/api/labels/bundles?discipline_id=${d.id}`));
-}, { flush: "sync" });
+}, { immediate: true });
 
 async function loadBundle(bundle: string | null) {
   resetResults();
@@ -313,9 +321,9 @@ async function onAddAllToCart() {
             Open Admin
           </RouterLink>
         </template>
-        <template v-else-if="currentDiscipline.printer_id">
+        <template v-else-if="targetPrinterId">
           <span class="text-slate-600">Printer:</span>
-          <b>{{ currentDiscipline.printer_name }}</b>
+          <b>{{ targetPrinterName }}</b>
           <PingPill :ping="printerPing" />
         </template>
       </div>

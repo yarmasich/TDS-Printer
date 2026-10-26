@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { SearchHit } from '@/api/types';
-import { apiUrl } from '@/api/client';
+import { stationAuthHeader, apiUrl } from '@/api/client';
+import { useStationAuth } from "@/stores/stationAuth";
 import { readApiError } from '@/api/errors';
 import { enqueuePreview, type LabelPreview } from '@/data/labelPreview';
 import Button from 'primevue/button';
 import StickerPreview from './StickerPreview.vue';
 
+const stationAuth = useStationAuth();
 const props = defineProps<{ hit: SearchHit; kiosk?: boolean }>();
 defineEmits<{ cart: [labelId: number] }>();
 const element = ref<HTMLElement>();
@@ -33,7 +35,7 @@ async function load() {
   try {
     const id = props.hit.label_id;
     const result = await enqueuePreview(async () => {
-      const response = await fetch(apiUrl(`/api/labels/${id}/preview`), { signal: request.signal });
+      const response = await fetch(apiUrl(`/api/labels/${id}/preview`), { signal: request.signal, headers: stationAuthHeader() });
       if (!response.ok) throw new Error(await readApiError(response));
       const data = await response.json() as LabelPreview;
       if (!data.image?.startsWith('data:image/png;base64,') || !data.areas?.some(a => a.label === 'Left') || !data.areas.some(a => a.label === 'Right')) throw new Error('Invalid preview');
@@ -49,7 +51,7 @@ async function load() {
     if (!request.signal.aborted) loading.value = false;
   }
 }
-watch(() => props.hit.label_id, () => {
+watch(() => [props.hit.label_id, stationAuth.station?.printer_id], () => {
   controller?.abort();
   preview.value = null;
   error.value = null;

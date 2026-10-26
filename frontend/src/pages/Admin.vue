@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import StationsSection from "@/components/admin/StationsSection.vue";
 import PrintersSection from "@/components/admin/PrintersSection.vue";
 import TemplatesSection from "@/components/admin/TemplatesSection.vue";
 import ProjectsTree from "@/components/admin/ProjectsTree.vue";
@@ -16,6 +17,7 @@ interface NavItem {
 }
 
 const sections: NavItem[] = [
+  { key: "stations", label: "Station accounts", icon: "pi pi-desktop", component: StationsSection },
   { key: "printers", label: "Printers", icon: "pi pi-print", component: PrintersSection },
   { key: "templates", label: "Templates", icon: "pi pi-tags", component: TemplatesSection },
   { key: "projects", label: "Projects · Halls · Disciplines", icon: "pi pi-sitemap", component: ProjectsTree },

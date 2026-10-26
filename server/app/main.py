@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api import (
     admin_auth,
+    stations,
     api_keys,
     auth_names,
     cart,
@@ -60,6 +61,8 @@ app.add_middleware(
 _admin = [Depends(require_admin)]
 
 app.include_router(admin_auth.router)
+app.include_router(stations.router)
+app.include_router(stations.auth_router)
 app.include_router(printers.router)
 app.include_router(templates.router, dependencies=_admin)
 app.include_router(materials.router, dependencies=_admin)

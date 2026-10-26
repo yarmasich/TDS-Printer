@@ -16,6 +16,22 @@ import { readApiError } from "./errors";
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 const TOKEN_KEY = "tds-admin-token";
+export const STATION_TOKEN_KEY = "tds-station-token";
+
+export function stationAuthHeader(): Record<string, string> {
+  const token = sessionStorage.getItem(STATION_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export function isStationRequest(path: string): boolean {
+  return /^\/api\/(cart(?:[/?]|$)|print(?:[?]|$)|station-auth\/me(?:[?]|$)|labels\/\d+\/preview(?:[?]|$))/.test(path);
+}
+
+export function requestAuthHeader(path: string): Record<string, string> {
+  if (isStationRequest(path)) return stationAuthHeader();
+  if (path.startsWith("/api/station-auth/")) return {};
+  return adminAuthHeader();
+}
 
 /** Bearer token for admin-only routes (multipart / image fetch). */
 export function adminAuthHeader(): Record<string, string> {
@@ -42,7 +58,8 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const init: RequestInit = { method, headers: { ...adminAuthHeader() } };
+  const authHeader = requestAuthHeader(path);
+  const init: RequestInit = { method, headers: { ...authHeader } };
   if (body !== undefined) {
     if (body instanceof FormData) {
       init.body = body;
@@ -53,13 +70,16 @@ async function request<T>(
     }
   }
   const res = await fetch(API_BASE + path, init);
-  if (res.status === 401 && !path.startsWith("/api/auth/")) {
-    sessionStorage.removeItem(TOKEN_KEY);
-    if (
+  if (res.status === 401 && authHeader.Authorization === requestAuthHeader(path).Authorization && !path.startsWith("/api/auth/") && !["/api/station-auth/login", "/api/station-auth/status"].includes(path)) {
+    sessionStorage.removeItem(isStationRequest(path) ? STATION_TOKEN_KEY : TOKEN_KEY);
+    if (isStationRequest(path) && typeof window !== "undefined" && ["/", "/kiosk"].includes(window.location.pathname)) {
+      window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+    }
+    if (!isStationRequest(path) && (
       typeof window !== "undefined" &&
       window.location.pathname.startsWith("/admin") &&
       !window.location.pathname.includes("/admin/login")
-    ) {
+    )) {
       const redirect = encodeURIComponent(
         window.location.pathname + window.location.search,
       );
