@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from ..auth_admin import require_admin, decode_admin_token
 from .. import rfid
+from ..auth_station import resolve_operator, station_audit
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
 from ..printer import PrintError, render_and_send, render_label_png
@@ -115,6 +116,7 @@ def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -
     log = PrintLog(
         template_name=req.template.name or "(draft)",
         printer_ip=f"{printer.ip}:{printer.port}",
+        printer_name=printer.name,
         operator=req.operator,
         reason=req.reason or "TEST",
         left_text=left,
@@ -156,6 +158,7 @@ def _require_custom_print_admin(credentials) -> None:
 @router.post("")
 def submit_print(req: PrintRequest, session: Session = Depends(get_session),
                  credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))) -> dict:
+    station = resolve_operator(session, credentials)
     template: Template
     project = None
     left = req.left_text
@@ -189,15 +192,17 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session),
     else:
         raise HTTPException(400, "Provide either label_id or template_id")
 
-    printer = session.get(Printer, template.printer_id)
+    printer = session.get(Printer, station.printer_id if station else template.printer_id)
     if not printer:
         raise HTTPException(500, "Template points at a missing printer")
 
     identity = rfid.identify([project] if project else [], req.rfid_code, req.operator)
     log = PrintLog(
         **identity.audit(project),
+        **station_audit(station),
         template_name=template.name,
         printer_ip=f"{printer.ip}:{printer.port}",
+        printer_name=printer.name,
         reason=req.reason,
         left_text=left,
         right_text=right,

@@ -20,10 +20,15 @@ function makeSid(): string {
   return "s-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function storageKey(scope: CartScope): string {
+  const stationId = sessionStorage.getItem("tds-station-id");
+  return stationId ? `${KEYS[scope]}.station.${stationId}` : KEYS[scope];
+}
+
 function readSid(scope: CartScope): string {
-  const key = KEYS[scope];
+  const key = storageKey(scope);
   let sid = localStorage.getItem(key) ?? "";
-  if (!sid && scope === "print") {
+  if (!sid && scope === "print" && key === KEYS.print) {
     sid = localStorage.getItem(LEGACY_KEY) ?? "";
     if (sid) {
       localStorage.setItem(key, sid);
@@ -39,14 +44,14 @@ export const useSession = defineStore("session", {
       let sid = readSid(scope);
       if (!sid) {
         sid = makeSid();
-        localStorage.setItem(KEYS[scope], sid);
+        localStorage.setItem(storageKey(scope), sid);
       }
       return sid;
     },
     /** New opaque id — previous cart rows stay in DB but are no longer visible. */
     reset(scope: CartScope = "print"): string {
       const sid = makeSid();
-      localStorage.setItem(KEYS[scope], sid);
+      localStorage.setItem(storageKey(scope), sid);
       return sid;
     },
   },

@@ -59,6 +59,16 @@ class Printer(SQLModel, table=True):
     material_calibrations: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
 
 
+class Station(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    display_name: str
+    password_hash: str
+    printer_id: int = Field(foreign_key="printer.id")
+    enabled: bool = True
+    session_version: str
+
+
 class Template(SQLModel, table=True):
     """Reusable print config — references a printer; configures bitmap rendering.
 
@@ -216,6 +226,9 @@ class CartItem(SQLModel, table=True):
 
 
 class PrintLog(SQLModel, table=True):
+    station_id: Optional[int] = None
+    station_name: str = ""
+    printer_name: str = ""
     project_id: Optional[int] = None
     project_name: str = ""
     operator_source: str = "manual"

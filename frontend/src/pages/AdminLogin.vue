@@ -48,8 +48,7 @@ async function submit() {
     <form class="login-card" @submit.prevent="submit">
       <h1 class="login-title">Admin sign in</h1>
       <p class="login-lead">
-        Print and kiosk stay open for operators. Only this panel requires a
-        password.
+        Manage printers, station accounts, templates and shared label data.
       </p>
 
       <p v-if="!auth.configured" class="login-error">

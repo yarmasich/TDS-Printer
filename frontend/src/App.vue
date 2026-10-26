@@ -4,11 +4,13 @@ import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import Toast from "primevue/toast";
 import ConfirmDialog from "primevue/confirmdialog";
 import Button from "primevue/button";
+import { useStationAuth } from "@/stores/stationAuth";
 import { useAuth } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuth();
+const stationAuth = useStationAuth();
 auth.load();
 
 const isKiosk = computed(() => Boolean(route.meta.kiosk));
@@ -72,6 +74,10 @@ function logoutAdmin() {
             @click="logoutAdmin"
           />
         </nav>
+        <div v-if="stationAuth.station && !isAdminArea" class="station-badge flex items-center gap-3 flex-wrap text-sm">
+          <span><b>{{ stationAuth.station.display_name }}</b> · {{ stationAuth.station.printer_name }}</span>
+          <Button label="Station sign out" icon="pi pi-sign-out" severity="secondary" text class="!text-white" @click="stationAuth.logout(); router.replace('/login')" />
+        </div>
       </div>
     </header>
 
@@ -85,6 +91,8 @@ function logoutAdmin() {
 </template>
 
 <style>
+.station-badge { margin-left: auto; }
+.app-navigation { flex-wrap: wrap; }
 .app-shell {
   width: 100%;
   min-width: 0;

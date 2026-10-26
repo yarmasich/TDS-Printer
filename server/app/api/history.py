@@ -11,7 +11,7 @@ from ..models import PrintLog
 router = APIRouter(prefix='/api/history', tags=['history'])
 
 
-def _filters(since, until, project_id, operator):
+def _filters(since, until, project_id, operator, station_id=None):
     def utc(value):
         if value is None:
             return None
@@ -24,6 +24,7 @@ def _filters(since, until, project_id, operator):
     if until: filters.append(PrintLog.ts < until)
     if project_id is not None: filters.append(PrintLog.project_id == project_id)
     if operator is not None: filters.append(PrintLog.operator == operator)
+    if station_id is not None: filters.append(PrintLog.station_id == station_id)
     return filters
 
 
@@ -33,8 +34,9 @@ def list_history(
     since: Optional[datetime] = None, until: Optional[datetime] = None,
     project_id: Optional[int] = None, operator: Optional[str] = None,
     session: Session = Depends(get_session),
+    station_id: Optional[int] = None,
 ) -> List[PrintLog]:
-    return session.exec(select(PrintLog).where(*_filters(since,until,project_id,operator))
+    return session.exec(select(PrintLog).where(*_filters(since,until,project_id,operator,station_id))
                         .order_by(PrintLog.ts.desc(), PrintLog.id.desc()).limit(limit)).all()
 
 
@@ -43,8 +45,9 @@ def history_summary(
     since: Optional[datetime] = None, until: Optional[datetime] = None,
     project_id: Optional[int] = None, operator: Optional[str] = None,
     session: Session = Depends(get_session),
+    station_id: Optional[int] = None,
 ):
-    filters = _filters(since,until,project_id,operator)
+    filters = _filters(since,until,project_id,operator,station_id)
     # Group in SQL over the whole period, never over the paginated recent list.
     # Stable IDs keep renamed employees together and namesakes separate.
     identity = case((PrintLog.operator_employee_id.is_not(None), PrintLog.operator_employee_id),

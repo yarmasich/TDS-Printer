@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
 from ..db import get_session
-from ..models import PrintLog, Printer, Template
+from ..models import PrintLog, Printer, Template, Station
 from ..printer import PrintError, ping_printer, render_and_send
 from ..schemas import MaterialCalibration, PrinterInput, PrinterPatch
 
@@ -117,6 +117,8 @@ def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> 
         raise HTTPException(404, "Printer not found")
     if session.exec(select(Template.id).where(Template.printer_id == printer_id)).first() is not None:
         raise HTTPException(409, "Printer has templates assigned; reassign them before deleting")
+    if session.exec(select(Station.id).where(Station.printer_id == printer_id)).first() is not None:
+        raise HTTPException(409, "Printer has stations assigned; reassign them before deleting")
     session.delete(p)
     _commit(session, "Printer is still referenced and cannot be deleted")
     return {"deleted": printer_id}
@@ -165,6 +167,7 @@ def test_print(
     log = PrintLog(
         template_name=template.name,
         printer_ip=f"{printer.ip}:{printer.port}",
+        printer_name=printer.name,
         operator="admin",
         reason="TEST PRINTER",
         left_text=left,

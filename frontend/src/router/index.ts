@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
+import { useStationAuth } from "@/stores/stationAuth";
 import { useAuth } from "@/stores/auth";
 
 const routes: RouteRecordRaw[] = [
+  { path: "/login", name: "station-login", component: () => import("@/pages/StationLogin.vue"), meta: { title: "Station sign in" } },
   {
     path: "/",
     name: "print",
@@ -33,7 +35,12 @@ export const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  if (to.name === "print" || to.name === "kiosk") {
+    const station = useStationAuth();
+    await station.restore();
+    if (station.error || (station.required && !station.station)) return { path: "/login", query: { redirect: to.fullPath } };
+  }
   const auth = useAuth();
   auth.load();
   if (to.meta.requiresAdmin && !auth.isAuthenticated) {

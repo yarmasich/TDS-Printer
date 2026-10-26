@@ -1,0 +1,171 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import InputText from "primevue/inputtext";
+import Button from "primevue/button";
+import { useStationAuth } from "@/stores/stationAuth";
+import { ApiError } from "@/api/client";
+
+const auth = useStationAuth();
+const router = useRouter();
+const route = useRoute();
+
+function destination() {
+  const value = route.query.redirect;
+  return typeof value === "string" && (value === "/" || value === "/kiosk") ? value : "/";
+}
+
+const username = ref("");
+const password = ref("");
+const loading = ref(false);
+const error = ref<string | null>(null);
+
+onMounted(async () => {
+  await auth.restore();
+  if (auth.station) {
+    await router.replace(destination());
+  }
+});
+
+async function submit() {
+  if (loading.value) return;
+  error.value = null;
+  loading.value = true;
+  try {
+    const user = username.value.trim();
+    const pass =
+      typeof password.value === "string"
+        ? password.value
+        : String(password.value ?? "");
+    await auth.login(user, pass);
+    await router.replace(destination());
+  } catch (e: unknown) {
+    error.value =
+      e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
+  } finally {
+    loading.value = false;
+  }
+}
+</script>
+
+<template>
+  <div class="login-page">
+    <form class="login-card" @submit.prevent="submit">
+      <h1 class="login-title">Station sign in</h1>
+      <p class="login-lead">
+        Sign in with this workstation’s account. Labels print to its assigned printer. Scan your employee RFID when printing.
+      </p>
+
+      <label class="login-label" for="station-user">Username</label>
+      <InputText
+        id="station-user"
+        v-model="username"
+        autocomplete="username"
+        class="w-full"
+        
+      />
+
+        <label class="login-label" for="station-pass">Password</label>
+        <InputText
+          id="station-pass"
+          v-model="password"
+          type="password"
+          autocomplete="current-password"
+          class="w-full"
+          
+          
+        />
+
+      <p v-if="error || auth.error" class="login-error" role="alert">{{ error || auth.error }}</p>
+
+      <Button
+        type="submit"
+        label="Sign in"
+        icon="pi pi-lock"
+        class="w-full login-submit"
+        :loading="loading"
+        :disabled="!username.trim() || !password"
+      />
+
+      <RouterLink to="/" class="login-back">← Back to print</RouterLink>
+    </form>
+  </div>
+</template>
+
+<style scoped>
+.login-page {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+}
+
+.login-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.login-lead {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.login-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #475569;
+  margin-bottom: 6px;
+  margin-top: 14px;
+}
+
+.login-label:first-of-type {
+  margin-top: 0;
+}
+
+.login-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+}
+
+.login-submit {
+  margin-top: 20px;
+}
+
+.login-back {
+  display: block;
+  margin-top: 16px;
+  text-align: center;
+  font-size: 14px;
+  color: #0284c7;
+  text-decoration: none;
+}
+
+.login-back:hover {
+  text-decoration: underline;
+}
+
+</style>
