@@ -27,4 +27,4 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["data/*.json", "fonts/*.ttf", "fonts/*-OFL.txt", "fonts/*-sources.json"]
+app = ["data/*.json", "fonts/*.ttf", "fonts/*.otf", "fonts/*.md", "fonts/*-LICENSE.txt", "fonts/*-OFL.txt", "fonts/*-sources.json"]

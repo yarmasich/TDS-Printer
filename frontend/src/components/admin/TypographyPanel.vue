@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import fontCatalog from '@/data/fontCatalog.json';
 import { boundedNumber } from '@/data/numericInput';
 import type { Template } from '@/api/types';
 const props = defineProps<{ model: Omit<Template, 'id'> }>();
+const fontFamilies = Object.keys(fontCatalog);
+const fontStyles = computed(() => (fontCatalog as Record<string, string[]>)[props.model.font_name] ?? ['Regular']);
+watch(() => props.model.font_name, () => {
+  if (!fontStyles.value.includes(props.model.font_style)) props.model.font_style = 'Regular';
+}, { immediate: true });
 const units = ref('mm');
 const linked = ref(false);
 const step = () => units.value === 'mm' ? 0.1 : 1;
@@ -37,9 +43,9 @@ function reset() { Object.assign(props.model, { font_name:'Microsoft Sans Serif'
 <template>
   <section class="type-panel" aria-label="Typography">
     <header><strong>Typography</strong><button type="button" @click="reset" title="Reset font, sizes, alignment, stretch and vertical shifts">Reset</button></header>
-    <label class="type-font">Font family<select v-model="model.font_name"><option>Microsoft Sans Serif</option><option>Calibri</option><option>PT Sans</option><option>PT Sans Narrow</option><option>IBM Plex Mono</option><option>Carlito</option><option>Cousine</option><option>PT Serif</option><option>IBM Plex Serif</option><option>B612 Mono</option></select></label>
+    <label class="type-font">Font family<select v-model="model.font_name"><option v-for="family in fontFamilies" :key="family">{{ family }}</option></select></label>
     <div class="type-row" role="group" aria-label="Font style">
-      <button v-for="style in (['Regular','Bold'] as const)" :key="style" type="button" :aria-pressed="model.font_style === style" @click="model.font_style = style">{{ style === 'Bold' ? 'B · Bold' : 'Regular' }}</button>
+      <label class="type-style">Style<select v-model="model.font_style"><option v-for="style in fontStyles" :key="style">{{ style }}</option></select></label>
       <label class="type-link"><input type="checkbox" v-model="linked" @change="linked && (model.right_pt = model.left_pt)" /> Link sizes</label>
     </div>
     <div class="type-grid type-sizes">

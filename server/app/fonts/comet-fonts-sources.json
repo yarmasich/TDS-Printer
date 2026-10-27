@@ -1,0 +1,605 @@
+[
+  {
+    "file": "Comet-Andale-Mono.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Andale%20Mono.ttf",
+    "sha256": "ca436a8f07f6699107542ebe19dcc9478f12aa666927699e9fa10115e7d2ee95",
+    "family": [
+      "Andale Mono"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "Arrunta"
+    ],
+    "license": [],
+    "license_url": [
+      "http://www.monotype.com/html/type/license.html"
+    ],
+    "copyright": [
+      "Digitized data copyright (C) 1993-1997 The Monotype Corporation. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Arial-Black.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Arial%20Black.ttf",
+    "sha256": "7d7db3ad96a31373c1437c6ab14266f6605495544c8e663558b047521174c42e",
+    "family": [
+      "Arial Black"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "Arrunta"
+    ],
+    "license": [
+      "NOTIFICATION OF LICENSE AGREEMENT\r\n\r\nThis typeface is the property of Monotype Typography and its use by you is covered under the terms of a license agreement. You have obtained this typeface software either directly from Monotype or together with software distributed by one of Monotype’s licensees.\r\n\r\nThis software is a valuable asset of Monotype. Unless you have entered into a specific license agreement granting you additional rights, your use of this software is limited to your workstation for your own publishing use. You may not copy or distribute this software.\r\n\r\nIf you have any question concerning your rights you should review the license agreement you received with the software or contact Monotype for a copy of the license agreement.\r\n\r\nMonotype can be contacted at:\r\n\r\nUSA 847-718-0400  UK 44(0)1737 765959\r\n\r\nFor license terms and usage rights, please visit our web site at www.monotype.com/html/type/license.html\r\n \r\nLizenzbedingungen und Nutzungsrechte finden Sie auf unserer Webseite www.monotype.com/html/type/license.html\r\n\r\nPour plus d'informations concernant les droits d'utilisation et les questions contractuelles, veuillez consultez notre site www.monotype.com/html/type/license.html\r\n\r\nPara obtener información acerca de los términos de licencia y los derechos de uso, visite nuestro sitio en el Web en www.monotype.com/html/type/license.html\r\n\r\nPer le condizioni contrattuali ed i diritti d'uso, visitate il nostro sito web all'indirizzo www.monotype.com/html/type/license.html\r\n"
+    ],
+    "license_url": [
+      "http://www.monotype.com/html/type/license.html"
+    ],
+    "copyright": [
+      "C 2006 The Monotype Corporation. All Rights Reserved."
+    ]
+  },
+  {
+    "file": "Comet-Arial.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Arial.ttf",
+    "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9",
+    "family": [
+      "Arial"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "thường",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font to display and print content as permitted by the license terms for the product in which this font is included. You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2006 The Monotype Corporation. All Rights Reserved."
+    ]
+  },
+  {
+    "file": "Comet-Comic-Sans-MS.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Comic%20Sans%20MS.ttf",
+    "sha256": "a6f559bc059fe6d0e68826e2daee0db31194844ed6145d5cc31a610c4e2700d2",
+    "family": [
+      "Comic Sans MS"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font as permitted by the EULA for the product in which this font is included to display and print content. You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [
+      "http://www.microsoft.com/typography/fonts/"
+    ],
+    "copyright": [
+      "© 2006 Microsoft Corporation. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Courier-New.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Courier%20New.ttf",
+    "sha256": "c886ca3172d8ce9189976992d145ec090500a4ff516ecb9d4df56b1a78336247",
+    "family": [
+      "Courier New"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "thường",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font as permitted by the EULA for the product in which this font is included to display and print content.  You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2008 The Monotype Corporation. All Rights Reserved."
+    ]
+  },
+  {
+    "file": "Comet-Georgia.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Georgia.ttf",
+    "sha256": "4f54eb299fccea7f103edeb0d92437359bfd4441811d53222b82b335369f6218",
+    "family": [
+      "Georgia"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font as permitted by the EULA for the product in which this font is included to display and print content. You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [
+      "http://www.microsoft.com/typography/fonts/"
+    ],
+    "copyright": [
+      "© 2006 Microsoft Corporation. All Rights Reserved."
+    ]
+  },
+  {
+    "file": "Comet-Roboto.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Roboto.ttf",
+    "sha256": "b2efabca5ea4bc56eea829713706b5cd0788b82aca153bd4adde9b1573933b4f",
+    "family": [
+      "Roboto"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "Licensed under the Apache License, Version 2.0"
+    ],
+    "license_url": [
+      "http://www.apache.org/licenses/LICENSE-2.0"
+    ],
+    "copyright": [
+      "Font data copyright Google 2012"
+    ]
+  },
+  {
+    "file": "Comet-Roboto_medium.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Roboto_medium.ttf",
+    "sha256": "d0c8f44a774b8490ceee29889cdabc72381fa35fb621619a78fd28211d90241c",
+    "family": [
+      "Roboto Medium"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "Licensed under the Apache License, Version 2.0"
+    ],
+    "license_url": [
+      "http://www.apache.org/licenses/LICENSE-2.0"
+    ],
+    "copyright": [
+      "Font data copyright Google 2012"
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Black.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Black.ttf",
+    "sha256": "11200ac0757b80b0c1780c24fab1595ddd666d4d262d07b51f613798e97b00ed",
+    "family": [
+      "Rubik Black"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-BlackItalic.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-BlackItalic.ttf",
+    "sha256": "ce0e6de088497437824e571c7a0c38974f205a0bbb8b20ae5b309e419662f063",
+    "family": [
+      "Rubik Black"
+    ],
+    "style": [
+      "Italic"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Bold.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Bold.ttf",
+    "sha256": "5bdf72fe98bdb008f73296c6ca419a0dd321dbafa0a6f94debdd932918705d01",
+    "family": [
+      "Rubik"
+    ],
+    "style": [
+      "Bold"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-BoldItalic.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-BoldItalic.ttf",
+    "sha256": "bcb6daf40ce97f2bf52a785c144f77edf2d94348662a5bf7b882b03e5c013d8e",
+    "family": [
+      "Rubik"
+    ],
+    "style": [
+      "Bold Italic"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Italic.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Italic.ttf",
+    "sha256": "8c3c2bc445758fe52b3334d0485a33dc781184af14705f83c64be32565d4ffd5",
+    "family": [
+      "Rubik"
+    ],
+    "style": [
+      "Italic"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Light.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Light.ttf",
+    "sha256": "56ae5a986f01c02dcf756ea4e7e8894dcf239c9bb2d21e668014d172bea0498f",
+    "family": [
+      "Rubik Light"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-LightItalic.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-LightItalic.ttf",
+    "sha256": "1cb435207ca82797c9a801c36120e2e3027aa22fdce467530dd117df43f3036f",
+    "family": [
+      "Rubik Light"
+    ],
+    "style": [
+      "Italic"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Medium.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Medium.ttf",
+    "sha256": "82a8c818aab7ca3157c49795b2fc47a08a1fa490dd5aa7acb7a079615c3dda51",
+    "family": [
+      "Rubik Medium"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-MediumItalic.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-MediumItalic.ttf",
+    "sha256": "fc227ae27755c9857b7483e53f452c3f7d2b0cbe51cb92c9c4edaa64f3d9be00",
+    "family": [
+      "Rubik Medium"
+    ],
+    "style": [
+      "Italic"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Rubik-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Rubik-Regular.ttf",
+    "sha256": "c17737eba7fa3f4854f4cd50226e75a9e954b4fc460d805b22e5c31a04b0261d",
+    "family": [
+      "Rubik"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+    ],
+    "license_url": [
+      "http://scripts.sil.org/OFL"
+    ],
+    "copyright": [
+      "Copyright (c) 2015 by Hubert & Fischer. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-SF-UI-Text-Regular.otf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/SF-UI-Text-Regular.otf",
+    "sha256": "111366c47db23aeb93ae7a333752bd34e84e8c07578f6fb0b61b25b6a50fb542",
+    "family": [
+      "SF UI Text"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This San Francisco Font (the “Apple Font”) is licensed to you by Apple Inc. (“Apple”) in consideration of your agreement to the following terms and the terms of the License Agreement for the Apple San Francisco Font that was presented upon the downloading of the Apple Font. If you do not agree with these terms and the terms of the License Agreement for the Apple San Francisco Font, do not use the Apple Font.  \n\nYou may use the Apple Font solely for creating mock-ups of user interfaces to be used in software products running on Apple’s iOS or OS X operating systems, as applicable. The foregoing right includes the right to show the Apple Font in screen shots, images, mock-ups or other depictions, digital and/or print, of such software products running solely on iOS or OS X.\n\nThe grants set forth in this License do not permit you to, and you agree not to, install, use or run the Apple Font for the purpose of creating mock-ups of user interfaces to be used in software products running on any non-Apple operating system or to enable others to do so. You may not embed the Apple Font in any software programs or other products. Except as expressly provided for herein, you may not use the Apple Font to, create, develop, display or otherwise distribute any documentation, artwork, website content or any other work product.\n\nYou may use the Apple Font: (i) only for the purposes described in this License and the License Agreement for the Apple San Francisco Font; and (ii) only if you are a Registered Apple Developer and an eligible paid Apple Developer Program member, or as otherwise expressly permitted by Apple in writing."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2015 Apple Inc. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-SanFrancisco.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/SanFrancisco.ttf",
+    "sha256": "236aad5fb102c930f0e3729e74f5afb88a6461b85dfed9da25f0263347d2d843",
+    "family": [
+      "SFNS Display"
+    ],
+    "style": [
+      "Regular"
+    ],
+    "license": [
+      "This San Francisco font is licensed to you by Apple Inc. (“Apple”) in consideration of your agreement to the following terms. If you do not agree with these terms, do not use the San Francisco font.  \n\nYou may use the San Francisco font solely for purposes of design and development of applications for the Apple Watch. The foregoing right includes the right to show the San Francisco font in screen shots, images or mock-ups of an Apple Watch application.   \n\nThis San Francisco font is pre-release and is subject to change and should not be relied upon as a final commercial release of the San Francisco font. You may use this font only for the purposes described in this License and only if you are a Registered Apple Developer who is part of an iOS Developer Program team, or as otherwise expressly permitted by Apple in writing. To the extent that there are any inconsistent terms in any applicable Apple software license agreements, these terms shall govern your use of the San Francisco font."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2014 Apple Inc. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-SanFranciscoBold.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/SanFranciscoBold.ttf",
+    "sha256": "0922699968d6876e6f496295a2ea32f26a0d207562220e6d661f436ff4138720",
+    "family": [
+      "SFNS Display"
+    ],
+    "style": [
+      "Bold"
+    ],
+    "license": [
+      "This San Francisco font is licensed to you by Apple Inc. (“Apple”) in consideration of your agreement to the following terms. If you do not agree with these terms, do not use the San Francisco font.  \n\nYou may use the San Francisco font solely for purposes of design and development of applications for the Apple Watch. The foregoing right includes the right to show the San Francisco font in screen shots, images or mock-ups of an Apple Watch application.   \n\nThis San Francisco font is pre-release and is subject to change and should not be relied upon as a final commercial release of the San Francisco font. You may use this font only for the purposes described in this License and only if you are a Registered Apple Developer who is part of an iOS Developer Program team, or as otherwise expressly permitted by Apple in writing. To the extent that there are any inconsistent terms in any applicable Apple software license agreements, these terms shall govern your use of the San Francisco font."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2014 Apple Inc. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-SanFranciscoThin.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/SanFranciscoThin.ttf",
+    "sha256": "8a1027efd80f8d50bbbb130b2371edefc9d98cbfe1cf9cc484ff4eeeb7558d62",
+    "family": [
+      "SFNS Display"
+    ],
+    "style": [
+      "Thin"
+    ],
+    "license": [
+      "This San Francisco font is licensed to you by Apple Inc. (“Apple”) in consideration of your agreement to the following terms. If you do not agree with these terms, do not use the San Francisco font.  \n\nYou may use the San Francisco font solely for purposes of design and development of applications for the Apple Watch. The foregoing right includes the right to show the San Francisco font in screen shots, images or mock-ups of an Apple Watch application.   \n\nThis San Francisco font is pre-release and is subject to change and should not be relied upon as a final commercial release of the San Francisco font. You may use this font only for the purposes described in this License and only if you are a Registered Apple Developer who is part of an iOS Developer Program team, or as otherwise expressly permitted by Apple in writing. To the extent that there are any inconsistent terms in any applicable Apple software license agreements, these terms shall govern your use of the San Francisco font."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2014 Apple Inc. All rights reserved."
+    ]
+  },
+  {
+    "file": "Comet-Skia.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Skia.ttf",
+    "sha256": "1f214125720ea7cb953ec19cedcb344cc6a8d24e22675eabb5c1e827367a5927",
+    "family": [
+      "Skia"
+    ],
+    "style": [
+      "Regular",
+      "標準體",
+      "Ordinær",
+      "Normal",
+      "Normaali",
+      "Regolare",
+      "レギュラー",
+      "일반체",
+      "Regulier",
+      "Обычный",
+      "常规体"
+    ],
+    "license": [],
+    "license_url": [],
+    "copyright": [
+      "© 1993-2014 Apple Inc."
+    ]
+  },
+  {
+    "file": "Comet-Times-New-Roman.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Times%20New%20Roman.ttf",
+    "sha256": "380142bc66332d09b0f24ddf4bcb74b359c93b686331d488a0f3154e2d7c26bb",
+    "family": [
+      "Times New Roman"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "thường",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font as permitted by the EULA for the product in which this font is included to display and print content.  You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2006 The Monotype Corporation. All Rights Reserved."
+    ]
+  },
+  {
+    "file": "Comet-Microsoft-Sans-Serif.ttf",
+    "url": "https://raw.githubusercontent.com/PrincetonUniversity/COS333_Comet/fb6d691e17d80816d6da6ad64e72e3c72d874055/android/app/src/main/assets/fonts/Microsoft%20Sans%20Serif.ttf",
+    "sha256": "681fd20f201435edc09fac432cd5409722ca8fd10970dc3dc9be1b2de4b0ef43",
+    "family": [
+      "Microsoft Sans Serif"
+    ],
+    "style": [
+      "Regular",
+      "Normal",
+      "obyčejné",
+      "normal",
+      "Standard",
+      "Κανονικά",
+      "Normaali",
+      "Normál",
+      "Normale",
+      "Standaard",
+      "Normalny",
+      "Обычный",
+      "Normálne",
+      "Navadno",
+      "Arrunta"
+    ],
+    "license": [
+      "You may use this font as permitted by the EULA for the product in which this font is included to display and print content.  You may only (i) embed this font in content as permitted by the embedding restrictions included in this font; and (ii) temporarily download this font to a printer or other output device to help print content."
+    ],
+    "license_url": [],
+    "copyright": [
+      "© 2006 Microsoft Corporation. All Rights Reserved."
+    ]
+  }
+]

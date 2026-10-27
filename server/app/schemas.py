@@ -66,8 +66,8 @@ class TemplateInput(InputModel):
     right_pt: PointSize = 7
     h_align: HAlign = HAlign.CENTER
     v_align: VAlign = VAlign.CENTER
-    font_name: Literal['Microsoft Sans Serif', 'Calibri', 'PT Sans', 'PT Sans Narrow', 'IBM Plex Mono', 'Carlito', 'Cousine', 'PT Serif', 'IBM Plex Serif', 'B612 Mono'] = 'Microsoft Sans Serif'
-    font_style: Literal['Bold', 'Regular'] = 'Bold'
+    font_name: Literal['Microsoft Sans Serif', 'Calibri', 'PT Sans', 'PT Sans Narrow', 'IBM Plex Mono', 'Carlito', 'Cousine', 'PT Serif', 'IBM Plex Serif', 'B612 Mono', 'Andale Mono', 'Arial Black', 'Arial', 'Comic Sans MS', 'Courier New', 'Georgia', 'Skia', 'Times New Roman', 'Roboto', 'Rubik', 'SF UI Text', 'San Francisco'] = 'Microsoft Sans Serif'
+    font_style: Literal['Bold', 'Regular', 'Medium', 'Italic', 'Light', 'Light Italic', 'Medium Italic', 'Bold Italic', 'Black', 'Black Italic', 'Thin'] = 'Bold'
     left_offset: Coordinate = 0
     right_offset: Coordinate = 0
     scale_x: float = Field(1, ge=1, le=1.5, allow_inf_nan=False)
