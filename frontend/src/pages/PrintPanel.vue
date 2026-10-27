@@ -127,7 +127,6 @@ function resetResults() {
 }
 watch(selectedProject, async (pid) => {
   resetResults();
-  ping.clear();
   bundleResource.clear();
   selectedDiscipline.value = null;
   if (hydrating) return;
@@ -144,11 +143,12 @@ const currentDiscipline = computed<Discipline | undefined>(() =>
   projects.disciplines.find((d) => d.id === selectedDiscipline.value),
 );
 watch(currentDiscipline, (d) => {
-  ping.clear();
   bundleResource.clear();
   if (d?.bundle_mode) void bundleResource.run(() => api.get<Bundle[]>(`/api/labels/bundles?discipline_id=${d.id}`));
 }, { flush: "sync" });
 
+// Status belongs to the effective printer, which may stay the same across
+// project/discipline changes for a signed-in station. Only this watcher resets it.
 watch(targetPrinterId, () => {
   ping.clear();
   if (targetPrinterId.value) {

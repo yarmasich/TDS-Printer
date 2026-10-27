@@ -1,0 +1,90 @@
+{
+  "Microsoft Sans Serif": [
+    "Bold",
+    "Regular"
+  ],
+  "Calibri": [
+    "Bold",
+    "Regular"
+  ],
+  "PT Sans": [
+    "Regular",
+    "Bold"
+  ],
+  "PT Sans Narrow": [
+    "Regular",
+    "Bold"
+  ],
+  "IBM Plex Mono": [
+    "Regular",
+    "Bold"
+  ],
+  "Carlito": [
+    "Regular",
+    "Bold"
+  ],
+  "Cousine": [
+    "Regular",
+    "Bold"
+  ],
+  "PT Serif": [
+    "Regular",
+    "Bold"
+  ],
+  "IBM Plex Serif": [
+    "Regular",
+    "Bold"
+  ],
+  "B612 Mono": [
+    "Regular",
+    "Bold"
+  ],
+  "Andale Mono": [
+    "Regular"
+  ],
+  "Arial Black": [
+    "Regular"
+  ],
+  "Arial": [
+    "Regular"
+  ],
+  "Comic Sans MS": [
+    "Regular"
+  ],
+  "Courier New": [
+    "Regular"
+  ],
+  "Georgia": [
+    "Regular"
+  ],
+  "Skia": [
+    "Regular"
+  ],
+  "Times New Roman": [
+    "Regular"
+  ],
+  "Roboto": [
+    "Regular",
+    "Medium"
+  ],
+  "Rubik": [
+    "Regular",
+    "Italic",
+    "Light",
+    "Light Italic",
+    "Medium",
+    "Medium Italic",
+    "Bold",
+    "Bold Italic",
+    "Black",
+    "Black Italic"
+  ],
+  "SF UI Text": [
+    "Regular"
+  ],
+  "San Francisco": [
+    "Regular",
+    "Bold",
+    "Thin"
+  ]
+}

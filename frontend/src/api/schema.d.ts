@@ -2169,13 +2169,13 @@ export interface components {
              * @default Microsoft Sans Serif
              * @enum {string}
              */
-            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono";
+            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono" | "Andale Mono" | "Arial Black" | "Arial" | "Comic Sans MS" | "Courier New" | "Georgia" | "Skia" | "Times New Roman" | "Roboto" | "Rubik" | "SF UI Text" | "San Francisco";
             /**
              * Font Style
              * @default Bold
              * @enum {string}
              */
-            font_style: "Bold" | "Regular";
+            font_style: "Bold" | "Regular" | "Medium" | "Italic" | "Light" | "Light Italic" | "Medium Italic" | "Bold Italic" | "Black" | "Black Italic" | "Thin";
             /**
              * Left Offset
              * @default 0
@@ -2337,13 +2337,13 @@ export interface components {
              * @default Microsoft Sans Serif
              * @enum {string}
              */
-            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono";
+            font_name: "Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono" | "Andale Mono" | "Arial Black" | "Arial" | "Comic Sans MS" | "Courier New" | "Georgia" | "Skia" | "Times New Roman" | "Roboto" | "Rubik" | "SF UI Text" | "San Francisco";
             /**
              * Font Style
              * @default Bold
              * @enum {string}
              */
-            font_style: "Bold" | "Regular";
+            font_style: "Bold" | "Regular" | "Medium" | "Italic" | "Light" | "Light Italic" | "Medium Italic" | "Bold Italic" | "Black" | "Black Italic" | "Thin";
             /**
              * Left Offset
              * @default 0
@@ -2433,9 +2433,9 @@ export interface components {
             h_align?: components["schemas"]["HAlign"] | null;
             v_align?: components["schemas"]["VAlign"] | null;
             /** Font Name */
-            font_name?: ("Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono") | null;
+            font_name?: ("Microsoft Sans Serif" | "Calibri" | "PT Sans" | "PT Sans Narrow" | "IBM Plex Mono" | "Carlito" | "Cousine" | "PT Serif" | "IBM Plex Serif" | "B612 Mono" | "Andale Mono" | "Arial Black" | "Arial" | "Comic Sans MS" | "Courier New" | "Georgia" | "Skia" | "Times New Roman" | "Roboto" | "Rubik" | "SF UI Text" | "San Francisco") | null;
             /** Font Style */
-            font_style?: ("Bold" | "Regular") | null;
+            font_style?: ("Bold" | "Regular" | "Medium" | "Italic" | "Light" | "Light Italic" | "Medium Italic" | "Bold Italic" | "Black" | "Black Italic" | "Thin") | null;
             /** Left Offset */
             left_offset?: number | null;
             /** Right Offset */
