@@ -46,12 +46,7 @@ body {
   position: absolute !important;
 }
 
-.p-dialog-mask,
-.p-drawer-mask,
-.p-select-overlay,
-.p-connected-overlay {
-  z-index: 1200 !important;
-}
+/* PrimeVue manages overlay stacking dynamically, including nested dialogs. */
 
 .p-dialog-mask,
 .p-drawer-mask {

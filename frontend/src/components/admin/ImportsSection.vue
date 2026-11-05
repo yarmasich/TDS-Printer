@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useAdminRequests, useImportDestination } from "@/composables/adminRequests";
+const requests = useAdminRequests();
+const requestError = requests.error;
 import { computed, onMounted, ref, watch } from "vue";
 import { adminAuthHeader, api, apiUrl } from "@/api/client";
 import type { Discipline, ImportDTO, Project } from "@/api/types";
@@ -15,32 +18,33 @@ const toast = useToast();
 const confirm = useConfirm();
 
 const projects = ref<Project[]>([]);
-const disciplines = ref<Discipline[]>([]);
+const destination = useImportDestination((pid: number) => api.get<Discipline[]>(`/api/disciplines?project_id=${pid}`));
+const disciplines = destination.options;
+const destinationLoading = destination.loading;
+const destinationError = destination.error;
 const imports = ref<ImportDTO[]>([]);
 
 const projectId = ref<number | null>(null);
 const disciplineId = ref<number | null>(null);
 const file = ref<File | null>(null);
+const filePickerKey = ref(0);
 
 onMounted(refresh);
 
 async function refresh() {
+  await requests.run("refresh", () => refreshRequest());
+}
+async function refreshRequest() {
   [projects.value, imports.value] = await Promise.all([
     api.get<Project[]>("/api/projects"),
     api.get<ImportDTO[]>("/api/imports"),
   ]);
 }
 
-watch(projectId, async (pid) => {
+watch(projectId, (pid) => {
   disciplineId.value = null;
-  if (pid != null) {
-    disciplines.value = await api.get<Discipline[]>(
-      `/api/disciplines?project_id=${pid}`,
-    );
-  } else {
-    disciplines.value = [];
-  }
-});
+  void destination.load(pid);
+}, { flush: "sync" });
 
 // Same discipline name can exist in several data halls (e.g. DH23/AS-T1 and
 // DH26/AS-T1). Prefix the hall so the option — and the picked value — is
@@ -53,7 +57,7 @@ const disciplineOptions = computed(() =>
 );
 
 const canUpload = computed(
-  () => disciplineId.value != null && file.value != null,
+  () => destination.valid(disciplineId.value) && file.value != null,
 );
 
 function onFileSelect(e: { files: File[] }) {
@@ -61,7 +65,10 @@ function onFileSelect(e: { files: File[] }) {
 }
 
 async function upload() {
-  if (!file.value || disciplineId.value == null) return;
+  await requests.run("upload", () => uploadRequest());
+}
+async function uploadRequest() {
+  if (!file.value || !destination.valid(disciplineId.value)) return;
   const fd = new FormData();
   fd.append("discipline_id", String(disciplineId.value));
   fd.append("file", file.value);
@@ -79,8 +86,10 @@ async function upload() {
       life: 3000,
     });
     file.value = null;
+    filePickerKey.value++;
     await refresh();
   } catch (e: unknown) {
+    requestError.value = e instanceof Error ? e.message : String(e);
     toast.add({
       severity: "error",
       summary: "Upload failed",
@@ -92,33 +101,39 @@ async function upload() {
 function remove(imp: ImportDTO) {
   confirm.require({
     message: `Delete "${imp.filename}" and its ${imp.rows} rows?`,
-    accept: async () => {
+    accept: async () => requests.run("delete", async () => {
       try {
         await api.delete(`/api/imports/${imp.id}`);
         await refresh();
         toast.add({ severity: "success", summary: "Deleted", life: 2000 });
       } catch (e: unknown) {
+        requestError.value = e instanceof Error ? e.message : String(e);
         toast.add({
           severity: "error",
           summary: "Delete failed",
           detail: e instanceof Error ? e.message : String(e),
         });
       }
-    },
+    }),
   });
 }
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+    <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
+
     <h2 class="text-lg font-bold mb-3">Import labels</h2>
 
     <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Project</label>
-          <Select
-            v-model="projectId"
+          <label for="importssection-field-1" class="block text-xs font-bold text-slate-600 mb-1">Project</label>
+          <Select input-id="importssection-field-1"
+            aria-label="Project"
+            v-model="projectId" :disabled="requests.busy('upload')"
             :options="projects"
             option-label="name"
             option-value="id"
@@ -127,20 +142,21 @@ function remove(imp: ImportDTO) {
           />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Discipline</label>
-          <Select
+          <label for="importssection-field-2" class="block text-xs font-bold text-slate-600 mb-1">Discipline</label>
+          <Select input-id="importssection-field-2"
+            aria-label="Discipline"
             v-model="disciplineId"
             :options="disciplineOptions"
             option-label="label"
             option-value="id"
-            :disabled="projectId == null"
+            :disabled="projectId == null || destinationLoading || requests.busy('upload')" :loading="destinationLoading"
             placeholder="— pick —"
             filter
             class="w-full"
           />
         </div>
         <div>
-          <FileUpload
+          <FileUpload :key="filePickerKey" :disabled="requests.busy('upload')"
             mode="basic"
             accept=".xlsx"
             :auto="false"
@@ -151,11 +167,13 @@ function remove(imp: ImportDTO) {
           />
         </div>
       </div>
+      <p v-if="destinationError" role="alert" class="text-red-700 mt-3">{{ destinationError }} <Button label="Retry disciplines" @click="destination.load(projectId)" /></p>
+      <p v-if="projectId && !destinationLoading && !destinationError && !disciplines.length" class="mt-3">No disciplines in this project. Add one in Projects · Halls · Disciplines first.</p>
       <div class="mt-3 flex justify-end">
-        <Button
+        <Button :disabled="!canUpload || requests.pending.value.size > 0"
           label="Upload"
           icon="pi pi-upload"
-          :disabled="!canUpload"
+          :loading="requests.busy('upload')"
           @click="upload"
         />
       </div>
@@ -168,7 +186,7 @@ function remove(imp: ImportDTO) {
       :value="imports"
       data-key="id"
       striped-rows
-      empty-message="No files uploaded yet"
+
       :paginator="imports.length > 10"
       :rows="10"
       size="small"
@@ -176,6 +194,7 @@ function remove(imp: ImportDTO) {
       sort-field="uploaded_at"
       :sort-order="-1"
     >
+      <template #empty>No files uploaded yet.</template>
       <Column field="uploaded_at" header="When" sortable />
       <Column field="filename" header="File" sortable />
       <Column header="Project / Hall / Discipline">
@@ -190,7 +209,7 @@ function remove(imp: ImportDTO) {
       <Column field="sheets" header="Sheets" style="text-align: right" />
       <Column header="" :style="{ width: '80px' }">
         <template #body="{ data }">
-          <Button
+          <Button :disabled="requests.pending.value.size > 0"
             icon="pi pi-trash"
             severity="danger"
             text
@@ -203,3 +222,7 @@ function remove(imp: ImportDTO) {
     </DataTable>
   </section>
 </template>
+
+<style scoped>
+@media (pointer: coarse) { .admin-touch :deep(.p-button), .admin-touch :deep(.p-select), .admin-touch :deep(.p-inputtext) { min-height:44px; } .admin-touch :deep(.p-button-icon-only) { min-width:44px; } }
+</style>

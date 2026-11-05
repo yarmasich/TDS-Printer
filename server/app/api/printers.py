@@ -1,6 +1,12 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
+from fastapi.responses import JSONResponse
+from pydantic import ConfigDict
+from typing import Literal
+from .. import printer_device_status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import update
@@ -8,11 +14,49 @@ from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
 from ..db import get_session
-from ..models import PrintLog, Printer, Template, Station
+from ..models import PrintLog, Printer, Template, Station, ProjectPrinterAssignment
 from ..printer import PrintError, ping_printer, render_and_send
 from ..schemas import MaterialCalibration, PrinterInput, PrinterPatch
 
-router = APIRouter(prefix="/api/printers", tags=["printers"])
+class RedactedPrinterRoute(APIRoute):
+    def get_route_handler(self):
+        original = super().get_route_handler()
+        async def handler(request):
+            try:
+                return await original(request)
+            except RequestValidationError:
+                return JSONResponse(status_code=422, content={'detail': 'Invalid printer settings'})
+        return handler
+
+
+class PrinterRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    ip: str
+    port: int
+    notes: str
+    protocol: str
+    dpi: int
+    model: str
+    material_calibrations: dict
+    snmp_enabled: bool
+    snmp_port: int
+    snmp_version: Literal['1'] = '1'
+    snmp_community_configured: bool = False
+    snmp_source: Literal['inherited', 'custom'] = 'inherited'
+    qr_media_id: str
+    qr_label_length_mm: int
+
+
+def public_printer(printer):
+    result = PrinterRead.model_validate(printer)
+    result.snmp_community_configured = printer.snmp_community is not None
+    result.snmp_source = 'custom' if result.snmp_community_configured else 'inherited'
+    return result
+
+
+router = APIRouter(prefix="/api/printers", tags=["printers"], route_class=RedactedPrinterRoute)
 
 
 def _commit(session: Session, detail: str) -> None:
@@ -37,9 +81,9 @@ class TestPrintResult(BaseModel):
     detail: str = ""
 
 
-@router.get("", response_model=List[Printer], dependencies=[Depends(require_admin)])
+@router.get("", response_model=List[PrinterRead], dependencies=[Depends(require_admin)])
 def list_printers(session: Session = Depends(get_session)) -> List[Printer]:
-    return session.exec(select(Printer).order_by(Printer.name)).all()
+    return [public_printer(p) for p in session.exec(select(Printer).order_by(Printer.name)).all()]
 
 
 # Important: declare this BEFORE the catch-all ``/{printer_id}`` so FastAPI
@@ -54,24 +98,24 @@ def ping_all(session: Session = Depends(get_session)) -> List[PingResult]:
     return out
 
 
-@router.get("/{printer_id}", response_model=Printer, dependencies=[Depends(require_admin)])
+@router.get("/{printer_id}", response_model=PrinterRead, dependencies=[Depends(require_admin)])
 def get_printer(printer_id: int, session: Session = Depends(get_session)) -> Printer:
     p = session.get(Printer, printer_id)
     if not p:
         raise HTTPException(404, "Printer not found")
-    return p
+    return public_printer(p)
 
 
-@router.post("", response_model=Printer, dependencies=[Depends(require_admin)])
+@router.post("", response_model=PrinterRead, dependencies=[Depends(require_admin)])
 def create_printer(p: PrinterInput, session: Session = Depends(get_session)) -> Printer:
-    row = Printer(**p.model_dump())
+    row = Printer(**p.persistence_values())
     session.add(row)
     _commit(session, "Printer name already exists")
     session.refresh(row)
-    return row
+    return public_printer(row)
 
 
-@router.put("/{printer_id}", response_model=Printer, dependencies=[Depends(require_admin)])
+@router.put("/{printer_id}", response_model=PrinterRead, dependencies=[Depends(require_admin)])
 def update_printer(
     printer_id: int, patch: PrinterPatch, session: Session = Depends(get_session)
 ) -> Printer:
@@ -81,7 +125,11 @@ def update_printer(
     try:
         updated = PrinterInput.model_validate({**existing.model_dump(), **patch.model_dump(exclude_unset=True)})
     except ValidationError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, "Invalid printer settings") from None
+    if (existing.protocol == 'brother_ql') != (updated.protocol == 'brother_ql'):
+        if (session.exec(select(Template.id).where(Template.printer_id == printer_id)).first() is not None
+                or session.exec(select(Station.id).where(Station.printer_id == printer_id)).first() is not None):
+            raise HTTPException(409, 'Reassign cable templates and stations before changing to or from Brother')
     # Calibration is edited through its dedicated pair endpoint, never through
     # a potentially stale full printer form. Changing hardware invalidates it.
     updated.material_calibrations = {sku: MaterialCalibration.model_validate(value) for sku, value in existing.material_calibrations.items()}
@@ -97,7 +145,7 @@ def update_printer(
             update(Printer).where(
                 Printer.id == printer_id,
                 *(getattr(Printer, name) == value for name, value in snapshot.items()),
-            ).values(**updated.model_dump()).execution_options(synchronize_session=False)
+            ).values(**updated.persistence_values()).execution_options(synchronize_session=False)
         )
         if result.rowcount != 1:
             session.rollback()
@@ -107,7 +155,7 @@ def update_printer(
         session.rollback()
         raise HTTPException(409, "Printer name already exists") from exc
     session.refresh(existing)
-    return existing
+    return public_printer(existing)
 
 
 @router.delete("/{printer_id}", dependencies=[Depends(require_admin)])
@@ -119,6 +167,8 @@ def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> 
         raise HTTPException(409, "Printer has templates assigned; reassign them before deleting")
     if session.exec(select(Station.id).where(Station.printer_id == printer_id)).first() is not None:
         raise HTTPException(409, "Printer has stations assigned; reassign them before deleting")
+    if session.exec(select(ProjectPrinterAssignment.id).where(ProjectPrinterAssignment.printer_id == printer_id)).first() is not None:
+        raise HTTPException(409, "Printer is assigned to integration projects; remove assignments before deleting")
     session.delete(p)
     _commit(session, "Printer is still referenced and cannot be deleted")
     return {"deleted": printer_id}
@@ -152,6 +202,8 @@ def test_print(
     if not printer:
         raise HTTPException(404, "Printer not found")
 
+    if printer.protocol == 'brother_ql':
+        raise HTTPException(400, 'Use Admin → QR labels to preview and send a Brother test label')
     template = session.exec(
         select(Template).where(Template.printer_id == printer_id).order_by(Template.id)
     ).first()
@@ -188,7 +240,7 @@ def test_print(
     return TestPrintResult(ok=True, log_id=log.id, template_used=template.name)
 
 
-@router.put("/{printer_id}/calibration/{sku}", response_model=Printer, dependencies=[Depends(require_admin)])
+@router.put("/{printer_id}/calibration/{sku}", response_model=PrinterRead, dependencies=[Depends(require_admin)])
 def save_calibration(printer_id: int, sku: str, correction: MaterialCalibration, session: Session = Depends(get_session)):
     from ..materials import get_material
     printer = session.get(Printer, printer_id)
@@ -217,4 +269,22 @@ def save_calibration(printer_id: int, sku: str, correction: MaterialCalibration,
         raise HTTPException(409, "Printer calibration changed elsewhere; reload and try again")
     _commit(session, "Could not save calibration")
     session.refresh(printer)
-    return printer
+    return public_printer(printer)
+
+
+@router.get("/{printer_id}/status", dependencies=[Depends(require_admin)])
+def printer_status(printer_id: int, session: Session = Depends(get_session)):
+    printer = session.get(Printer, printer_id)
+    if printer is None:
+        raise HTTPException(404, "Printer not found")
+    config = printer_device_status.DeviceStatusConfig.from_printer(printer)
+    ip, port = printer.ip, printer.port
+    metadata = public_printer(printer)
+    online, _, error = ping_printer(ip, port)
+    connection_state = 'reachable' if online else ('busy' if error == 'Printer busy; status check skipped' else 'unreachable')
+    status = printer_device_status.device_status(config.printer_id, config.ip, config.model,
+        enabled=config.enabled, port=config.port, community_override=config.community)
+    return dict(printer_id=printer_id, online=online, connection_state=connection_state, device_status=status,
+        snmp_enabled=metadata.snmp_enabled, snmp_port=metadata.snmp_port,
+        snmp_version='1', snmp_source=metadata.snmp_source,
+        qr_defaults={'media_id': metadata.qr_media_id, 'label_length_mm': metadata.qr_label_length_mm})

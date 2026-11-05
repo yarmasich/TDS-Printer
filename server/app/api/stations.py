@@ -46,8 +46,11 @@ def save(row, db):
     row.username = row.username.strip()
     row.display_name = row.display_name.strip()
     with db.no_autoflush:
-        if not db.get(Printer, row.printer_id):
+        printer = db.get(Printer, row.printer_id)
+        if not printer:
             raise HTTPException(422, 'Assigned printer does not exist')
+        if printer.protocol == 'brother_ql':
+            raise HTTPException(422, 'Brother QR printing uses the admin workspace or API, not cable stations')
     db.add(row)
     try:
         db.commit()

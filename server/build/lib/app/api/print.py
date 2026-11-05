@@ -1,0 +1,222 @@
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+from sqlmodel import Session
+
+from ..auth_admin import require_admin, decode_admin_token
+from .. import rfid
+from ..auth_station import resolve_operator, station_audit
+from ..db import get_session
+from ..models import Discipline, Label, PrintLog, Printer, Template
+from ..printer import PrintError, render_and_send, render_label_png
+from ..schemas import TemplateInput
+from ..calibration import render_preview_png
+
+router = APIRouter(prefix="/api/print", tags=["print"])
+
+
+class DraftPreviewRequest(BaseModel):
+    """Render a template that hasn't been saved yet.
+
+    Used by the admin form's live preview — at edit time we don't have
+    a stable ``template_id`` we could pass to the GET endpoint, and we
+    don't want to round-trip through ``PUT /api/templates``.
+
+    ``crop=True`` trims the bitmap to the text rectangles' bounding
+    box — useful when the preview is being scaled into a small UI
+    swatch and would otherwise be dominated by empty canvas.
+    """
+    template: TemplateInput
+    left_text: str = ""
+    right_text: str = ""
+    crop: bool = False
+    printer_id: Optional[int] = None
+
+
+class TestPrintRequest(BaseModel):
+    """Send a one-off draft print to a real printer — for the 'Test'
+    button on the template form. ``printer_id`` is required because the
+    inline template may be brand-new (no FK persisted yet)."""
+    template: TemplateInput
+    printer_id: int
+    operator: str = ""
+    reason: str = "TEST"
+
+
+@router.get("/preview", dependencies=[Depends(require_admin)])
+def preview(
+    template_id: Optional[int] = Query(None),
+    label_id: Optional[int] = Query(None),
+    left_text: str = "",
+    right_text: str = "",
+    session: Session = Depends(get_session),
+):
+    """Render the same bitmap that would go to the printer, return PNG.
+
+    Pass either ``label_id`` (uses the discipline's template + label's text)
+    or ``template_id`` + ``left_text``/``right_text``.
+    """
+    if label_id is not None:
+        label = session.get(Label, label_id)
+        if not label:
+            raise HTTPException(404, "Label not found")
+        disc = session.get(Discipline, label.discipline_id)
+        if not disc or not disc.template_id:
+            raise HTTPException(400, "Discipline has no template assigned")
+        tmpl = session.get(Template, disc.template_id)
+        if not tmpl:
+            raise HTTPException(500, "Discipline points at a missing template")
+        left = left_text or label.left_text
+        right = right_text or label.right_text
+    elif template_id is not None:
+        tmpl = session.get(Template, template_id)
+        if not tmpl:
+            raise HTTPException(404, "Template not found")
+        left = left_text or tmpl.left_text
+        right = right_text or tmpl.right_text
+    else:
+        raise HTTPException(400, "Provide label_id or template_id")
+    try:
+        png = render_preview_png(tmpl, left, right, printer=session.get(Printer, tmpl.printer_id))
+    except PrintError as exc:
+        raise HTTPException(400, f"Preview failed: {exc}") from exc
+    return Response(content=png, media_type="image/png")
+
+
+@router.post("/preview-draft", dependencies=[Depends(require_admin)])
+def preview_draft(req: DraftPreviewRequest, session: Session = Depends(get_session)):
+    """Render an unsaved template — same renderer as the printer path,
+    so what you see here is what comes out of the printer."""
+    left = req.left_text or req.template.left_text
+    right = req.right_text or req.template.right_text
+    try:
+        printer = session.get(Printer, req.printer_id) if req.printer_id else None
+        if req.printer_id and not printer:
+            raise HTTPException(404, "Printer not found")
+        png = render_preview_png(req.template, left, right, crop=req.crop, printer=printer)
+    except PrintError as exc:
+        raise HTTPException(400, f"Preview failed: {exc}") from exc
+    return Response(content=png, media_type="image/png")
+
+
+@router.post("/test", dependencies=[Depends(require_admin)])
+def test_print(req: TestPrintRequest, session: Session = Depends(get_session)) -> dict:
+    """Print a draft template right now — used by the template editor's
+    'Test' button. We still log it (status='ok', reason='TEST' by default)
+    so the operator can see test prints in history."""
+    printer = session.get(Printer, req.printer_id)
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+
+    left = req.template.left_text
+    right = req.template.right_text
+    log = PrintLog(
+        template_name=req.template.name or "(draft)",
+        printer_ip=f"{printer.ip}:{printer.port}",
+        printer_name=printer.name,
+        operator=req.operator,
+        reason=req.reason or "TEST",
+        left_text=left,
+        right_text=right,
+    )
+    try:
+        render_and_send(req.template, printer, left, right, req.operator, req.reason)
+    except PrintError as e:
+        log.status = "uncertain" if e.uncertain else "error"
+        log.error = str(e)
+        session.add(log)
+        session.commit()
+        raise HTTPException(502, f"Test print failed: {e}")
+
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return {"ok": True, "log_id": log.id}
+
+
+class PrintRequest(BaseModel):
+    rfid_code: Optional[str] = Field(default=None, max_length=256)
+    """Either supply ``label_id`` (uses the discipline's bound template) OR
+    ``template_id`` + ``left_text`` / ``right_text``."""
+    label_id: Optional[int] = None
+    template_id: Optional[int] = None
+    left_text: str = ""
+    right_text: str = ""
+    operator: str = ""
+    reason: str = ""
+
+
+def _require_custom_print_admin(credentials) -> None:
+    if not isinstance(credentials, HTTPAuthorizationCredentials) or credentials.scheme.lower() != "bearer":
+        raise HTTPException(401, "Admin login required for custom-text printing")
+    decode_admin_token(credentials.credentials)
+
+
+@router.post("")
+def submit_print(req: PrintRequest, session: Session = Depends(get_session),
+                 credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))) -> dict:
+    station = resolve_operator(session, credentials)
+    template: Template
+    project = None
+    left = req.left_text
+    right = req.right_text
+
+    if req.label_id is not None:
+        label = session.get(Label, req.label_id)
+        if not label:
+            raise HTTPException(404, "Label not found")
+        disc = session.get(Discipline, label.discipline_id)
+        if not disc or not disc.template_id:
+            raise HTTPException(
+                400,
+                f"Discipline '{disc.name if disc else '?'}' has no template assigned. "
+                "Go to Admin and pick one.",
+            )
+        template = session.get(Template, disc.template_id)
+        if not template:
+            raise HTTPException(500, "Discipline points at a missing template")
+        project = rfid.project_for_label(session, label)
+        if (left and left != label.left_text) or (right and right != label.right_text):
+            _require_custom_print_admin(credentials)
+        # If the caller didn't override, use the label's own text.
+        left = left or label.left_text
+        right = right or label.right_text
+    elif req.template_id is not None:
+        _require_custom_print_admin(credentials)
+        template = session.get(Template, req.template_id)
+        if not template:
+            raise HTTPException(404, "Template not found")
+    else:
+        raise HTTPException(400, "Provide either label_id or template_id")
+
+    printer = session.get(Printer, station.printer_id if station else template.printer_id)
+    if not printer:
+        raise HTTPException(500, "Template points at a missing printer")
+
+    identity = rfid.identify([project] if project else [], req.rfid_code, req.operator)
+    log = PrintLog(
+        **identity.audit(project),
+        **station_audit(station),
+        template_name=template.name,
+        printer_ip=f"{printer.ip}:{printer.port}",
+        printer_name=printer.name,
+        reason=req.reason,
+        left_text=left,
+        right_text=right,
+    )
+    try:
+        render_and_send(template, printer, left, right, identity.name, req.reason)
+    except PrintError as e:
+        log.status = "uncertain" if e.uncertain else "error"
+        log.error = str(e)
+        session.add(log)
+        session.commit()
+        raise HTTPException(502, f"Print failed: {e}")
+
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return {"ok": True, "log_id": log.id}

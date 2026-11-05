@@ -5,7 +5,7 @@ Do not use that combined page with the existing side-by-side label templates.
 """
 from typing import Literal
 
-PrinterModel = Literal['custom', 'DP4300M', 'DP4300H', 'DP4600H', 'DP4300HD', 'TDP43ME']
+PrinterModel = Literal['custom', 'DP4300M', 'DP4300H', 'DP4600H', 'DP4300HD', 'TDP43ME', 'QL-1110NWBc']
 # Native DPI, usable dots for one head. From extracted GPDs; HD uses one head.
 PROFILES = {
     'TDP43ME': (300, 1248),  # Conservative whole-byte width below 105.7 mm.

@@ -17,6 +17,7 @@ engine = create_engine(
     os.environ.get("TDS_DATABASE_URL", f"sqlite:///{DB_PATH}"),
     connect_args={"check_same_thread": False},
     echo=False,
+    hide_parameters=True,
 )
 
 

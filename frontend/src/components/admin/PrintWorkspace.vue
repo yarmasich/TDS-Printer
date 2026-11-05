@@ -3,7 +3,8 @@ import { computed, ref, useId } from 'vue';
 import type { Template } from '@/api/types';
 import { previewAreas } from '@/data/previewGeometry';
 import { parsePanduitSku } from '@/data/panduit';
-const props = defineProps<{ template: Omit<Template, 'id'>; src: string | null; loading: boolean; error: string | null; compact?: boolean }>();
+const props = defineProps<{ template: Omit<Template, 'id'>; src: string | null; loading: boolean; error: string | null; errorKind?: 'validation' | 'transport'; compact?: boolean }>();
+const emit = defineEmits<{ retry: [] }>();
 const guides = ref(true);
 const view = ref('labels');
 const svgId = useId().replace(/:/g, '');
@@ -68,8 +69,8 @@ const mm = (px: number) => (px * 25.4 / 300).toFixed(2);
         </svg>
       </div>
     </div>
-    <div class="workspace-status" role="status"><span>{{ loading ? 'Updating preview…' : error && src ? 'Last valid preview · current settings rejected' : error ? 'Current settings rejected' : src ? 'Live preview' : 'Preview unavailable' }}</span><span>{{ showLabels ? 'Label appearance · proportional view' : `${mm(height)} mm carrier raster height` }}</span></div>
-    <p v-if="error" class="workspace-error" role="alert">{{ error }}<span v-if="src"> The image shows the last valid settings. Reduce character width or font size to update it.</span></p>
+    <div class="workspace-status" role="status"><span>{{ loading ? 'Updating preview…' : error && errorKind === 'transport' ? 'Preview could not update' : error && src ? 'Last valid preview · current settings rejected' : error ? 'Current settings rejected' : src ? 'Live preview' : 'Preview unavailable' }}</span><span>{{ showLabels ? 'Label appearance · proportional view' : `${mm(height)} mm carrier raster height` }}</span></div>
+    <p v-if="error" class="workspace-error" role="alert">{{ error }}<span v-if="src && errorKind !== 'transport'"> The image shows the last valid settings. Reduce character width or font size to update it.</span><span v-if="errorKind === 'transport'"> Check your connection and retry. <button type="button" @click.stop="emit('retry')" @keydown.stop>Retry preview</button></span></p>
     <p v-if="showLabels && !compact" class="workspace-note">Checkerboard represents transparent film. Label proportions follow the material specification; wrap placement is illustrative. Use Carrier raster to check positioning and ink outside the print-on strips.</p>
     <p v-else-if="!compact" class="workspace-note">Dashed guides mark the configured text areas, not the label cut lines. Guides are not printed. Screen size is not physical size.</p>
     <div v-if="spec && !compact" class="manufacturer-reference">
@@ -99,4 +100,5 @@ const mm = (px: number) => (px * 25.4 / 300).toFixed(2);
 .manufacturer-reference dt,.manufacturer-reference p { font-size:11px; color:#64748b; } .manufacturer-reference dd { font-size:14px; margin:4px 0 0; font-variant-numeric:tabular-nums; }
 .compact .workspace-stage { padding:10px; }
 @media(max-width:600px) { .workspace-stage { padding:10px; } .manufacturer-reference dl { grid-template-columns:1fr; } }
+@media (pointer:coarse), (max-width:1100px) { .workspace-tools button, .workspace-tools select, .workspace-error button { min-height:44px; } }
 </style>

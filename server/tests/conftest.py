@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _data = tempfile.TemporaryDirectory(prefix="tds-tests-")
+os.environ["TDS_PRINTER_LOCK_DIR"] = f"{_data.name}/locks"
 os.environ["TDS_DATABASE_URL"] = f"sqlite:///{_data.name}/test.db"
 
 

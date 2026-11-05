@@ -166,7 +166,7 @@ def test_font_loading_failure_is_a_print_error(monkeypatch):
 
 
 def test_unknown_existing_protocol_fails_before_framing():
-    with pytest.raises(PrintError, match='protocol'):
+    with pytest.raises(PrintError, match='Invalid printer settings'):
         build_print_job(Template(**template_payload()), Printer(name='Bad', ip='unused', protocol='invalid'), 'TEST', '')
 
 

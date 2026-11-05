@@ -569,9 +569,11 @@ def validate_print_settings(template: Template, printer: Printer) -> Printer:
     """Shared printer/material preflight for preview and wire generation."""
     try:
         settings = PrinterInput.model_validate(printer, from_attributes=True)
-        printer = Printer(**{**printer.model_dump(), **settings.model_dump()})
+        printer = Printer(**{**printer.model_dump(), **settings.persistence_values()})
     except ValueError as exc:
-        raise PrintError(f"Invalid printer settings: {exc}") from exc
+        raise PrintError("Invalid printer settings") from None
+    if printer.protocol == 'brother_ql':
+        raise PrintError('Brother printers use the QR labels workspace, not cable templates')
     if template.material_sku:
         from .materials import get_material
         try:
@@ -649,11 +651,15 @@ def _send_locked(ip: str, port: int, payload: bytes, *, timeout: float) -> None:
 def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Optional[float], str]:
     import time
 
+    from .printer_dispatch import PrinterBusy, printer_slot
     start = time.perf_counter()
     try:
-        with socket.create_connection((ip, port), timeout=timeout):
-            pass
-    except (OSError, OverflowError) as e:
+        with printer_slot(ip, port, wait_timeout=0):
+            with socket.create_connection((ip, port), timeout=timeout):
+                pass
+    except PrinterBusy:
+        return False, None, 'Printer busy; status check skipped'
+    except (OSError, OverflowError, ImportError) as e:
         return False, None, str(e)
     return True, round((time.perf_counter() - start) * 1000, 1), ""
 

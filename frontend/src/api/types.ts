@@ -11,9 +11,34 @@
  *  - "epl2"    — legacy EZPL framing, retained for existing configurations.
  *  - "ezpl"    — Panduit TDP43ME, model-aware media settings.
  *  - "jscript" — cab JScript (Panduit DP4300H/DP4600H, OEM cab Produkttechnik). */
-export type PrinterProtocol = "epl2" | "ezpl" | "jscript";
+export type PrinterProtocol = "epl2" | "ezpl" | "jscript" | "brother_ql";
+
+export interface PrinterDeviceStatus {
+  state: string;
+  media_width_mm: number | null;
+  media_type: string | null;
+  checked_at: string;
+}
+export interface PrinterStatus {
+  connection_state?: 'reachable' | 'busy' | 'unreachable';
+  printer_id: number;
+  online: boolean;
+  device_status: PrinterDeviceStatus | null;
+  snmp_enabled: boolean;
+  snmp_port: number;
+  snmp_version: '1';
+  snmp_source: 'inherited' | 'custom';
+  qr_defaults: { media_id: 'DK-2246' | 'DK-2205'; label_length_mm: number };
+}
 
 export interface Printer {
+  snmp_enabled?: boolean;
+  snmp_port?: number;
+  snmp_community_configured?: boolean;
+  snmp_source?: 'inherited' | 'custom';
+  snmp_version?: '1';
+  qr_media_id?: 'DK-2246' | 'DK-2205';
+  qr_label_length_mm?: number;
   material_calibrations?: Record<string, { x_mm: number; y_mm: number }>;
   id: number;
   name: string;
@@ -24,7 +49,7 @@ export interface Printer {
   /** Printhead resolution. DP4300H = 300, DP4600H = 600. Scales the raster so
    *  every model prints at the same physical size. */
   dpi: number;
-  model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD" | "TDP43ME";
+  model: "custom" | "DP4300M" | "DP4300H" | "DP4600H" | "DP4300HD" | "TDP43ME" | "QL-1110NWBc";
 }
 
 export interface PingResult {
@@ -192,6 +217,11 @@ export interface ImportDTO {
 }
 
 export interface PrintLog {
+  label_kind: string;
+  qr_scan: string;
+  media_code: string;
+  printer_model: string;
+  source_reference: string;
   station_id: number | null;
   station_name: string;
   printer_name: string;

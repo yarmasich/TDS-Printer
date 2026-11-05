@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { adminAuthHeader, api, apiUrl } from "@/api/client";
+import { onBeforeRouteLeave } from "vue-router";
+import { draftChanged, singleLeaveDecision } from "@/data/templateEditorSafety";
 import { readApiError } from "@/api/errors";
 import { pageSizeRepair } from "@/data/templateGeometry";
 import type { Printer, Template } from "@/api/types";
@@ -36,6 +38,49 @@ const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
 const testing = ref(false);
 const saving = ref(false);
+const calibrationState = ref({ dirty: false, busy: false });
+const calibrationBlocked = computed(() => calibrationState.value.dirty || calibrationState.value.busy);
+const originalDraft = ref('');
+const dirty = computed(() => dialogOpen.value && draftChanged(originalDraft.value, form));
+function closeOverlays() {
+  dialogOpen.value = false;
+  zoomOpen.value = false;
+  tablePreviewOpen.value = false;
+}
+const canLeave = singleLeaveDecision(async (): Promise<boolean> => {
+  if (saving.value || testing.value || calibrationState.value.busy) return false;
+  if (!dirty.value && !calibrationState.value.dirty) { closeOverlays(); return true; }
+  return new Promise(resolve => confirm.require({
+    header: 'Discard unsaved changes?',
+    message: 'Template changes and any unsaved calibration measurements will be lost.',
+    acceptLabel: 'Discard changes', rejectLabel: 'Keep editing',
+    accept: () => { closeOverlays(); resolve(true); }, reject: () => resolve(false), onHide: () => resolve(false),
+  }));
+});
+async function requestClose(open: boolean) {
+  if (open || await canLeave()) dialogOpen.value = open;
+}
+defineExpose({ canLeave });
+onBeforeRouteLeave(canLeave);
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (dirty.value || calibrationBlocked.value || saving.value || testing.value) { event.preventDefault(); event.returnValue = ''; }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload));
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
+const previewErrorKind = ref<'validation' | 'transport'>('validation');
+const tablePreviewOpen = ref(false);
+const tablePreviewSrc = ref<string | null>(null);
+const tablePreviewLoading = ref(false);
+const tablePreviewError = ref('');
+let tablePreviewSeq = 0;
+function clearTablePreview() {
+  ++tablePreviewSeq;
+  if (tablePreviewSrc.value) URL.revokeObjectURL(tablePreviewSrc.value);
+  tablePreviewSrc.value = null;
+  tablePreviewLoading.value = false;
+}
+watch(tablePreviewOpen, open => { if (!open) clearTablePreview(); });
+onUnmounted(clearTablePreview);
 
 // Click-to-zoom: opens a full-screen Dialog with the same preview at
 // max size so the operator can actually read the small text.
@@ -96,6 +141,8 @@ const printerById = computed(
 function openCreate() {
   editId.value = null;
   Object.assign(form, blank());
+  originalDraft.value = JSON.stringify(form);
+  calibrationState.value = { dirty: false, busy: false };
   dialogOpen.value = true;
 }
 
@@ -104,6 +151,8 @@ function openEdit(t: Template) {
   const { id: _id, ...rest } = t;
   void _id;
   Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest);
+  originalDraft.value = JSON.stringify(form);
+  calibrationState.value = { dirty: false, busy: false };
   dialogOpen.value = true;
 }
 
@@ -118,11 +167,13 @@ function openDuplicate(t: Template) {
   let n = 2;
   while (taken.has(candidate)) candidate = `${t.name} copy ${n++}`;
   form.name = candidate;
+  originalDraft.value = JSON.stringify(form);
+  calibrationState.value = { dirty: false, busy: false };
   dialogOpen.value = true;
 }
 
 async function save() {
-  if (saving.value || testing.value) return;
+  if (saving.value || testing.value || calibrationBlocked.value) return;
   saving.value = true;
   try {
     if (editId.value) {
@@ -156,6 +207,11 @@ function remove(t: Template) {
 }
 
 async function openPreview(t: Template) {
+  clearTablePreview();
+  const seq = ++tablePreviewSeq;
+  tablePreviewOpen.value = true;
+  tablePreviewLoading.value = true;
+  tablePreviewError.value = '';
   const q = new URLSearchParams({
     template_id: String(t.id),
     left_text: t.left_text,
@@ -167,14 +223,11 @@ async function openPreview(t: Template) {
     });
     if (!res.ok) throw new Error(await readApiError(res));
     const blob = await res.blob();
-    window.open(URL.createObjectURL(blob), "_blank", "noopener");
+    if (seq !== tablePreviewSeq) return;
+    tablePreviewSrc.value = URL.createObjectURL(blob);
   } catch (e: unknown) {
-    toast.add({
-      severity: "error",
-      summary: "Preview failed",
-      detail: e instanceof Error ? e.message : String(e),
-    });
-  }
+    if (seq === tablePreviewSeq) tablePreviewError.value = e instanceof Error ? e.message : String(e);
+  } finally { if (seq === tablePreviewSeq) tablePreviewLoading.value = false; }
 }
 
 // ──────────────── live preview ────────────────
@@ -226,6 +279,7 @@ async function refreshPreview() {
       if (seq !== previewSeq) return;
       // Keep the last successful frame retained during width-slider edits.
       // The workspace marks it stale; rejected settings are never shown as valid.
+      previewErrorKind.value = res.status >= 500 || res.status === 401 || res.status === 403 ? 'transport' : 'validation';
       previewError.value = detail;
       return;
     }
@@ -236,6 +290,7 @@ async function refreshPreview() {
     previewSrc.value = url;
   } catch (e) {
     if (seq === previewSeq) {
+      previewErrorKind.value = 'transport';
       previewError.value = e instanceof Error ? e.message : String(e);
     }
   } finally {
@@ -269,6 +324,7 @@ watch(dialogOpen, (open) => {
   if (open) {
     refreshPreview();
   } else {
+    calibrationState.value = { dirty: false, busy: false };
     zoomOpen.value = false;
     ++previewSeq;
     previewLoading.value = false;
@@ -289,7 +345,7 @@ onUnmounted(() => {
 // ──────────────── test print ────────────────
 
 async function testPrint() {
-  if (testing.value || saving.value) return;
+  if (testing.value || saving.value || calibrationBlocked.value) return;
   if (!form.printer_id) {
     toast.add({
       severity: "warn",
@@ -322,6 +378,7 @@ async function testPrint() {
 
 
 function applyMaterial(geometry: Partial<Template>) {
+  if (calibrationBlocked.value) return;
   Object.assign(form, geometry);
   if (!form.name) form.name = form.material_sku;
   toast.add({ severity: "info", summary: "Material applied to draft", detail: "Review preview and save to keep these settings.", life: 3500 });
@@ -430,13 +487,18 @@ const presetSku = computed(() => {
       </Column>
     </DataTable>
 
+    <Dialog v-model:visible="tablePreviewOpen" modal header="Template preview" :style="{ width: '60rem', maxWidth: '96vw' }">
+      <p v-if="tablePreviewLoading" role="status">Loading preview…</p>
+      <p v-if="tablePreviewError" role="alert">{{ tablePreviewError }}</p>
+      <img v-if="tablePreviewSrc" :src="tablePreviewSrc" alt="Saved template print preview" style="width:100%;height:auto" />
+    </Dialog>
     <Dialog
-      v-model:visible="dialogOpen"
+      :visible="dialogOpen" @update:visible="requestClose"
       modal
       :header="editId ? 'Edit template' : 'Add template'"
       :style="{ width: '88rem', maxWidth: '96vw' }"
-      :closable="!saving"
-      :close-on-escape="!saving"
+      :closable="!saving && !testing && !calibrationState.busy"
+      :close-on-escape="!saving && !testing && !calibrationState.busy"
       content-class="template-dialog"
     >
       <fieldset class="template-editor" :disabled="saving">
@@ -453,7 +515,7 @@ const presetSku = computed(() => {
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1" for="template-printer">Printer</label>
             <Select
-              input-id="template-printer" v-model="form.printer_id"
+              :disabled="calibrationBlocked" input-id="template-printer" v-model="form.printer_id"
               :options="printers.printers"
               option-label="name"
               option-value="id"
@@ -480,9 +542,8 @@ const presetSku = computed(() => {
               ({{ form.bytes_per_row * 8 }}×{{ form.height }}px)
             </span>
           </legend>
-          <div class="zoomable" role="button" tabindex="0" aria-label="Open print workspace"
-            @click="!saving && (zoomOpen = true)" @keydown.enter="!saving && (zoomOpen = true)" @keydown.space.prevent="!saving && (zoomOpen = true)">
-            <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" compact />
+          <div>
+            <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" :error-kind="previewErrorKind" @retry="refreshPreview" compact />
           </div>
           <div v-if="suggestedPage" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" role="status">
             <p>The text areas exceed the current page. {{ presetSku }} uses
@@ -496,21 +557,22 @@ const presetSku = computed(() => {
           </aside>
           <div class="editor-settings">
             <section class="editor-card">
-        <MaterialPicker :sku="form.material_sku" :enabled="!!printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" @apply="applyMaterial" />
+        <MaterialPicker :sku="form.material_sku" :enabled="!calibrationBlocked && !!printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" @apply="applyMaterial" />
             </section>
-            <CalibrationPanel :printer="printerById.get(form.printer_id)" :sku="form.material_sku" :testing="testing" @saved="calibrationSaved" @test="testPrint" />
+            <CalibrationPanel :printer="printerById.get(form.printer_id)" :sku="form.material_sku" :testing="testing" @state="calibrationState = $event" @saved="calibrationSaved" @test="testPrint" />
+            <p v-if="calibrationBlocked" role="status" class="text-sm text-amber-800">Save or clear calibration changes before switching printer/material, saving the template, or printing a test.</p>
             <details class="editor-card editor-advanced">
               <summary>Advanced layout<span>Feed, page size and text areas</span></summary>
               <div class="advanced-content">
         <fieldset v-if="['jscript', 'ezpl'].includes(printerById.get(form.printer_id)?.protocol ?? '')" class="grid grid-cols-2 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">Material feed</legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Label height (mm; 0 = automatic)</label>
-            <InputNumber v-model="form.media_height_mm" :min="0" :max="2000" :max-fraction-digits="3" class="w-full" />
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-media_height_mm">Label height (mm; 0 = automatic)</label>
+            <InputNumber input-id="template-media_height_mm" aria-label="Label height (mm; 0 = automatic)" v-model="form.media_height_mm" :min="0" :max="2000" :max-fraction-digits="3" class="w-full" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Gap between labels (mm)</label>
-            <InputNumber v-model="form.media_gap_mm" :min="0" :max="100" :max-fraction-digits="3" class="w-full" />
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-media_gap_mm">Gap between labels (mm)</label>
+            <InputNumber input-id="template-media_gap_mm" aria-label="Gap between labels (mm)" v-model="form.media_gap_mm" :min="0" :max="100" :max-fraction-digits="3" class="w-full" />
           </div>
           <p class="col-span-2 text-xs text-slate-500">Use the dimensions of the loaded material.
             Automatic height preserves the existing feed setting. Gap detection remains enabled.</p>
@@ -521,12 +583,12 @@ const presetSku = computed(() => {
             Bitmap
           </legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Bytes/row</label>
-            <InputNumber v-model="form.bytes_per_row" :use-grouping="false" class="w-full" />
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-bytes_per_row">Bytes/row</label>
+            <InputNumber input-id="template-bytes_per_row" aria-label="Bytes/row" v-model="form.bytes_per_row" :use-grouping="false" class="w-full" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Height (px)</label>
-            <InputNumber v-model="form.height" :use-grouping="false" class="w-full" />
+            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-height">Height (px)</label>
+            <InputNumber input-id="template-height" aria-label="Height (px)" v-model="form.height" :use-grouping="false" class="w-full" />
           </div>
         </fieldset>
 
@@ -534,42 +596,42 @@ const presetSku = computed(() => {
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Left rectangle (edges)
           </legend>
-          <div><label class="block text-xs text-slate-600">Top</label>
-            <InputNumber v-model="form.left_top" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Bottom</label>
-            <InputNumber v-model="form.left_bottom" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Left</label>
-            <InputNumber v-model="form.left_left" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Right</label>
-            <InputNumber v-model="form.left_right" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-left_top">Top</label>
+            <InputNumber input-id="template-left_top" aria-label="Left rectangle top (px)" v-model="form.left_top" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-left_bottom">Bottom</label>
+            <InputNumber input-id="template-left_bottom" aria-label="Left rectangle bottom (px)" v-model="form.left_bottom" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-left_left">Left</label>
+            <InputNumber input-id="template-left_left" aria-label="Left rectangle left (px)" v-model="form.left_left" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-left_right">Right</label>
+            <InputNumber input-id="template-left_right" aria-label="Left rectangle right (px)" v-model="form.left_right" :min-fraction-digits="0" class="w-full" /></div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Right rectangle (edges)
           </legend>
-          <div><label class="block text-xs text-slate-600">Top</label>
-            <InputNumber v-model="form.right_top" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Bottom</label>
-            <InputNumber v-model="form.right_bottom" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Left</label>
-            <InputNumber v-model="form.right_left" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Right</label>
-            <InputNumber v-model="form.right_right" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-right_top">Top</label>
+            <InputNumber input-id="template-right_top" aria-label="Right rectangle top (px)" v-model="form.right_top" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-right_bottom">Bottom</label>
+            <InputNumber input-id="template-right_bottom" aria-label="Right rectangle bottom (px)" v-model="form.right_bottom" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-right_left">Left</label>
+            <InputNumber input-id="template-right_left" aria-label="Right rectangle left (px)" v-model="form.right_left" :min-fraction-digits="0" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-right_right">Right</label>
+            <InputNumber input-id="template-right_right" aria-label="Right rectangle right (px)" v-model="form.right_right" :min-fraction-digits="0" class="w-full" /></div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
           <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
             Gap (px)
           </legend>
-          <div><label class="block text-xs text-slate-600">Top</label>
-            <InputNumber v-model="form.gap_top" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Bottom</label>
-            <InputNumber v-model="form.gap_bottom" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Left</label>
-            <InputNumber v-model="form.gap_left" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600">Right</label>
-            <InputNumber v-model="form.gap_right" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-gap_top">Top</label>
+            <InputNumber input-id="template-gap_top" aria-label="Padding top (px)" v-model="form.gap_top" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-gap_bottom">Bottom</label>
+            <InputNumber input-id="template-gap_bottom" aria-label="Padding bottom (px)" v-model="form.gap_bottom" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-gap_left">Left</label>
+            <InputNumber input-id="template-gap_left" aria-label="Padding left (px)" v-model="form.gap_left" class="w-full" /></div>
+          <div><label class="block text-xs text-slate-600" for="template-gap_right">Right</label>
+            <InputNumber input-id="template-gap_right" aria-label="Padding right (px)" v-model="form.gap_right" class="w-full" /></div>
         </fieldset>
 
 
@@ -586,12 +648,12 @@ const presetSku = computed(() => {
             icon="pi pi-bolt"
             severity="secondary"
             :loading="testing"
-            :disabled="!form.printer_id || testing || saving"
+            :disabled="!form.printer_id || testing || saving || calibrationBlocked"
             @click="testPrint"
           />
           <div class="flex gap-2">
-            <Button label="Cancel" severity="secondary" :disabled="saving" @click="dialogOpen = false" />
-            <Button :label="editId ? 'Save' : 'Create'" :loading="saving" :disabled="saving || testing" @click="save" />
+            <Button label="Cancel" severity="secondary" :disabled="saving || testing || calibrationState.busy" @click="requestClose(false)" />
+            <Button :label="editId ? 'Save' : 'Create'" :loading="saving" :disabled="saving || testing || calibrationBlocked" @click="save" />
           </div>
         </div>
       </template>
@@ -612,7 +674,7 @@ const presetSku = computed(() => {
     >
       <div class="zoom-layout">
         <div class="zoom-preview">
-          <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" />
+          <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" :error-kind="previewErrorKind" @retry="refreshPreview" />
 
         </div>
 
@@ -862,6 +924,10 @@ const presetSku = computed(() => {
   .template-dialog .preview-frame { min-height: 200px; }
   .editor-footer > .p-button { flex: 1 1 100%; }
   .editor-footer > div { width: 100%; justify-content: flex-end; }
+}
+@media (pointer:coarse), (max-width:1100px) {
+  .template-dialog .p-inputnumber-input, .template-dialog .p-inputtext, .template-dialog .p-select,
+  .template-dialog .p-button, .zoom-dialog .p-button, .zoom-dialog .copy-label-text { min-height:44px; }
 }
 </style>
 

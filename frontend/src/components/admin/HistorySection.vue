@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue';
 import { api } from '@/api/client';
+import { historyDateRange } from '@/utils/historyDateRange';
 import type { PrintLog } from '@/api/types';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -29,11 +30,18 @@ function when(value:string) {
   return new Date(utc).toLocaleString();
 }
 async function load() {
-  const seq=++generation; loading.value=true; error.value='';
+  const seq=++generation;
+  const range = historyDateRange(since.value, until.value);
+  if (range.error) {
+    error.value = `Filters were not applied. ${range.error}`;
+    loading.value = false;
+    return;
+  }
+  loading.value=true; error.value='';
   try {
     const params=new URLSearchParams();
-    if(since.value) params.set('since',new Date(since.value).toISOString());
-    if(until.value) params.set('until',new Date(until.value).toISOString());
+    if(range.since) params.set('since',range.since);
+    if(range.until) params.set('until',range.until);
     if(projectId.value) params.set('project_id',projectId.value);
     if(stationId.value) params.set('station_id',stationId.value);
     if(operator.value.trim()) params.set('operator',operator.value.trim());
@@ -79,38 +87,73 @@ onBeforeUnmount(()=>{generation++;});
     </div>
     <h3 class="font-semibold mt-5 mb-2">By operator · full selected period</h3>
     <DataTable class="operator-history-table" :value="people" striped-rows :paginator="people.length>10" :rows="10">
-      <Column header="Operator"><template #body="{data}">{{data.operator || 'Not recorded'}}<small v-if="data.operator_employee_id" class="block text-slate-500">{{data.operator_employee_id}}</small></template></Column>
-      <Column header="Identity"><template #body="{data}"><Tag :value="data.operator_verified ? 'RFID verified' : data.operator_source==='api' ? 'API key' : 'Manual / legacy'" :severity="data.operator_verified ? 'success':'secondary'" /></template></Column>
+      <Column header="Operator"><template #body="{data}">
+        <span class="font-medium">{{data.operator || 'Not recorded'}}</span>
+        <details class="history-details">
+          <summary>Operator details</summary>
+          <dl>
+            <div><dt>Identity</dt><dd><Tag :value="data.operator_verified ? 'RFID verified' : data.operator_source==='api' ? 'API key' : 'Manual / legacy'" :severity="data.operator_verified ? 'success':'secondary'" /></dd></div>
+            <div><dt>Employee ID</dt><dd>{{data.operator_employee_id || 'Not recorded'}}</dd></div>
+            <div><dt>Last attempt</dt><dd>{{when(data.last_at)}}</dd></div>
+          </dl>
+        </details>
+      </template></Column>
       <Column field="sent" header="Sent" sortable /><Column field="errors" header="Errors" /><Column field="uncertain" header="Unknown" />
-      <Column header="Last attempt"><template #body="{data}">{{when(data.last_at)}}</template></Column>
+      <Column field="attempts" header="Attempts" />
       <template #empty>No attempts in this period.</template>
     </DataTable>
     <h3 class="font-semibold mt-5 mb-2">Latest entries (up to 200)</h3>
     <DataTable class="print-history-table" :value="logs" data-key="id" striped-rows :paginator="logs.length>20" :rows="20" sort-mode="single" sort-field="ts" :sort-order="-1">
       <Column field="ts" header="When" sortable><template #body="{data}">{{when(data.ts)}}</template></Column>
-      <Column field="project_name" header="Project"><template #body="{data}">{{data.project_name || 'Not recorded'}}</template></Column>
-      <Column field="operator" header="Operator"><template #body="{data}">{{data.operator}}<small v-if="data.operator_employee_id" class="block text-slate-500">{{data.operator_employee_id}}</small></template></Column>
-      <Column header="Identity"><template #body="{data}"><Tag :value="data.operator_verified ? 'RFID verified' : data.operator_source==='api' ? 'API key' : 'Manual / legacy'" :severity="data.operator_verified ? 'success':'secondary'" /></template></Column>
-      <Column field="station_name" header="Station"><template #body="{data}">{{data.station_name || '—'}}</template></Column>
-      <Column field="template_name" header="Template" /><Column field="printer_name" header="Printer"><template #body="{data}">{{data.printer_name || '—'}}<small class="block text-slate-500">{{data.printer_ip}}</small></template></Column><Column field="reason" header="Reason" />
-      <Column header="Result"><template #body="{data}"><Tag :value="data.status==='ok' ? 'Sent' : data.status==='uncertain' ? 'Unknown' : data.status" :severity="data.status==='ok' ? 'success' : data.status==='uncertain' ? 'warn' : 'danger'" /><span v-if="data.error" class="text-xs text-slate-500 ml-2">{{data.error}}</span></template></Column>
+      <Column field="operator" header="Operator"><template #body="{data}">
+        <span class="font-medium">{{data.operator || 'Not recorded'}}</span>
+        <details class="history-details">
+          <summary>Entry details</summary>
+          <dl>
+            <div><dt>Project</dt><dd>{{data.project_name || 'Not recorded'}}</dd></div>
+            <div><dt>Identity</dt><dd><Tag :value="data.operator_verified ? 'RFID verified' : data.operator_source==='api' ? 'API key' : 'Manual / legacy'" :severity="data.operator_verified ? 'success':'secondary'" /></dd></div>
+            <div><dt>Employee ID</dt><dd>{{data.operator_employee_id || 'Not recorded'}}</dd></div>
+            <div><dt>Station</dt><dd>{{data.station_name || '—'}}</dd></div>
+            <div v-if="data.label_kind === 'qr'"><dt>QR contents</dt><dd>{{data.qr_scan}}</dd></div>
+            <div v-if="data.label_kind === 'qr'"><dt>Media / model</dt><dd>{{data.media_code}} · {{data.printer_model}}</dd></div>
+            <div v-if="data.label_kind === 'qr'"><dt>Source reference</dt><dd>{{data.source_reference || '—'}}</dd></div>
+            <div><dt>Template</dt><dd>{{data.template_name || '—'}}</dd></div>
+            <div><dt>Printer</dt><dd>{{data.printer_name || '—'}}</dd></div>
+            <div><dt>Printer IP</dt><dd>{{data.printer_ip || '—'}}</dd></div>
+            <div><dt>Reason</dt><dd>{{data.reason || '—'}}</dd></div>
+            <div v-if="data.error"><dt>Error</dt><dd>{{data.error}}</dd></div>
+          </dl>
+        </details>
+      </template></Column>
+      <Column header="Result"><template #body="{data}"><Tag :value="data.status==='ok' ? 'Sent' : data.status==='sending' ? 'Unknown / interrupted' : data.status==='uncertain' ? 'Unknown' : data.status" :severity="data.status==='ok' ? 'success' : ['sending','uncertain'].includes(data.status) ? 'warn' : 'danger'" /></template></Column>
       <template #empty>No attempts in this period.</template>
     </DataTable>
   </section>
 </template>
 <style scoped>
 .history-section :deep(.p-datatable-table-container) { overflow-x: auto; }
-.operator-history-table :deep(table) { min-width: 720px; }
-.print-history-table :deep(table) { min-width: 1280px; }
+.operator-history-table :deep(table), .print-history-table :deep(table) { width: 100%; table-layout: fixed; }
+.operator-history-table :deep(th:first-child) { width: 40%; }
+.print-history-table :deep(th:first-child) { width: 27%; }
+.print-history-table :deep(th:last-child) { width: 20%; }
 .history-section :deep(.p-datatable-tbody > tr > td),
-.history-section :deep(.p-datatable-thead > tr > th) { padding: 14px 12px; font-size: 16px; }
+.history-section :deep(.p-datatable-thead > tr > th) { padding: 14px 12px; font-size: 16px; vertical-align: top; overflow-wrap: anywhere; }
+.history-details summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0369a1; font-size: 14px; }
+.history-details summary::before { content: '›'; font-size: 20px; }
+.history-details[open] summary::before { transform: rotate(90deg); }
+.history-details summary:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+.history-details dl { display: grid; gap: 10px; margin: 0; padding-bottom: 8px; font-size: 14px; }
+.history-details dt { font-weight: 600; color: #475569; }
+.history-details dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .history-note { color:#64748b; font-size:14px; margin:8px 0 16px; }
 .history-filters { display:flex; flex-wrap:wrap; align-items:end; gap:12px; }
 .history-filters label { display:flex; flex-direction:column; gap:5px; font-size:14px; color:#475569; min-width:160px; flex:1; }
+.history-filters label:has(input[type="datetime-local"]) { min-width: min(230px, 100%); flex-basis: 230px; max-width: 100%; }
 .history-filters input,.history-filters select { min-height:44px; border:1px solid #cbd5e1; border-radius:6px; padding:8px; font-size:16px; min-width:0; background:white; }
 .history-counts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:20px; }
 .history-counts div { padding:14px; border:1px solid #e2e8f0; border-radius:8px; }
 .history-counts span { display:block; font-size:12px; color:#64748b; }
 .history-counts strong { font-size:24px; font-variant-numeric:tabular-nums; }
 @media(max-width:700px) { .history-counts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:900px) { .history-section :deep(.p-datatable-thead > tr > th), .history-section :deep(.p-datatable-tbody > tr > td) { padding: 12px 8px; font-size: 14px; } }
 </style>

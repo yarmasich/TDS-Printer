@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useAdminRequests } from "@/composables/adminRequests";
+const requests = useAdminRequests();
+const requestError = requests.error;
 import { computed, onMounted, ref } from "vue";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
@@ -38,10 +41,16 @@ const curlExample = computed(() => {
 onMounted(refresh);
 
 async function refresh() {
+  await requests.run("refresh", () => refreshRequest());
+}
+async function refreshRequest() {
   keys.value = await api.get<ApiKey[]>("/api/api-keys");
 }
 
 async function create() {
+  await requests.run("create", () => createRequest());
+}
+async function createRequest() {
   const name = newName.value.trim();
   if (!name) return;
   creating.value = true;
@@ -50,6 +59,7 @@ async function create() {
     newName.value = "";
     await refresh();
   } catch (e: any) {
+    requestError.value = e instanceof Error ? e.message : String(e);
     toast.add({
       severity: "error",
       summary: "Could not create key",
@@ -62,6 +72,9 @@ async function create() {
 }
 
 async function toggle(k: ApiKey) {
+  await requests.run("toggle", () => toggleRequest(k));
+}
+async function toggleRequest(k: ApiKey) {
   await api.put(`/api/api-keys/${k.id}`, { enabled: !k.enabled });
   await refresh();
 }
@@ -74,10 +87,10 @@ function remove(k: ApiKey) {
     acceptLabel: "Revoke",
     rejectLabel: "Cancel",
     acceptProps: { severity: "danger" },
-    accept: async () => {
+    accept: async () => requests.run("delete", async () => {
       await api.delete(`/api/api-keys/${k.id}`);
       await refresh();
-    },
+    }),
   });
 }
 
@@ -97,7 +110,11 @@ function fmt(ts: string | null): string {
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+    <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
+
     <div class="flex items-center justify-between mb-1">
       <h2 class="text-lg font-bold">
         API keys <span class="text-slate-400">({{ keys.length }})</span>
@@ -109,14 +126,15 @@ function fmt(ts: string | null): string {
       as <code class="text-xs">api:&lt;name&gt;</code>.
     </p>
 
-    <div class="flex gap-2 mb-4">
+    <div class="flex flex-wrap gap-2 mb-4">
       <InputText
-        v-model="newName"
+            aria-label="App name"
+            v-model="newName"
         placeholder="App name (e.g. FloorHub)"
-        class="flex-1"
+        class="min-w-0 flex-1"
         @keydown.enter="create"
       />
-      <Button label="Create key" :loading="creating" @click="create" />
+      <Button :disabled="requests.pending.value.size > 0" label="Create key" :loading="creating" @click="create" />
     </div>
 
     <p v-if="!keys.length" class="text-sm text-slate-400 italic">
@@ -144,13 +162,13 @@ function fmt(ts: string | null): string {
           <div>created {{ fmt(k.created_at) }}</div>
           <div>last used {{ fmt(k.last_used_at) }}</div>
         </div>
-        <Button
+        <Button :disabled="requests.pending.value.size > 0"
           :label="k.enabled ? 'Disable' : 'Enable'"
           text
           size="small"
           @click="toggle(k)"
         />
-        <Button
+        <Button :disabled="requests.pending.value.size > 0"
           icon="pi pi-trash"
           text
           severity="danger"
@@ -164,7 +182,7 @@ function fmt(ts: string | null): string {
     <!-- Plaintext shown exactly once -->
     <Dialog
       :visible="!!created"
-      modal
+      modal class="admin-touch"
       header="API key created"
       :style="{ width: 'min(40rem, 94vw)' }"
       @update:visible="(v: boolean) => { if (!v) created = null; }"
@@ -176,20 +194,24 @@ function fmt(ts: string | null): string {
         </p>
 
         <label class="text-xs font-semibold text-slate-500">Key</label>
-        <div class="flex gap-2 mb-4">
-          <InputText :model-value="created.key" readonly class="flex-1 font-mono text-sm" />
-          <Button icon="pi pi-copy" label="Copy" @click="copy(created.key)" />
+        <div class="flex flex-wrap gap-2 mb-4">
+          <InputText aria-label="API key" :model-value="created.key" readonly class="flex-1 font-mono text-sm" />
+          <Button :disabled="requests.pending.value.size > 0" icon="pi pi-copy" label="Copy" @click="copy(created.key)" />
         </div>
 
         <label class="text-xs font-semibold text-slate-500">Example request</label>
         <pre class="bg-slate-900 text-slate-100 text-xs rounded-lg p-3 overflow-x-auto whitespace-pre">{{ curlExample }}</pre>
         <div class="flex justify-end mt-2">
-          <Button icon="pi pi-copy" label="Copy example" text size="small" @click="copy(curlExample)" />
+          <Button :disabled="requests.pending.value.size > 0" icon="pi pi-copy" label="Copy example" text size="small" @click="copy(curlExample)" />
         </div>
       </template>
       <template #footer>
-        <Button label="Done" @click="created = null" />
+        <Button :disabled="requests.pending.value.size > 0" label="Done" @click="created = null" />
       </template>
     </Dialog>
   </section>
 </template>
+
+<style scoped>
+@media (pointer: coarse) { .admin-touch :deep(.p-button), .admin-touch :deep(.p-select), .admin-touch :deep(.p-inputtext) { min-height:44px; } .admin-touch :deep(.p-button-icon-only) { min-width:44px; } }
+</style>

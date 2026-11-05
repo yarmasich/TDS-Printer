@@ -69,3 +69,7 @@ cd frontend && npm run build    # → dist/
 └────────────────────────────────────────┘      │ Panduit printers │
                                                 └──────────────────┘
 ```
+
+## Brother QR labels
+
+QL-1110NWBc QR printing, DK-2246 / DK-2205 media, preview and authenticated API are documented in [docs/BROTHER_QR.md](docs/BROTHER_QR.md). Use Admin → QR labels after installing updated server dependencies and applying the audit migration. Inventory integration is a separate stage.

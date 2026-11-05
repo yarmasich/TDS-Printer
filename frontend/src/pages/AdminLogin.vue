@@ -24,6 +24,7 @@ onMounted(async () => {
 });
 
 async function submit() {
+  if (loading.value || auth.configured !== true || !username.value.trim() || !password.value) return;
   error.value = null;
   loading.value = true;
   try {
@@ -51,7 +52,12 @@ async function submit() {
         Manage printers, station accounts, templates and shared label data.
       </p>
 
-      <p v-if="!auth.configured" class="login-error">
+      <p v-if="auth.statusLoading" role="status" class="login-lead">Checking sign-in availability…</p>
+      <div v-else-if="auth.statusError" class="login-error" role="alert">
+        <p>Could not check sign-in availability. {{ auth.statusError }}</p>
+        <Button type="button" label="Retry" icon="pi pi-refresh" severity="secondary" class="mt-3" @click="auth.checkStatus()" />
+      </div>
+      <p v-else-if="auth.configured === false" class="login-error" role="alert">
         Server admin auth is not configured. Set
         <code>ADMIN_USERNAME</code>, <code>ADMIN_PASSWORD</code>, and
         <code>ADMIN_JWT_SECRET</code> on the API host.
@@ -63,7 +69,9 @@ async function submit() {
         v-model="username"
         autocomplete="username"
         class="w-full"
-        :disabled="!auth.configured"
+        :disabled="auth.configured !== true || loading"
+        autocapitalize="off"
+        :spellcheck="false"
       />
 
         <label class="login-label" for="admin-pass">Password</label>
@@ -73,11 +81,10 @@ async function submit() {
           type="password"
           autocomplete="current-password"
           class="w-full"
-          :disabled="!auth.configured"
-          @keyup.enter="submit"
+          :disabled="auth.configured !== true || loading"
         />
 
-      <p v-if="error" class="login-error">{{ error }}</p>
+      <p v-if="error" class="login-error" role="alert">{{ error }}</p>
 
       <Button
         type="submit"
@@ -85,7 +92,7 @@ async function submit() {
         icon="pi pi-lock"
         class="w-full login-submit"
         :loading="loading"
-        :disabled="!auth.configured || !username || !password"
+        :disabled="auth.configured !== true || loading || !username.trim() || !password"
       />
 
       <RouterLink to="/" class="login-back">← Back to print</RouterLink>

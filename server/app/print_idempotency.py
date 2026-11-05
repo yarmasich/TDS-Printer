@@ -14,7 +14,7 @@ from .models import ApiKey, IntegrationPrintRequest
 
 def run_print_request(
     endpoint: str, request: BaseModel, key: ApiKey, token: str | None,
-    session: Session, operation: Callable,
+    session: Session, operation: Callable, *, machine_codes: bool = False, stable_integration: bool = False,
 ):
     if token is None:
         return operation()
@@ -25,7 +25,7 @@ def run_print_request(
         sort_keys=True, separators=(",", ":"), ensure_ascii=True,
     )
     digest = hashlib.sha256(canonical.encode()).hexdigest()
-    scope = (key.key_hash, token)
+    scope = (("integration:" + key.integration_id) if stable_integration else key.key_hash, token)
     reservation = IntegrationPrintRequest(
         credential_hash=scope[0], idempotency_key=token, request_hash=digest,
     )
@@ -40,10 +40,10 @@ def run_print_request(
         if existing is None:
             raise
         if existing.request_hash != digest:
-            raise HTTPException(409, "Idempotency-Key was already used for a different request")
+            raise HTTPException(409, {"code": "key_conflict", "message": "Idempotency-Key was already used for a different request"} if machine_codes else "Idempotency-Key was already used for a different request")
         if existing.state != "completed":
-            raise HTTPException(409, "Print attempt is in progress or its outcome is unknown; inspect printer/history before any new attempt")
-        return JSONResponse(existing.response_body, status_code=existing.status_code, headers=existing.response_headers)
+            raise HTTPException(409, {"code": "in_progress_or_unknown", "message": "Print attempt is in progress or its outcome is unknown; inspect printer/history before any new attempt"} if machine_codes else "Print attempt is in progress or its outcome is unknown; inspect printer/history before any new attempt")
+        return JSONResponse(existing.response_body, status_code=existing.status_code, headers={**(existing.response_headers or {}), **({"X-Idempotent-Replay": "true"} if stable_integration else {})})
 
     try:
         result = operation()

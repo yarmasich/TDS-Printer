@@ -73,3 +73,23 @@ async def require_api_key(
     session.add(match)
     session.commit()
     return match
+
+
+def check_scope(key: ApiKey, scope: str) -> ApiKey:
+    # Integration-bound credentials can never enter legacy machine routes.
+    if scope.startswith("legacy_") and key.integration_id is not None:
+        raise HTTPException(403, {"code": "scope_forbidden"})
+    if scope not in key.scopes:
+        raise HTTPException(403, {"code": "scope_forbidden"})
+    if not scope.startswith("legacy_"):
+        if not key.integration_id or "legacy_print" in key.scopes:
+            raise HTTPException(403, {"code": "scope_forbidden"})
+    return key
+
+
+async def require_legacy_print(key: ApiKey = Security(require_api_key)) -> ApiKey:
+    return check_scope(key, "legacy_print")
+
+
+async def require_legacy_catalog(key: ApiKey = Security(require_api_key)) -> ApiKey:
+    return check_scope(key, "legacy_catalog")

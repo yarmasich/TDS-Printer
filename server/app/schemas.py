@@ -9,7 +9,7 @@ import math
 from copy import deepcopy
 from typing import Annotated, Literal, ClassVar, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model, model_validator
+from pydantic import AfterValidator, SecretStr, BaseModel, ConfigDict, Field, StringConstraints, create_model, model_validator
 
 from .models import HAlign, VAlign
 from .printer_profiles import PrinterModel, PROFILES
@@ -111,14 +111,31 @@ class MaterialCalibration(InputModel):
     y_mm: float = Field(0, ge=-5, le=5, allow_inf_nan=False)
 
 
+def _validate_community(value: SecretStr) -> SecretStr:
+    if not 1 <= len(value.get_secret_value().encode('utf-8')) <= 128:
+        raise ValueError('Community must contain 1 to 128 UTF-8 bytes')
+    return value
+
+
 class PrinterInput(InputModel):
     name: Name
     ip: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=253)]
     port: int = Field(9100, ge=1, le=65535)
     notes: str = Field('', max_length=4096)
-    protocol: Literal['epl2', 'jscript', 'ezpl'] = 'epl2'
+    protocol: Literal['epl2', 'jscript', 'ezpl', 'brother_ql'] = 'epl2'
     dpi: Literal[203, 300, 600] = 300
     model: PrinterModel = 'custom'
+    snmp_enabled: bool = True
+    snmp_port: int = Field(161, ge=1, le=65535)
+    snmp_community: Annotated[SecretStr, AfterValidator(_validate_community)] | None = Field(default=None, repr=False)
+    qr_media_id: Literal['DK-2246', 'DK-2205'] = 'DK-2246'
+    qr_label_length_mm: int = Field(60, ge=30, le=200)
+
+    def persistence_values(self):
+        values = self.model_dump()
+        values['snmp_community'] = self.snmp_community.get_secret_value() if self.snmp_community is not None else None
+        return values
+
     material_calibrations: dict[Annotated[str, StringConstraints(min_length=1, max_length=100)], MaterialCalibration] = Field(default={}, max_length=2000)
 
     @model_validator(mode='after')
@@ -133,6 +150,10 @@ class PrinterInput(InputModel):
         if self.model in PROFILES:
             self.protocol = 'ezpl' if self.model == 'TDP43ME' else 'jscript'
             self.dpi = PROFILES[self.model][0]
+        if self.model == 'QL-1110NWBc':
+            self.protocol, self.dpi = 'brother_ql', 300
+        elif self.protocol == 'brother_ql':
+            raise ValueError('Brother protocol requires model QL-1110NWBc')
         return self
 
 

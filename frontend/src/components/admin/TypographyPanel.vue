@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import fontCatalog from '@/data/fontCatalog.json';
+import { clampMinimumFont } from '@/data/templateEditorSafety';
 import { boundedNumber } from '@/data/numericInput';
 import type { Template } from '@/api/types';
 const props = defineProps<{ model: Omit<Template, 'id'> }>();
@@ -9,6 +10,9 @@ const fontStyles = computed(() => (fontCatalog as Record<string, string[]>)[prop
 watch(() => props.model.font_name, () => {
   if (!fontStyles.value.includes(props.model.font_style)) props.model.font_style = 'Regular';
 }, { immediate: true });
+watch(() => [props.model.left_pt, props.model.right_pt], () => {
+  props.model.min_font_pt = clampMinimumFont(props.model.min_font_pt, props.model.left_pt, props.model.right_pt);
+}, { flush: 'sync' });
 const units = ref('mm');
 const linked = ref(false);
 const step = () => units.value === 'mm' ? 0.1 : 1;
@@ -96,4 +100,13 @@ summary { cursor:pointer; padding:8px 0; border-top:1px solid #e2e8f0; } summary
 .type-presets { flex-wrap:wrap; justify-content:flex-start; }
 @media(max-width:360px) { .type-sizes { grid-template-columns:repeat(2,minmax(0,120px)); gap:8px; } }
 .type-help { margin:0; font-size:10px; color:#64748b; line-height:1.5; }
+@media (pointer: coarse), (max-width: 1100px) {
+  .type-panel button, .type-panel select, .type-panel input[type=number] { min-height:44px; }
+  .type-sizes { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .type-sizes .type-stepper { grid-template-columns:44px minmax(0,1fr) 44px; }
+  .type-presets button { min-width:44px; }
+  .type-panel .type-link { min-height:44px; }
+  .type-panel input[type=range] { min-height:44px; }
+}
+@media(max-width:480px) { .type-sizes { grid-template-columns:1fr; } }
 </style>
