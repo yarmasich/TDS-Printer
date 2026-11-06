@@ -24,6 +24,12 @@ _PANDUIT_OIDS = tuple(bytes.fromhex(oid) for oid in (
     '2b06010201010100', '2b06010201190302010201',
     '2b06010201190305010101', '2b06010201190305010201',
 ))
+PANDUIT_SNMP_DESCRIPTIONS = {
+    'DP4300H': b'Panduit DP4300H label printer',
+    # Expected description and device index 1 are unverified for this firmware.
+    # The live GET timed out. A different identity or index yields unknown.
+    'DP4600H': b'Panduit DP4600H label printer',
+}
 _HR_DEVICE_PRINTER = bytes.fromhex('2b0601020119030105')
 _HEADER = bytes.fromhex('802042344430')
 _MODELS = {'QL-1110NWB', 'QL-1110NWBc'}
@@ -216,7 +222,7 @@ def _panduit_state(status, flags):
     return {3: 'ready', 4: 'busy', 5: 'busy'}.get(status, 'unknown')
 
 
-def _panduit_probe(ip, community, port):
+def _panduit_probe(ip, community, port, model):
     request_id = secrets.randbelow(0x7ffffffe) + 1
     request = _get_request(request_id, community, 1, _PANDUIT_OIDS)
     packet = _exchange(ip, port, request)
@@ -231,7 +237,7 @@ def _panduit_probe(ip, community, port):
     bindings.done()
     description, device_type, printer_status, flags = values
     result = _unknown()
-    if description == b'Panduit DP4300H label printer' and device_type == _HR_DEVICE_PRINTER:
+    if description == PANDUIT_SNMP_DESCRIPTIONS[model] and device_type == _HR_DEVICE_PRINTER:
         result['state'] = _panduit_state(printer_status, flags)
     return result
 
@@ -264,7 +270,7 @@ def print_snapshot(printer):
 
 
 def device_status(printer_id, ip, model, *, enabled=True, port=161, community_override=None, fresh=False):
-    panduit = model == 'DP4300H'
+    panduit = model in PANDUIT_SNMP_DESCRIPTIONS
     if not panduit and model not in _MODELS:
         return None
     if not enabled:
@@ -277,7 +283,7 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
     if panduit and fresh:
         # A deliberate retry must see a cleared fault even while the UI cache is warm.
         try:
-            return _panduit_probe(ip, community, port)
+            return _panduit_probe(ip, community, port, model)
         except (OSError, ValueError, OverflowError):
             return _unknown()
     key = (printer_id, ip, model, port, community)
@@ -292,7 +298,7 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
     result = _unknown()
     try:
         if panduit:
-            result = _panduit_probe(ip, community, port)
+            result = _panduit_probe(ip, community, port, model)
         else:
             result = _probe(ip, community) if port == 161 else _probe(ip, community, port)
     except (OSError, ValueError, OverflowError):

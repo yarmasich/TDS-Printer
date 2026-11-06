@@ -170,7 +170,7 @@ def allowed_printers(external_project_id: UUID, purpose: Purpose, ping: bool = F
             printers.append({**catalog(p), 'online': None})
             if ping:
                 addresses.append((p.id, p.ip, p.port))
-                if purpose == 'qr_labels' or p.model == 'DP4300H':
+                if purpose == 'qr_labels' or p.model in printer_device_status.PANDUIT_SNMP_DESCRIPTIONS:
                     device_addresses.append(printer_device_status.DeviceStatusConfig.from_printer(p))
     if addresses:
         # Independent read-only probes run concurrently: <=8s TCP and <=4s SNMP
@@ -247,7 +247,7 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
         integration_id = key.integration_id
         identity = rfid.OperatorIdentity(f'api:{key.name}', 'api')
         results, printed = [], 0
-        if (frozen_printer.model == 'DP4300H' and frozen_printer.snmp_enabled
+        if (frozen_printer.model in printer_device_status.PANDUIT_SNMP_DESCRIPTIONS and frozen_printer.snmp_enabled
                 and any(label is not None for _, label in frozen_plan)):
             status = printer_device_status.device_status(
                 frozen_printer.id, frozen_printer.ip, frozen_printer.model,

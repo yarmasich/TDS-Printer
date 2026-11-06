@@ -51,7 +51,7 @@ class PrinterRead(BaseModel):
 
 def public_printer(printer):
     result = PrinterRead.model_validate(printer)
-    result.snmp_version = '2c' if printer.model == 'DP4300H' else '1'
+    result.snmp_version = '2c' if printer.model in printer_device_status.PANDUIT_SNMP_DESCRIPTIONS else '1'
     result.snmp_community_configured = printer.snmp_community is not None
     result.snmp_source = 'custom' if result.snmp_community_configured else 'inherited'
     return result
