@@ -11,13 +11,13 @@ manual ones.
 from __future__ import annotations
 
 import re
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Security
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
-from ..auth_apikey import require_api_key
+from ..auth_apikey import require_legacy_print, require_legacy_catalog
 from .. import rfid
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
@@ -93,7 +93,7 @@ def api_printers(
     ping: bool = Query(True, description="TCP-ping each printer (false = config only, fast)"),
     name: Optional[str] = Query(None, description="Filter to a single printer by exact name"),
     session: Session = Depends(get_session),
-    key: ApiKey = Security(require_api_key),
+    key: ApiKey = Security(require_legacy_catalog),
 ) -> List[PrinterStatusDTO]:
     """Printer roster with live online status for external dashboards.
 
@@ -114,6 +114,45 @@ def api_printers(
             dto.online, dto.ms, dto.error = ok, ms, err
         out.append(dto)
     return out
+
+
+class QrDefaultsDTO(BaseModel):
+    media_id: Literal['DK-2246', 'DK-2205']
+    label_length_mm: int
+
+
+class PrinterCatalogDTO(BaseModel):
+    """Configuration metadata. Device reachability/media readiness are not probed."""
+    id: int
+    name: str
+    ip: str
+    port: int
+    protocol: str
+    model: str
+    dpi: Optional[int]
+    brand: Literal['panduit', 'brother', 'custom']
+    qr_defaults: QrDefaultsDTO | None = None
+
+
+def _catalog_entry(printer: Printer) -> PrinterCatalogDTO:
+    from ..printer_profiles import PROFILES
+    model = printer.model or 'custom'
+    protocol, dpi, brand = printer.protocol, printer.dpi, 'custom'
+    if model in PROFILES:
+        brand, dpi = 'panduit', PROFILES[model][0]
+        protocol = 'ezpl' if model == 'TDP43ME' else 'jscript'
+    elif model == 'QL-1110NWBc':
+        brand, protocol, dpi = 'brother', 'brother_ql', 300
+    return PrinterCatalogDTO(id=printer.id, name=printer.name, ip=printer.ip, port=printer.port,
+                             protocol=protocol, model=model, dpi=dpi, brand=brand,
+                             qr_defaults=QrDefaultsDTO(media_id=printer.qr_media_id, label_length_mm=printer.qr_label_length_mm) if brand == 'brother' else None)
+
+
+@router.get('/printer-catalog', response_model=List[PrinterCatalogDTO])
+def api_printer_catalog(session: Session = Depends(get_session), key: ApiKey = Security(require_legacy_catalog)):
+    # Keep /printers unchanged: its name-only identifiers are used by cable clients.
+    # API-key auth updates last_used_at; no printer configuration is changed here.
+    return [_catalog_entry(printer) for printer in session.exec(select(Printer).order_by(Printer.name)).all()]
 
 
 def _resolve_discipline(req: ApiPrintRequest, session: Session) -> Discipline:
@@ -220,11 +259,15 @@ def _cable_token(text: str) -> Optional[str]:
 def _print_label(
     label: Label, template: Template, printer: Printer,
     operator: str, reason: str, session: Session, identity: rfid.OperatorIdentity,
+    *, integration_id: str = "", external_project_id: str = "", audit_project: Project | None = None,
 ) -> tuple[Optional[int], Optional[str]]:
     """Render+send one label, log it, return ``(log_id, error)``."""
-    project = rfid.project_for_label(session, label)
+    project = audit_project if audit_project is not None else rfid.project_for_label(session, label)
     log = PrintLog(
         **identity.audit(project),
+        integration_id=integration_id, external_project_id=external_project_id,
+        print_purpose="cable_labels" if integration_id else "",
+        printer_name=printer.name if integration_id else "",
         template_name=template.name,
         printer_ip=f"{printer.ip}:{printer.port}",
         reason=reason,
@@ -266,10 +309,14 @@ def _resolve_api_printer(
         printer = session.exec(select(Printer).where(Printer.name == code)).first()
         if not printer:
             raise HTTPException(404, f"Unknown printer {code!r}")
+        if printer.protocol == 'brother_ql':
+            raise HTTPException(400, 'Brother printers use the QR labels API')
         return printer
     printer = session.get(Printer, template.printer_id)
     if not printer:
         raise HTTPException(500, "Template points at a missing printer")
+    if printer.protocol == 'brother_ql':
+        raise HTTPException(400, 'Brother printers use the QR labels API')
     return printer
 
 
@@ -294,7 +341,7 @@ def _discipline_printer(
 def _api_print(
     req: ApiPrintRequest,
     session: Session = Depends(get_session),
-    key: ApiKey = Security(require_api_key),
+    key: ApiKey = Security(require_legacy_print),
 ) -> ApiPrintResponse:
     disc = _resolve_discipline(req, session)
     template, printer = _discipline_printer(disc, session, req.printer)
@@ -459,7 +506,7 @@ def _plan_batch(req: ApiBatchPrintRequest, disc: Discipline, session: Session):
 def _api_print_batch(
     req: ApiBatchPrintRequest,
     session: Session = Depends(get_session),
-    key: ApiKey = Security(require_api_key),
+    key: ApiKey = Security(require_legacy_print),
 ) -> ApiBatchPrintResponse:
     """Resolve a bounded, unique label set, then print with a complete report."""
     disc = _resolve_discipline(req, session)
@@ -496,7 +543,7 @@ def _api_print_batch(
 def api_print(
     req: ApiPrintRequest,
     session: Session = Depends(get_session),
-    key: ApiKey = Security(require_api_key),
+    key: ApiKey = Security(require_legacy_print),
     idempotency_key: Annotated[Optional[str], Header(description="Unique logical print request ID; reuse unchanged on retries")] = None,
 ):
     return run_print_request(
@@ -509,7 +556,7 @@ def api_print(
 def api_print_batch(
     req: ApiBatchPrintRequest,
     session: Session = Depends(get_session),
-    key: ApiKey = Security(require_api_key),
+    key: ApiKey = Security(require_legacy_print),
     idempotency_key: Annotated[Optional[str], Header(description="Unique logical print request ID; reuse unchanged on retries")] = None,
 ):
     return run_print_request(

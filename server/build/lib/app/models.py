@@ -1,0 +1,328 @@
+"""SQLModel tables.
+
+Hierarchy::
+
+    Printer ←── Template ←── Discipline ←── DataHall ←── Project
+                                ↑
+                              Label
+
+A Template is a reusable ZPL/raster config that targets one Printer. A
+Discipline is bound to one Template — that's how we know *how* to print a
+given label. Labels are owned by a Discipline.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
+
+from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
+from sqlalchemy import Column, JSON, CheckConstraint
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC ``now`` — replaces deprecated ``datetime.utcnow``."""
+    return datetime.now(timezone.utc)
+
+
+class HAlign(str, Enum):
+    LEFT = "LEFT"
+    CENTER = "CENTER"
+    RIGHT = "RIGHT"
+
+
+class VAlign(str, Enum):
+    TOP = "TOP"
+    CENTER = "CENTER"
+    BOTTOM = "BOTTOM"
+
+
+# ──────────────────────────── printer / template ────────────────────────────
+
+class Printer(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+    ip: str
+    port: int = 9100
+    notes: str = ""
+    # "epl2" = historical Android EZPL framing (persisted legacy key).
+    # "ezpl" = explicit Panduit TDP43ME framing with checked geometry.
+    # "jscript" = cab-OEM DP4300H/DP4600H. Determines which build_*_job runs.
+    protocol: str = "epl2"
+    # Printhead resolution in DPI. DP4300H = 300, DP4600H = 600. cab places a
+    # downloaded bitmap one dot per printer dot (no DPI scaling of its own), so
+    # the JScript raster is rendered at this density — a 600-DPI head then
+    # prints at the same physical label size as a 300-DPI one.
+    dpi: int = 300
+    model: str = "custom"
+    # Physical print-axis corrections keyed by exact catalog material SKU.
+    material_calibrations: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+
+
+class Station(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    display_name: str
+    password_hash: str
+    printer_id: int = Field(foreign_key="printer.id")
+    enabled: bool = True
+    session_version: str
+
+
+class Template(SQLModel, table=True):
+    """Reusable print config — references a printer; configures bitmap rendering.
+
+    Field names match the Android app's ``PrintSettings`` (and the on-disk
+    ``PANDUIT_TEMPLATE_EXPORT_V1`` order in ``default_templates.txt``):
+    each ``*_top``/``*_bottom``/``*_left``/``*_right`` is one **edge** of
+    that text rectangle (not x/y/width/height).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+    printer_id: int = Field(foreign_key="printer.id")
+
+    # Bitmap geometry
+    bytes_per_row: int
+    height: int
+
+    # Left text rectangle (edges, px)
+    left_top: float = 0
+    left_bottom: float = 0
+    left_left: float = 0
+    left_right: float = 0
+
+    # Right text rectangle (edges, px)
+    right_top: float = 0
+    right_bottom: float = 0
+    right_left: float = 0
+    right_right: float = 0
+
+    # Inter-rect padding (px)
+    gap_top: float = 0
+    gap_bottom: float = 0
+    gap_left: float = 0
+    gap_right: float = 0
+
+    # Default text — shown when no override comes from the cable row
+    left_text: str = "TEXT+12345"
+    right_text: str = "TEXT+12345"
+
+    # Typography
+    auto_fit: bool = False
+    min_font_pt: float = 4
+    letter_spacing_px: float = 0
+    line_spacing_px: float | None = None
+    left_pt: float = 7
+    right_pt: float = 7
+    h_align: HAlign = HAlign.CENTER
+    v_align: VAlign = VAlign.CENTER
+    font_name: str = "Microsoft Sans Serif"
+    font_style: str = "Bold"
+
+    # Per-side baseline offsets (px), useful for fine vertical alignment
+    left_offset: float = 0
+    right_offset: float = 0
+
+    # Horizontal glyph stretch (1.0 = none; ~1.12 matches EasyMark on Turn-Tell)
+    scale_x: float = 1.0
+
+    # Print each text block twice within its rectangle — bottom copy upright,
+    # top copy rotated 180° (same text) — so a self-laminating wrap reads from
+    # either side. Off = the normal single print.
+    mirror_legend: bool = False
+    # JScript material feed; zero height preserves automatic legacy geometry.
+    material_sku: str = ""
+    media_height_mm: float = 0
+    media_gap_mm: float = 3
+
+
+# ──────────────────────────── project hierarchy ────────────────────────────
+
+class Project(SQLModel, table=True):
+    require_rfid: bool = False
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+
+
+class DataHall(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("project_id", "name"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    name: str
+
+
+class Discipline(SQLModel, table=True):
+    """One discipline (subfolder with .xlsx in the original CLI layout)."""
+    __table_args__ = (UniqueConstraint("data_hall_id", "name"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    data_hall_id: int = Field(foreign_key="datahall.id", index=True)
+    name: str
+    template_id: Optional[int] = Field(default=None, foreign_key="template.id")
+    color: str = "FFFFFF"
+    # When on, imports into this discipline parse "BUNDLE #N" / "BDL #N" header
+    # rows: the header itself is skipped (not a label) and every label below it
+    # is tagged with that bundle number (Label.bundle), enabling print-by-bundle.
+    bundle_mode: bool = False
+
+
+class Import(SQLModel, table=True):
+    """One XLSX upload. Owns a batch of ``Label`` rows.
+
+    Lets the UI list uploaded files per discipline and delete them as a
+    unit (which cascades the labels via ``Label.import_id``).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    discipline_id: int = Field(foreign_key="discipline.id", index=True)
+    filename: str
+    uploaded_at: datetime = Field(default_factory=_utcnow, index=True)
+    sheets: int = 0
+    rows: int = 0
+    skipped: int = 0
+
+
+class Label(SQLModel, table=True):
+    """One label row from an imported workbook."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    discipline_id: int = Field(foreign_key="discipline.id", index=True)
+    import_id: Optional[int] = Field(
+        default=None, foreign_key="import.id", index=True
+    )
+    sheet_name: str = ""
+    source_file: str = ""
+    row_idx: int = 0
+    left_text: str = ""
+    right_text: str = ""
+    # Bundle this label belongs to (from a "BUNDLE #N" header during import when
+    # the discipline has bundle_mode on). None for normal / non-bundle imports.
+    bundle: Optional[str] = Field(default=None, index=True)
+
+
+# ──────────────────────────── shared lists / logs ────────────────────────────
+
+class Reason(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    text: str = Field(unique=True)
+    sort_order: int = 0
+
+
+class AuthName(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+
+
+class CartItem(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    label_id: Optional[int] = Field(default=None, foreign_key="label.id")
+    added_at: datetime = Field(default_factory=_utcnow)
+    left_text: str = ""
+    right_text: str = ""
+    # A durable claim prevents two workers from sending the same queued item.
+    # Interrupted/partial sends become uncertain and require operator review.
+    status: str = Field(default="queued", index=True)
+    error: str = ""
+    claim_token: str = Field(default="", index=True)
+    claimed_at: Optional[datetime] = None
+
+
+class PrintLog(SQLModel, table=True):
+    station_id: Optional[int] = None
+    station_name: str = ""
+    printer_name: str = ""
+    project_id: Optional[int] = None
+    project_name: str = ""
+    operator_source: str = "manual"
+    operator_verified: bool = False
+    operator_employee_id: Optional[str] = None
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime = Field(default_factory=_utcnow, index=True)
+    label_kind: str = 'cable'
+    qr_scan: str = ''
+    media_code: str = ''
+    printer_model: str = ''
+    source_reference: str = ''
+    integration_id: str = ''
+    external_project_id: str = ''
+    print_purpose: str = ''
+    template_name: str = ""
+    printer_ip: str = ""
+    operator: str = ""
+    reason: str = ""
+    left_text: str = ""
+    right_text: str = ""
+    status: str = "ok"
+    error: str = ""
+
+
+class ApiKey(SQLModel, table=True):
+    """A credential for machine-to-machine print access.
+
+    External apps authenticate with the ``X-API-Key`` header instead of the
+    admin JWT. We never store the raw key — only its SHA-256 hash. ``prefix``
+    is the leading, non-secret slice we keep so the admin UI can show *which*
+    key is which, and so lookup can narrow before the constant-time compare.
+    The plaintext is returned exactly once, at creation.
+    """
+    __tablename__ = "apikey"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)          # human label of the consuming app
+    prefix: str = Field(index=True)         # first chars of the key, for display
+    key_hash: str                            # sha256 hex of the full key
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+    last_used_at: Optional[datetime] = None
+    integration_id: Optional[str] = Field(default=None, foreign_key="integration.id", index=True)
+    scopes: list[str] = Field(default_factory=lambda: ["legacy_catalog", "legacy_print"], sa_column=Column(JSON, nullable=False))
+
+
+class IntegrationPrintRequest(SQLModel, table=True):
+    """Permanent send reservation; never expire automatically or cascade-delete.
+
+    Credential hash scopes requests without retaining plaintext credentials or
+    depending on API-key row IDs (SQLite may reuse those after deletion).
+    """
+    credential_hash: str = Field(primary_key=True)
+    idempotency_key: str = Field(primary_key=True, max_length=200)
+    request_hash: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    # reserved includes interrupted/uncertain attempts; it is never reclaimed.
+    state: str = "reserved"
+    status_code: Optional[int] = None
+    response_body: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    response_headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+
+class Integration(SQLModel, table=True):
+    """Stable credential namespace; rotations never change this identity."""
+    id: str = Field(primary_key=True)
+    name: str = Field(unique=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ProjectPrintPolicy(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint('integration_id', 'external_project_id'), CheckConstraint('revision > 0', name='ck_policy_revision'))
+    id: str = Field(primary_key=True)
+    integration_id: str = Field(foreign_key='integration.id', index=True)
+    external_project_id: str
+    revision: int = 1
+    tds_project_id: Optional[int] = Field(default=None, foreign_key='project.id')
+    cable_default_printer_id: Optional[int] = Field(default=None, foreign_key='printer.id')
+    qr_default_printer_id: Optional[int] = Field(default=None, foreign_key='printer.id')
+
+
+class ProjectPrinterAssignment(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint('policy_id', 'purpose', 'printer_id'), CheckConstraint("purpose IN ('cable_labels','qr_labels')", name='ck_assignment_purpose'))
+    id: Optional[int] = Field(default=None, primary_key=True)
+    policy_id: str = Field(foreign_key='projectprintpolicy.id', index=True)
+    purpose: str
+    printer_id: int = Field(foreign_key='printer.id', index=True)
+
+
+class PolicyAudit(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    integration_id: str = Field(foreign_key='integration.id')
+    external_project_id: str
+    actor: str = ''
+    ts: datetime = Field(default_factory=_utcnow)
+    before: dict = Field(sa_column=Column(JSON, nullable=False))
+    after: dict = Field(sa_column=Column(JSON, nullable=False))

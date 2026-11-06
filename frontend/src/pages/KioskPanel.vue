@@ -52,7 +52,7 @@ const contextLine = computed(() => {
   const d = currentDiscipline.value;
   const proj = projects.projects.find((p) => p.id === kiosk.projectId);
   if (!d || !proj) return "Tap to choose site";
-  return `${proj.name} · ${d.name}`;
+  return [proj.name, d.data_hall_name, d.name].filter(Boolean).join(" · ");
 });
 
 const canStart = computed(
@@ -304,8 +304,9 @@ async function tryFullscreen() {
         </p>
 
         <p v-if="setupError || projects.disciplineError" role="alert" class="text-red-700">{{ setupError || projects.disciplineError }}. Choose the project again or reload to retry.</p>
-        <label class="kiosk-label">Project</label>
+        <label for="kiosk-project" class="kiosk-label">Project</label>
         <Select
+          input-id="kiosk-project"
           v-model="setupProject"
           :options="projects.projects"
           option-label="name"
@@ -316,8 +317,9 @@ async function tryFullscreen() {
           class="kiosk-select"
         />
 
-        <label class="kiosk-label">Discipline</label>
+        <label for="kiosk-discipline" class="kiosk-label">Discipline</label>
         <Select
+          input-id="kiosk-discipline"
           v-model="setupDiscipline"
           :options="projects.disciplines"
           option-label="name"
@@ -422,9 +424,10 @@ async function tryFullscreen() {
   font-weight: 600;
   cursor: pointer;
   max-width: min(420px, 55vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-height: 48px;
 }
 
 .kiosk-site-caret {

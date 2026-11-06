@@ -28,6 +28,7 @@ from .api import (
     import_ as import_api,
     imports as imports_api,
     integrations,
+    scoped_integrations,
     labels,
     print as print_api,
     printers,
@@ -35,6 +36,7 @@ from .api import (
     reasons,
     templates,
     materials,
+    qr_labels,
 )
 from .auth_admin import require_admin
 from .cors_config import cors_origins
@@ -78,6 +80,11 @@ app.include_router(history.router, dependencies=_admin)
 app.include_router(api_keys.router, dependencies=_admin)
 # Integration router does its own per-route API-key auth (not the admin JWT).
 app.include_router(integrations.router)
+from .api import scoped_qr  # register before FastAPI copies shared routes
+app.include_router(scoped_integrations.router)
+app.include_router(scoped_integrations.admin_router, dependencies=_admin)
+app.include_router(qr_labels.router)
+app.include_router(qr_labels.integration_router)
 
 
 @app.get("/health")

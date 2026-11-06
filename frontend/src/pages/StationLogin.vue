@@ -87,7 +87,7 @@ async function submit() {
         :disabled="!username.trim() || !password"
       />
 
-      <RouterLink to="/" class="login-back">← Back to print</RouterLink>
+      <RouterLink v-if="!auth.required && !auth.error" to="/" class="login-back">← Back to print</RouterLink>
     </form>
   </div>
 </template>

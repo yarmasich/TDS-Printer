@@ -57,7 +57,7 @@ def history_summary(
         func.count(PrintLog.id).label('attempts'),
         func.sum(case((PrintLog.status == 'ok', 1), else_=0)).label('sent'),
         func.sum(case((PrintLog.status == 'error', 1), else_=0)).label('errors'),
-        func.sum(case((PrintLog.status == 'uncertain', 1), else_=0)).label('uncertain'),
+        func.sum(case((PrintLog.status.in_(['uncertain', 'sending']), 1), else_=0)).label('uncertain'),
         func.max(PrintLog.ts).label('last_at'),
     ).where(*filters).group_by(identity, PrintLog.operator_employee_id.is_not(None),
                               PrintLog.operator_source, PrintLog.operator_verified).subquery()

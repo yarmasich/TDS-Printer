@@ -173,6 +173,13 @@ function clearCart() {
             <div class="text-xs text-slate-500 truncate">
               <b>R:</b> {{ (item.right_text || "—").split("\n")[0] }}
             </div>
+            <details class="cart-label-details mt-2">
+              <summary class="flex items-center min-h-12 cursor-pointer text-sm font-semibold text-sky-700">Full label text</summary>
+              <dl class="text-sm space-y-2 pb-2">
+                <div><dt class="font-semibold">Left</dt><dd class="whitespace-pre-wrap break-words">{{ item.left_text || "—" }}</dd></div>
+                <div><dt class="font-semibold">Right</dt><dd class="whitespace-pre-wrap break-words">{{ item.right_text || "—" }}</dd></div>
+              </dl>
+            </details>
             <div class="text-[11px] text-slate-400 mt-1">
               {{ item.project_name }} · {{ item.discipline_name }}
               <span v-if="item.template_name">· {{ item.template_name }}</span>
@@ -302,6 +309,10 @@ function clearCart() {
 .cart-summary:hover {
   background: #f1f5f9;
 }
+.cart-label-details summary::before { content: '›'; margin-right: 8px; font-size: 20px; }
+.cart-label-details[open] summary::before { transform: rotate(90deg); }
+.cart-label-details summary:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+.cart-label-details dd { overflow-wrap: anywhere; }
 .cart-summary-count {
   display: inline-block;
   background: #0284c7;

@@ -26,6 +26,7 @@ defineProps<{
   >
     online · {{ ping.ms }} ms
   </span>
+  <span v-else-if="ping.error.toLowerCase().includes('busy')" class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-amber-100 text-amber-800" :title="ping.error">busy</span>
   <span
     v-else
     :title="ping.error"

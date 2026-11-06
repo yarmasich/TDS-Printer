@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import StationsSection from "@/components/admin/StationsSection.vue";
 import PrintersSection from "@/components/admin/PrintersSection.vue";
+import QrLabelsSection from '@/components/admin/QrLabelsSection.vue';
 import TemplatesSection from "@/components/admin/TemplatesSection.vue";
 import ProjectsTree from "@/components/admin/ProjectsTree.vue";
 import ImportsSection from "@/components/admin/ImportsSection.vue";
 import ListsSection from "@/components/admin/ListsSection.vue";
+import IntegrationsSection from "@/components/admin/IntegrationsSection.vue";
 import ApiKeysSection from "@/components/admin/ApiKeysSection.vue";
 import HistorySection from "@/components/admin/HistorySection.vue";
 
@@ -19,10 +21,12 @@ interface NavItem {
 const sections: NavItem[] = [
   { key: "stations", label: "Station accounts", icon: "pi pi-desktop", component: StationsSection },
   { key: "printers", label: "Printers", icon: "pi pi-print", component: PrintersSection },
+  { key: "qr-labels", label: "QR labels", icon: "pi pi-qrcode", component: QrLabelsSection },
   { key: "templates", label: "Templates", icon: "pi pi-tags", component: TemplatesSection },
   { key: "projects", label: "Projects · Halls · Disciplines", icon: "pi pi-sitemap", component: ProjectsTree },
   { key: "import", label: "Import labels", icon: "pi pi-upload", component: ImportsSection },
   { key: "lists", label: "Reasons & Operators", icon: "pi pi-list", component: ListsSection },
+  { key: "integrations", label: "Project printer routing", icon: "pi pi-share-alt", component: IntegrationsSection },
   { key: "api-keys", label: "API keys", icon: "pi pi-key", component: ApiKeysSection },
   { key: "history", label: "Print history", icon: "pi pi-history", component: HistorySection },
 ];
@@ -41,18 +45,39 @@ const activeComponent = computed(
   () => sections.find((s) => s.key === active.value)?.component,
 );
 
-function select(key: string) {
-  active.value = key;
-  if (window.location.hash !== `#${key}`) {
-    // Preserve Vue Router's history.state — passing null wipes it and the
-    // router warns about a manually-replaced state.
+const sectionView = ref<{ canLeave?: () => Promise<boolean> } | null>(null);
+const content = ref<HTMLElement | null>(null);
+const navigating = ref(false);
+const activeLabel = computed(() => sections.find(s => s.key === active.value)?.label);
+
+async function select(key: string) {
+  if (!keys.includes(key) || key === active.value) return;
+  if (navigating.value) {
+    history.replaceState(history.state, "", `#${active.value}`);
+    return;
+  }
+  navigating.value = true;
+  try {
+    if (sectionView.value?.canLeave && !await sectionView.value.canLeave()) {
+      history.replaceState(history.state, "", `#${active.value}`);
+      return;
+    }
+    active.value = key;
     history.replaceState(history.state, "", `#${key}`);
+    await nextTick();
+    content.value?.focus({ preventScroll: true });
+    content.value?.scrollIntoView({ block: 'nearest' });
+  } finally {
+    navigating.value = false;
   }
 }
 
-function onHashChange() {
-  active.value = fromHash();
+async function onSelectChange(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  await select(target.value);
+  target.value = active.value;
 }
+function onHashChange() { void select(fromHash()); }
 
 onMounted(() => window.addEventListener("hashchange", onHashChange));
 onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
@@ -60,15 +85,23 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
 
 <template>
   <div class="flex flex-col xl:flex-row gap-4">
+    <label class="xl:hidden flex flex-col gap-1 text-sm font-medium text-slate-600">
+      Admin section
+      <select :value="active" :disabled="navigating" class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base" @change="onSelectChange">
+        <option v-for="section in sections" :key="section.key" :value="section.key">{{ section.label }}</option>
+      </select>
+    </label>
     <!-- Settings menu -->
     <nav
-      class="min-w-0 xl:w-64 shrink-0 xl:sticky xl:top-4 xl:self-start
+      aria-label="Admin sections"
+      class="hidden xl:block min-w-0 xl:w-64 shrink-0 xl:sticky xl:top-4 xl:self-start
              bg-white border border-slate-200 rounded-2xl p-2 shadow-sm"
     >
       <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1 gap-1">
         <li v-for="s in sections" :key="s.key" class="min-w-0">
           <button
             type="button"
+            :disabled="navigating"
             class="w-full min-w-0 flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-xl text-base text-left
                    transition-colors"
             :class="
@@ -87,9 +120,9 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
     </nav>
 
     <!-- Active section -->
-    <div class="min-w-0 flex-1">
+    <div ref="content" tabindex="-1" :aria-label="activeLabel" class="min-w-0 flex-1">
       <KeepAlive>
-        <component :is="activeComponent" :key="active" />
+        <component ref="sectionView" :is="activeComponent" :key="active" />
       </KeepAlive>
     </div>
   </div>

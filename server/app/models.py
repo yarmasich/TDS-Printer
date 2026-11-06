@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
-from sqlalchemy import Column, JSON
+from sqlalchemy import Column, JSON, CheckConstraint
 
 
 def _utcnow() -> datetime:
@@ -55,6 +55,11 @@ class Printer(SQLModel, table=True):
     # prints at the same physical label size as a 300-DPI one.
     dpi: int = 300
     model: str = "custom"
+    snmp_enabled: bool = True
+    snmp_port: int = 161
+    snmp_community: Optional[str] = Field(default=None, repr=False)
+    qr_media_id: str = "DK-2246"
+    qr_label_length_mm: int = 60
     # Physical print-axis corrections keyed by exact catalog material SKU.
     material_calibrations: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
 
@@ -236,6 +241,14 @@ class PrintLog(SQLModel, table=True):
     operator_employee_id: Optional[str] = None
     id: Optional[int] = Field(default=None, primary_key=True)
     ts: datetime = Field(default_factory=_utcnow, index=True)
+    label_kind: str = 'cable'
+    qr_scan: str = ''
+    media_code: str = ''
+    printer_model: str = ''
+    source_reference: str = ''
+    integration_id: str = ''
+    external_project_id: str = ''
+    print_purpose: str = ''
     template_name: str = ""
     printer_ip: str = ""
     operator: str = ""
@@ -263,6 +276,8 @@ class ApiKey(SQLModel, table=True):
     enabled: bool = True
     created_at: datetime = Field(default_factory=_utcnow, index=True)
     last_used_at: Optional[datetime] = None
+    integration_id: Optional[str] = Field(default=None, foreign_key="integration.id", index=True)
+    scopes: list[str] = Field(default_factory=lambda: ["legacy_catalog", "legacy_print"], sa_column=Column(JSON, nullable=False))
 
 
 class IntegrationPrintRequest(SQLModel, table=True):
@@ -280,3 +295,39 @@ class IntegrationPrintRequest(SQLModel, table=True):
     status_code: Optional[int] = None
     response_body: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     response_headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+
+class Integration(SQLModel, table=True):
+    """Stable credential namespace; rotations never change this identity."""
+    id: str = Field(primary_key=True)
+    name: str = Field(unique=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ProjectPrintPolicy(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint('integration_id', 'external_project_id'), CheckConstraint('revision > 0', name='ck_policy_revision'))
+    id: str = Field(primary_key=True)
+    integration_id: str = Field(foreign_key='integration.id', index=True)
+    external_project_id: str
+    revision: int = 1
+    tds_project_id: Optional[int] = Field(default=None, foreign_key='project.id')
+    cable_default_printer_id: Optional[int] = Field(default=None, foreign_key='printer.id')
+    qr_default_printer_id: Optional[int] = Field(default=None, foreign_key='printer.id')
+
+
+class ProjectPrinterAssignment(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint('policy_id', 'purpose', 'printer_id'), CheckConstraint("purpose IN ('cable_labels','qr_labels')", name='ck_assignment_purpose'))
+    id: Optional[int] = Field(default=None, primary_key=True)
+    policy_id: str = Field(foreign_key='projectprintpolicy.id', index=True)
+    purpose: str
+    printer_id: int = Field(foreign_key='printer.id', index=True)
+
+
+class PolicyAudit(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    integration_id: str = Field(foreign_key='integration.id')
+    external_project_id: str
+    actor: str = ''
+    ts: datetime = Field(default_factory=_utcnow)
+    before: dict = Field(sa_column=Column(JSON, nullable=False))
+    after: dict = Field(sa_column=Column(JSON, nullable=False))

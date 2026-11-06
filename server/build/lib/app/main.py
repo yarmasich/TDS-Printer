@@ -1,0 +1,104 @@
+"""TDS Printer central server — JSON API only.
+
+Frontend lives in ``../frontend`` and is served separately (Vite dev or any
+static host). See the project READMEs for the dev / prod flow.
+
+Run:
+    uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+        --reload --reload-dir app --reload-dir alembic
+"""
+import logging
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI
+
+# ``server/.env`` — uvicorn does not load it automatically.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from fastapi.middleware.cors import CORSMiddleware
+
+from .api import (
+    admin_auth,
+    stations,
+    api_keys,
+    auth_names,
+    cart,
+    history,
+    import_ as import_api,
+    imports as imports_api,
+    integrations,
+    scoped_integrations,
+    labels,
+    print as print_api,
+    printers,
+    projects,
+    reasons,
+    templates,
+    materials,
+    qr_labels,
+)
+from .auth_admin import require_admin
+from .cors_config import cors_origins
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+
+app = FastAPI(title="TDS Printer Server", version="0.1.0")
+
+# Empty by default: same-origin browser requests need no CORS permission.
+# Opt separate frontend origins in explicitly, including localhost development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(os.getenv("CORS_ALLOWED_ORIGINS", "")),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "Idempotency-Key"],
+    expose_headers=["Retry-After"],
+)
+
+_admin = [Depends(require_admin)]
+
+app.include_router(admin_auth.router)
+app.include_router(stations.router)
+app.include_router(stations.auth_router)
+app.include_router(printers.router)
+app.include_router(templates.router, dependencies=_admin)
+app.include_router(materials.router, dependencies=_admin)
+app.include_router(projects.router)
+app.include_router(reasons.router)
+app.include_router(auth_names.router)
+app.include_router(labels.router)
+app.include_router(import_api.router, dependencies=_admin)
+app.include_router(imports_api.router, dependencies=_admin)
+app.include_router(cart.router)
+app.include_router(print_api.router)
+app.include_router(history.router, dependencies=_admin)
+app.include_router(api_keys.router, dependencies=_admin)
+# Integration router does its own per-route API-key auth (not the admin JWT).
+app.include_router(integrations.router)
+from .api import scoped_qr  # register before FastAPI copies shared routes
+app.include_router(scoped_integrations.router)
+app.include_router(scoped_integrations.admin_router, dependencies=_admin)
+app.include_router(qr_labels.router)
+app.include_router(qr_labels.integration_router)
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True}
+
+
+@app.get("/")
+def root() -> dict:
+    """Root hint for anyone hitting the API host directly."""
+    return {
+        "service": "tds-printer-server",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "health": "/health",
+        "frontend": "served separately — see frontend/README.md",
+    }

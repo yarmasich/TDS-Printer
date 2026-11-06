@@ -259,6 +259,7 @@ async function onAddAllToCart() {
         <span class="text-xs font-bold text-slate-500 uppercase">Context</span>
         <Select
           v-model="selectedProject"
+          aria-label="Project"
           :options="projects.projects"
           option-label="name"
           option-value="id"
@@ -270,6 +271,7 @@ async function onAddAllToCart() {
         />
         <Select
           v-model="selectedDiscipline"
+          aria-label="Discipline"
           :options="projects.disciplines"
           option-label="name"
           option-value="id"
@@ -300,6 +302,8 @@ async function onAddAllToCart() {
         <Select
           v-if="currentDiscipline?.bundle_mode"
           :model-value="selectedBundle"
+          aria-label="Bundle"
+          :loading="bundleResource.loading.value"
           :options="bundleOptions"
           option-label="label"
           option-value="value"
@@ -334,6 +338,22 @@ async function onAddAllToCart() {
       class="bg-white border border-slate-200 rounded-2xl shadow-sm"
       :class="kiosk ? 'p-4 mx-3 mt-3' : 'p-6'"
     >
+      <div v-if="kiosk && currentDiscipline?.bundle_mode" class="mb-4">
+        <label for="kiosk-bundle" class="block font-semibold mb-2">Bundle</label>
+        <Select
+          input-id="kiosk-bundle"
+          :model-value="selectedBundle"
+          :options="bundleOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="Select a bundle"
+          show-clear
+          fluid
+          :loading="bundleResource.loading.value"
+          :pt="{ overlay: { class: 'tablet-context-options' } }"
+          @update:model-value="loadBundle"
+        />
+      </div>
       <div class="search-row" :class="{ 'search-row--kiosk': kiosk }">
         <i class="pi pi-search search-icon"></i>
         <InputText

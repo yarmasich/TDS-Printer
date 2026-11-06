@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useAdminRequests } from "@/composables/adminRequests";
+const requests = useAdminRequests();
+const requestError = requests.error;
 import { computed, onMounted, ref } from "vue";
 import { api } from "@/api/client";
 import type { DataHall, Discipline, Project, Template } from "@/api/types";
@@ -56,6 +59,9 @@ const newDisc = ref({
 });
 
 async function refresh() {
+  await requests.run("refresh", () => refreshRequest());
+}
+async function refreshRequest() {
   const [p, h, d, t] = await Promise.all([
     api.get<Project[]>("/api/projects"),
     api.get<DataHall[]>("/api/halls"),
@@ -100,6 +106,9 @@ function openDisc(hallId: number) {
 }
 
 async function createProject() {
+  await requests.run("createProject", () => createProjectRequest());
+}
+async function createProjectRequest() {
   await api.post("/api/projects", { name: newProject.value });
   newProject.value = "";
   projectDialog.value = false;
@@ -107,6 +116,9 @@ async function createProject() {
 }
 
 async function createHall() {
+  await requests.run("createHall", () => createHallRequest());
+}
+async function createHallRequest() {
   await api.post("/api/halls", {
     project_id: newHall.value.projectId,
     name: newHall.value.name,
@@ -117,6 +129,9 @@ async function createHall() {
 }
 
 async function createDisc() {
+  await requests.run("createDisc", () => createDiscRequest());
+}
+async function createDiscRequest() {
   await api.post("/api/disciplines", {
     data_hall_id: newDisc.value.hallId,
     name: newDisc.value.name,
@@ -129,11 +144,15 @@ async function createDisc() {
 }
 
 async function bindTemplate(d: Discipline, templateId: number | null) {
+  await requests.run("bindTemplate", () => bindTemplateRequest(d, templateId));
+}
+async function bindTemplateRequest(d: Discipline, templateId: number | null) {
   try {
     await api.put(`/api/disciplines/${d.id}`, { template_id: templateId });
     await refresh();
     toast.add({ severity: "success", summary: "Template bound", life: 1500 });
   } catch (e: unknown) {
+    requestError.value = e instanceof Error ? e.message : String(e);
     toast.add({
       severity: "error",
       summary: "Bind failed",
@@ -163,6 +182,9 @@ async function toggleRfid(project: Project, event: Event) {
 }
 
 async function toggleBundle(d: Discipline) {
+  await requests.run("toggleBundle", () => toggleBundleRequest(d));
+}
+async function toggleBundleRequest(d: Discipline) {
   const next = !d.bundle_mode;
   try {
     await api.put(`/api/disciplines/${d.id}`, { bundle_mode: next });
@@ -176,6 +198,7 @@ async function toggleBundle(d: Discipline) {
       life: 3500,
     });
   } catch (e: unknown) {
+    requestError.value = e instanceof Error ? e.message : String(e);
     toast.add({
       severity: "error",
       summary: "Save failed",
@@ -185,6 +208,9 @@ async function toggleBundle(d: Discipline) {
 }
 
 async function updateColor(d: Discipline, color: string) {
+  await requests.run("updateColor", () => updateColorRequest(d, color));
+}
+async function updateColorRequest(d: Discipline, color: string) {
   // PrimeVue's ColorPicker (format=hex) returns the colour without the
   // leading '#', which matches what the DB stores.
   if (!color || color.toUpperCase() === d.color.toUpperCase()) return;
@@ -192,6 +218,7 @@ async function updateColor(d: Discipline, color: string) {
     await api.put(`/api/disciplines/${d.id}`, { color: color.toUpperCase() });
     d.color = color.toUpperCase(); // optimistic — avoid full refresh flash
   } catch (e: unknown) {
+    requestError.value = e instanceof Error ? e.message : String(e);
     toast.add({
       severity: "error",
       summary: "Color save failed",
@@ -200,30 +227,48 @@ async function updateColor(d: Discipline, color: string) {
   }
 }
 
+function deletionMessage(url: string, label: string) {
+  const id = Number(url.split('/').pop());
+  const kind = url.includes('/projects/') ? 'project' : url.includes('/halls/') ? 'hall' : 'discipline';
+  const affectedHalls = kind === 'project' ? halls.value.filter(h => h.project_id === id) : halls.value.filter(h => h.id === id);
+  const affected = kind === 'discipline' ? disciplines.value.filter(d => d.id === id) : disciplines.value.filter(d => affectedHalls.some(h => h.id === d.data_hall_id));
+  const labels = affected.reduce((total, d) => total + (d.label_count ?? 0), 0);
+  return `Permanently delete ${kind} "${label}"? This removes ${kind === 'project' ? `${affectedHalls.length} halls, ` : ''}${affected.length} disciplines and ${labels} labels, including their imported files. This cannot be undone.`;
+}
+
 function del(url: string, label: string) {
   confirm.require({
-    message: `Delete ${label}?`,
-    accept: async () => {
+    header: "Delete project data",
+    message: deletionMessage(url, label),
+    acceptLabel: "Delete permanently",
+    rejectLabel: "Cancel",
+    acceptProps: { severity: "danger" },
+    accept: async () => requests.run("delete", async () => {
       try {
         await api.delete(url);
         await refresh();
       } catch (e: unknown) {
+        requestError.value = e instanceof Error ? e.message : String(e);
         toast.add({
           severity: "error",
           summary: "Delete failed",
           detail: e instanceof Error ? e.message : String(e),
         });
       }
-    },
+    }),
   });
 }
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+    <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
+
     <div class="flex flex-wrap gap-3 items-center justify-between mb-3">
       <h2 class="text-lg font-bold">Projects · Halls · Disciplines</h2>
-      <Button
+      <Button :disabled="requests.pending.value.size > 0"
         label="Add project"
         icon="pi pi-plus"
         size="small"
@@ -235,8 +280,8 @@ function del(url: string, label: string) {
     </div>
 
     <div v-if="projects.length" class="flex flex-wrap gap-2 mb-4">
-      <Button label="Expand all" icon="pi pi-angle-double-down" text severity="secondary" class="min-h-11" @click="expandAll" />
-      <Button label="Collapse all" icon="pi pi-angle-double-up" text severity="secondary" class="min-h-11" @click="collapseAll" />
+      <Button :disabled="requests.pending.value.size > 0" label="Expand all" icon="pi pi-angle-double-down" text severity="secondary" class="min-h-11" @click="expandAll" />
+      <Button :disabled="requests.pending.value.size > 0" label="Collapse all" icon="pi pi-angle-double-up" text severity="secondary" class="min-h-11" @click="collapseAll" />
     </div>
 
     <p v-if="projects.length === 0" class="text-slate-500">
@@ -255,13 +300,13 @@ function del(url: string, label: string) {
           <span class="tree-count">{{ hallsByProject.get(p.id)?.length ?? 0 }} halls</span>
         </button>
         <div class="flex gap-1">
-          <Button
+          <Button :disabled="requests.pending.value.size > 0"
             label="+ hall"
             size="small"
             text
             @click="openHall(p.id)"
           />
-          <Button
+          <Button :disabled="requests.pending.value.size > 0"
             icon="pi pi-trash"
             size="small"
             text
@@ -299,13 +344,13 @@ function del(url: string, label: string) {
             <span class="tree-count">{{ discByHall.get(h.id)?.length ?? 0 }} disciplines</span>
           </button>
           <div class="flex gap-1">
-            <Button
+            <Button :disabled="requests.pending.value.size > 0"
               label="+ discipline"
               size="small"
               text
               @click="openDisc(h.id)"
             />
-            <Button
+            <Button :disabled="requests.pending.value.size > 0"
               icon="pi pi-trash"
               size="small"
               text
@@ -335,15 +380,15 @@ function del(url: string, label: string) {
               {{ d.label_count }} labels
             </span>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <label
-              class="inline-flex items-center gap-1 text-xs cursor-pointer select-none"
+              class="inline-flex min-h-11 items-center gap-2 text-sm cursor-pointer select-none"
               :class="d.bundle_mode ? 'text-orange-600 font-semibold' : 'text-slate-500'"
               title="Bundle mode: imports parse 'BUNDLE #N' headers and tag labels; Print shows a bundle picker. Re-import after turning on."
             >
               <input
                 type="checkbox"
-                class="h-3.5 w-3.5 accent-orange-600"
+                class="h-5 w-5 accent-orange-600" :disabled="requests.busy('toggleBundle')"
                 :checked="d.bundle_mode"
                 @change="toggleBundle(d)"
               />
@@ -356,10 +401,10 @@ function del(url: string, label: string) {
               option-value="id"
               show-clear
               placeholder="— template —"
-              class="!min-w-[180px]"
+              class="w-full sm:w-auto sm:min-w-[180px]" :disabled="requests.busy('bindTemplate')"
               @update:model-value="(v) => bindTemplate(d, v)"
             />
-            <Button
+            <Button :disabled="requests.pending.value.size > 0"
               icon="pi pi-trash"
               size="small"
               text
@@ -368,6 +413,7 @@ function del(url: string, label: string) {
               @click="del('/api/disciplines/' + d.id, d.name)"
             />
           </div>
+          <p v-if="d.bundle_mode" class="w-full text-sm text-slate-600">Re-import this discipline’s files after enabling Bundle so labels are grouped by bundle.</p>
         </div>
       </div>
       </div>
@@ -377,44 +423,47 @@ function del(url: string, label: string) {
     <!-- Dialogs -->
     <Dialog
       v-model:visible="projectDialog"
-      modal
+      modal class="admin-touch"
       header="New project"
-      :style="{ width: '24rem' }"
+      :style="{ width: 'min(24rem, 94vw)' }"
     >
-      <InputText v-model="newProject" class="w-full" placeholder="Project name" />
+      <InputText aria-label="Project name" v-model="newProject" class="w-full" placeholder="Project name" />
+      <p v-if="requestError" role="alert" class="text-red-700 mt-3">{{ requestError }} — Please try again.</p>
       <template #footer>
-        <Button label="Cancel" severity="secondary" @click="projectDialog = false" />
-        <Button label="Create" @click="createProject" />
+        <Button :disabled="requests.pending.value.size > 0" label="Cancel" severity="secondary" @click="projectDialog = false" />
+        <Button :disabled="requests.pending.value.size > 0 || !newProject.trim()" label="Create" @click="createProject" />
       </template>
     </Dialog>
 
     <Dialog
       v-model:visible="hallDialog"
-      modal
+      modal class="admin-touch"
       header="New data hall"
-      :style="{ width: '24rem' }"
+      :style="{ width: 'min(24rem, 94vw)' }"
     >
-      <InputText v-model="newHall.name" class="w-full" placeholder="DH3" />
+      <InputText aria-label="Name" v-model="newHall.name" class="w-full" placeholder="DH3" />
+      <p v-if="requestError" role="alert" class="text-red-700 mt-3">{{ requestError }} — Please try again.</p>
       <template #footer>
-        <Button label="Cancel" severity="secondary" @click="hallDialog = false" />
-        <Button label="Create" @click="createHall" />
+        <Button :disabled="requests.pending.value.size > 0" label="Cancel" severity="secondary" @click="hallDialog = false" />
+        <Button :disabled="requests.pending.value.size > 0 || !newHall.name.trim()" label="Create" @click="createHall" />
       </template>
     </Dialog>
 
     <Dialog
       v-model:visible="discDialog"
-      modal
+      modal class="admin-touch"
       header="New discipline"
-      :style="{ width: '32rem' }"
+      :style="{ width: 'min(32rem, 94vw)' }"
     >
       <div class="space-y-3">
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Name</label>
-          <InputText v-model="newDisc.name" class="w-full" placeholder="GPU-MS" />
+          <label for="projectstree-field-1" class="block text-xs font-bold text-slate-600 mb-1">Name</label>
+          <InputText id="projectstree-field-1" aria-label="Name" v-model="newDisc.name" class="w-full" placeholder="GPU-MS" />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Template</label>
-          <Select
+          <label for="projectstree-field-2" class="block text-xs font-bold text-slate-600 mb-1">Template</label>
+          <Select input-id="projectstree-field-2"
+            aria-label="Template"
             v-model="newDisc.template_id"
             :options="templates"
             option-label="name"
@@ -432,15 +481,17 @@ function del(url: string, label: string) {
           </div>
         </div>
       </div>
+      <p v-if="requestError" role="alert" class="text-red-700 mt-3">{{ requestError }} — Please try again.</p>
       <template #footer>
-        <Button label="Cancel" severity="secondary" @click="discDialog = false" />
-        <Button label="Create" @click="createDisc" />
+        <Button :disabled="requests.pending.value.size > 0" label="Cancel" severity="secondary" @click="discDialog = false" />
+        <Button :disabled="requests.pending.value.size > 0 || !newDisc.name.trim()" label="Create" @click="createDisc" />
       </template>
     </Dialog>
   </section>
 </template>
 
 <style scoped>
+@media (pointer: coarse) { .admin-touch :deep(.p-button), .admin-touch :deep(.p-select), .admin-touch :deep(.p-inputtext) { min-height:44px; } .admin-touch :deep(.p-button-icon-only) { min-width:44px; } }
 .tree-toggle { display:flex; align-items:center; flex-wrap:wrap; gap:10px; min-height:44px; padding:6px 8px; min-width:0; text-align:left; border-radius:8px; cursor:pointer; overflow-wrap:anywhere; }
 .tree-toggle:hover { background:#e0f2fe; }
 .tree-toggle:focus-visible { outline:2px solid #0284c7; outline-offset:2px; }

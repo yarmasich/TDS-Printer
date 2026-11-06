@@ -37,6 +37,8 @@ def get_template(template_id: int, session: Session = Depends(get_session)) -> T
 def create_template(t: TemplateCreate, session: Session = Depends(get_session)) -> Template:
     if not session.get(Printer, t.printer_id):
         raise HTTPException(400, f"Printer {t.printer_id} does not exist")
+    if session.get(Printer, t.printer_id).protocol == 'brother_ql':
+        raise HTTPException(400, 'Brother printers use QR labels, not cable templates')
     row = Template(**t.model_dump())
     session.add(row)
     _commit(session, "Template name already exists or its printer is no longer available")
@@ -57,6 +59,8 @@ def update_template(
         raise HTTPException(422, str(exc)) from exc
     if not session.get(Printer, updated.printer_id):
         raise HTTPException(400, f"Printer {updated.printer_id} does not exist")
+    if session.get(Printer, updated.printer_id).protocol == 'brother_ql':
+        raise HTTPException(400, 'Brother printers use QR labels, not cable templates')
     for k, v in updated.model_dump().items():
         setattr(t, k, v)
     session.add(t)
