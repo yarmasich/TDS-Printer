@@ -5,6 +5,7 @@ import { onBeforeRouteLeave } from "vue-router";
 import { draftChanged, singleLeaveDecision } from "@/data/templateEditorSafety";
 import { readApiError } from "@/api/errors";
 import { pageSizeRepair } from "@/data/templateGeometry";
+import { groupPrinters } from "@/data/printerGroups";
 import type { Printer, Template } from "@/api/types";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
@@ -86,9 +87,13 @@ onUnmounted(clearTablePreview);
 // max size so the operator can actually read the small text.
 const zoomOpen = ref(false);
 
+const cablePrinters = computed(() =>
+  groupPrinters(printers.printers).find(group => group.key === 'cable')?.printers ?? [],
+);
+
 const blank = (): Omit<Template, "id"> => ({
   name: "",
-  printer_id: printers.printers[0]?.id ?? 0,
+  printer_id: cablePrinters.value[0]?.id ?? 0,
   bytes_per_row: 156,
   height: 862,
   left_top: 480,
@@ -408,13 +413,13 @@ const presetSku = computed(() => {
         label="Add template"
         icon="pi pi-plus"
         size="small"
-        :disabled="printers.printers.length === 0"
+        :disabled="cablePrinters.length === 0"
         @click="openCreate"
       />
     </div>
 
-    <p v-if="printers.printers.length === 0" class="text-sm text-slate-500">
-      Create a printer first.
+    <p v-if="cablePrinters.length === 0" class="text-sm text-slate-500">
+      Add a cable label printer in Printers to create a template.
     </p>
 
     <DataTable
@@ -516,7 +521,7 @@ const presetSku = computed(() => {
             <label class="block text-xs font-bold text-slate-600 mb-1" for="template-printer">Printer</label>
             <Select
               :disabled="calibrationBlocked" input-id="template-printer" v-model="form.printer_id"
-              :options="printers.printers"
+              :options="cablePrinters"
               option-label="name"
               option-value="id"
               class="w-full"
