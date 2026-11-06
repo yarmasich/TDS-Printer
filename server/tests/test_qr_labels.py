@@ -18,8 +18,8 @@ def request(**kw):
     return QrLabelRequest(**dict(printer_id=1, scan=' A&B/Я-123 ', code='PALLET 123', **kw))
 
 
-@pytest.mark.parametrize('media,width,wire_width,quality', [('DK-2246',1200,104,True),('DK-2205',696,62,False)])
-def test_preview_and_wire_are_identical_and_scan_exactly(media,width,wire_width,quality):
+@pytest.mark.parametrize('media,width,wire_width', [('DK-2246',1200,104),('DK-2205',696,62)])
+def test_preview_and_wire_are_identical_and_scan_exactly(media,width,wire_width):
     req=request(media=media, description="Hall | Fiber")
     bitmap=render_bitmap(req)
     assert bitmap.mode == '1' and bitmap.width == width
@@ -36,7 +36,7 @@ def test_preview_and_wire_are_identical_and_scan_exactly(media,width,wire_width,
     assert header.index(b'\x1b\x40') < header.index(b'\x1b\x69\x21\x01')
     assert header.rindex(b'\x1b\x69\x61\x01') < header.index(b'\x1b\x69\x21\x01') < header.index(b'\x1b\x69\x7a')
     info=header[header.index(b'\x1b\x69\x7a')+3:]
-    assert bool(info[0] & 0x40) is quality
+    assert not (info[0] & 0x40)  # Speed priority on both rolls.
     assert info[0] & ~0x40 == 0x8e  # recovery and media validity bits unchanged
     assert info[1:4] == bytes([0x0a,wire_width,0])
     assert b'\x1b\x69\x41\x01' in header

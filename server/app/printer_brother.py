@@ -2,6 +2,7 @@
 import socket
 import time
 
+from PIL import Image
 from brother_ql.conversion import convert
 from brother_ql.raster import BrotherQLRaster
 
@@ -35,9 +36,12 @@ class _WriteOnlyRaster(BrotherQLRaster):
             self._notification_pending = False
 
 
-def build_qr_job(req: QrLabelRequest, printer: Printer) -> bytes:
+def build_qr_job(req: QrLabelRequest, printer: Printer, *, image: Image.Image | None = None) -> bytes:
     require_brother(printer)
-    image = render_bitmap(req)
+    if image is None:
+        image = render_bitmap(req)
+    elif image.height != round(req.length_mm * 300 / 25.4):
+        raise PrintError('Invalid packing bitmap height')
     label, width, _ = MEDIA[req.media]
     if image.mode != '1' or image.width != width:
         raise PrintError('Invalid QR raster geometry')
@@ -46,8 +50,8 @@ def build_qr_job(req: QrLabelRequest, printer: Printer) -> bytes:
     try:
         return bytes(convert(raster, [image], label, rotate=0, dither=False,
                              compress=False, cut=True, dpi_600=False,
-                             # 62 mm preparation labels use speed priority at 300 dpi.
-                             hq=req.media != 'DK-2205'))
+                             # Both supported continuous rolls use speed priority at 300 dpi.
+                             hq=False))
     except Exception as exc:
         raise PrintError(f'Brother raster encoding failed: {exc}') from exc
 
