@@ -1,3 +1,27 @@
+# TDS Printer API — systemd unit for the **/opt/TDS-Printer** install layout
+# (repo checked out with its original casing, venv one level above server/,
+# sandboxing directives on).
+#
+# ⚠ THERE ARE TWO UNITS IN THIS REPO AND THEY ARE NOT INTERCHANGEABLE:
+#     deploy/tds-printer.service          ← this file. /opt/TDS-Printer,
+#                                           venv at /opt/TDS-Printer/.venv,
+#                                           pip install on every start,
+#                                           NoNewPrivileges/ProtectSystem,
+#                                           Restart=on-failure
+#     deploy/systemd/tds-printer.service    /opt/tds-printer, venv inside
+#                                           server/, EnvironmentFile, no
+#                                           sandboxing, Restart=always
+#   Install ONE and delete or ignore the other; `systemctl status tds-printer`
+#   on the host tells you which one is live. Paths are case-sensitive on Linux,
+#   so copying the wrong one fails at ExecStartPre rather than silently.
+#   The commentary explaining WHY each choice is made (single worker, alembic
+#   before the app, how server/.env is actually loaded) lives in
+#   deploy/systemd/tds-printer.service — read it alongside this file.
+#
+# ⚠ ExecStartPre runs `pip install -e` on every start, so this unit will not
+#   come up without network/index access. Fine for a pull-and-restart deploy
+#   loop; a liability after a reboot with the package index unreachable.
+#
 [Unit]
 Description=TDS Printer FastAPI backend
 After=network-online.target
@@ -13,6 +37,19 @@ Environment="PATH=/opt/TDS-Printer/.venv/bin"
 # Sync deps after git pull (auth needs pyjwt, main needs python-dotenv).
 ExecStartPre=/opt/TDS-Printer/.venv/bin/pip install -e /opt/TDS-Printer/server -q
 ExecStartPre=/opt/TDS-Printer/.venv/bin/alembic upgrade head
+# DO NOT ADD --workers. server/app/login_limits.py is process-local by design
+# ("use a shared edge limiter for multiple workers") and is instantiated per
+# process in app/api/admin_auth.py and app/api/stations.py, so N workers
+# multiply the 10-per-client / 100-per-process login ceilings by N and spread
+# an attacker's attempts across independent buckets. Nothing errors; the
+# brute-force window on POST /api/auth/login and POST /api/station-auth/login
+# just widens silently. Rate-limit at nginx first if you must scale out.
+#
+# --proxy-headers / --forwarded-allow-ips are what make the per-IP login limit
+# see the real client instead of 127.0.0.1 (the app deliberately refuses to
+# read X-Forwarded-For itself). Both match uvicorn's own defaults, but stating
+# them keeps the behaviour from changing under a dependency bump. If nginx ever
+# moves off this host, this address must change with it.
 ExecStart=/opt/TDS-Printer/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=5

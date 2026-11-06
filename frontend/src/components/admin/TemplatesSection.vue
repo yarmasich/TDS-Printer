@@ -404,10 +404,10 @@ const presetSku = computed(() => {
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="bg-surface border border-edge rounded-2xl p-5 shadow-sm">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-lg font-bold">
-        Templates <span class="text-slate-400">({{ templates.length }})</span>
+        Templates <span class="text-ink-4">({{ templates.length }})</span>
       </h2>
       <Button
         label="Add template"
@@ -418,7 +418,7 @@ const presetSku = computed(() => {
       />
     </div>
 
-    <p v-if="cablePrinters.length === 0" class="text-sm text-slate-500">
+    <p v-if="cablePrinters.length === 0" class="text-sm text-ink-3">
       Add a cable label printer in Printers to create a template.
     </p>
 
@@ -434,13 +434,13 @@ const presetSku = computed(() => {
         <template #body="{ data }">
           <span v-if="printerById.get(data.printer_id)">
             {{ printerById.get(data.printer_id)?.name }}
-            <span class="text-slate-400">
+            <span class="text-ink-4">
               ({{ printerById.get(data.printer_id)?.ip }}:{{
                 printerById.get(data.printer_id)?.port
               }})
             </span>
           </span>
-          <span v-else class="text-red-600">⚠ missing</span>
+          <span v-else class="text-danger">⚠ missing</span>
         </template>
       </Column>
       <Column header="Geometry">
@@ -509,16 +509,16 @@ const presetSku = computed(() => {
       <fieldset class="template-editor" :disabled="saving">
         <div class="editor-identity">
         <fieldset class="grid grid-cols-2 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2">
             Template & printer
           </legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-name">Template name</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-name">Template name</label>
             <InputText id="template-name" v-model="form.name" class="w-full" />
 
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-printer">Printer</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-printer">Printer</label>
             <Select
               :disabled="calibrationBlocked" input-id="template-printer" v-model="form.printer_id"
               :options="cablePrinters"
@@ -541,16 +541,16 @@ const presetSku = computed(() => {
           <aside class="editor-preview">
             <div class="preview-caption"><span>PRINT WORKSPACE</span><span>{{ form.material_sku || 'Custom layout' }}</span></div>
         <fieldset class="preview-pane">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1">
             Live preview
-            <span class="text-slate-400 font-normal normal-case">
+            <span class="text-ink-4 font-normal normal-case">
               ({{ form.bytes_per_row * 8 }}×{{ form.height }}px)
             </span>
           </legend>
           <div>
             <PrintWorkspace :template="form" :src="previewSrc" :loading="previewLoading" :error="previewError" :error-kind="previewErrorKind" @retry="refreshPreview" compact />
           </div>
-          <div v-if="suggestedPage" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" role="status">
+          <div v-if="suggestedPage" class="mt-3 rounded-lg border border-warn-edge bg-warn-soft p-3 text-sm" role="status">
             <p>The text areas exceed the current page. {{ presetSku }} uses
               {{ suggestedPage.bytes_per_row * 8 }}×{{ suggestedPage.height }} px.
               Update the page size while keeping your text positions and font settings, then save.</p>
@@ -565,77 +565,77 @@ const presetSku = computed(() => {
         <MaterialPicker :sku="form.material_sku" :enabled="!calibrationBlocked && !!printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" @apply="applyMaterial" />
             </section>
             <CalibrationPanel :printer="printerById.get(form.printer_id)" :sku="form.material_sku" :testing="testing" @state="calibrationState = $event" @saved="calibrationSaved" @test="testPrint" />
-            <p v-if="calibrationBlocked" role="status" class="text-sm text-amber-800">Save or clear calibration changes before switching printer/material, saving the template, or printing a test.</p>
+            <p v-if="calibrationBlocked" role="status" class="text-sm text-warn">Save or clear calibration changes before switching printer/material, saving the template, or printing a test.</p>
             <details class="editor-card editor-advanced">
               <summary>Advanced layout<span>Feed, page size and text areas</span></summary>
               <div class="advanced-content">
         <fieldset v-if="['jscript', 'ezpl'].includes(printerById.get(form.printer_id)?.protocol ?? '')" class="grid grid-cols-2 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">Material feed</legend>
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2">Material feed</legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-media_height_mm">Label height (mm; 0 = automatic)</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-media_height_mm">Label height (mm; 0 = automatic)</label>
             <InputNumber input-id="template-media_height_mm" aria-label="Label height (mm; 0 = automatic)" v-model="form.media_height_mm" :min="0" :max="2000" :max-fraction-digits="3" class="w-full" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-media_gap_mm">Gap between labels (mm)</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-media_gap_mm">Gap between labels (mm)</label>
             <InputNumber input-id="template-media_gap_mm" aria-label="Gap between labels (mm)" v-model="form.media_gap_mm" :min="0" :max="100" :max-fraction-digits="3" class="w-full" />
           </div>
-          <p class="col-span-2 text-xs text-slate-500">Use the dimensions of the loaded material.
+          <p class="col-span-2 text-xs text-ink-3">Use the dimensions of the loaded material.
             Automatic height preserves the existing feed setting. Gap detection remains enabled.</p>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2">
             Bitmap
           </legend>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-bytes_per_row">Bytes/row</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-bytes_per_row">Bytes/row</label>
             <InputNumber input-id="template-bytes_per_row" aria-label="Bytes/row" v-model="form.bytes_per_row" :use-grouping="false" class="w-full" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1" for="template-height">Height (px)</label>
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-height">Height (px)</label>
             <InputNumber input-id="template-height" aria-label="Height (px)" v-model="form.height" :use-grouping="false" class="w-full" />
           </div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2 md:col-span-4">
             Left rectangle (edges)
           </legend>
-          <div><label class="block text-xs text-slate-600" for="template-left_top">Top</label>
+          <div><label class="block text-xs text-ink-2" for="template-left_top">Top</label>
             <InputNumber input-id="template-left_top" aria-label="Left rectangle top (px)" v-model="form.left_top" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-left_bottom">Bottom</label>
+          <div><label class="block text-xs text-ink-2" for="template-left_bottom">Bottom</label>
             <InputNumber input-id="template-left_bottom" aria-label="Left rectangle bottom (px)" v-model="form.left_bottom" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-left_left">Left</label>
+          <div><label class="block text-xs text-ink-2" for="template-left_left">Left</label>
             <InputNumber input-id="template-left_left" aria-label="Left rectangle left (px)" v-model="form.left_left" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-left_right">Right</label>
+          <div><label class="block text-xs text-ink-2" for="template-left_right">Right</label>
             <InputNumber input-id="template-left_right" aria-label="Left rectangle right (px)" v-model="form.left_right" :min-fraction-digits="0" class="w-full" /></div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2 md:col-span-4">
             Right rectangle (edges)
           </legend>
-          <div><label class="block text-xs text-slate-600" for="template-right_top">Top</label>
+          <div><label class="block text-xs text-ink-2" for="template-right_top">Top</label>
             <InputNumber input-id="template-right_top" aria-label="Right rectangle top (px)" v-model="form.right_top" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-right_bottom">Bottom</label>
+          <div><label class="block text-xs text-ink-2" for="template-right_bottom">Bottom</label>
             <InputNumber input-id="template-right_bottom" aria-label="Right rectangle bottom (px)" v-model="form.right_bottom" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-right_left">Left</label>
+          <div><label class="block text-xs text-ink-2" for="template-right_left">Left</label>
             <InputNumber input-id="template-right_left" aria-label="Right rectangle left (px)" v-model="form.right_left" :min-fraction-digits="0" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-right_right">Right</label>
+          <div><label class="block text-xs text-ink-2" for="template-right_right">Right</label>
             <InputNumber input-id="template-right_right" aria-label="Right rectangle right (px)" v-model="form.right_right" :min-fraction-digits="0" class="w-full" /></div>
         </fieldset>
 
         <fieldset class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <legend class="text-xs font-bold text-slate-500 uppercase mb-1 col-span-2 md:col-span-4">
+          <legend class="text-xs font-bold text-ink-3 uppercase mb-1 col-span-2 md:col-span-4">
             Gap (px)
           </legend>
-          <div><label class="block text-xs text-slate-600" for="template-gap_top">Top</label>
+          <div><label class="block text-xs text-ink-2" for="template-gap_top">Top</label>
             <InputNumber input-id="template-gap_top" aria-label="Padding top (px)" v-model="form.gap_top" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-gap_bottom">Bottom</label>
+          <div><label class="block text-xs text-ink-2" for="template-gap_bottom">Bottom</label>
             <InputNumber input-id="template-gap_bottom" aria-label="Padding bottom (px)" v-model="form.gap_bottom" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-gap_left">Left</label>
+          <div><label class="block text-xs text-ink-2" for="template-gap_left">Left</label>
             <InputNumber input-id="template-gap_left" aria-label="Padding left (px)" v-model="form.gap_left" class="w-full" /></div>
-          <div><label class="block text-xs text-slate-600" for="template-gap_right">Right</label>
+          <div><label class="block text-xs text-ink-2" for="template-gap_right">Right</label>
             <InputNumber input-id="template-gap_right" aria-label="Padding right (px)" v-model="form.gap_right" class="w-full" /></div>
         </fieldset>
 
@@ -741,8 +741,8 @@ const presetSku = computed(() => {
   gap: 6px;
 }
 .template-dialog .shape-frame {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tds-stage-sunken);
+  border: 1px solid var(--tds-stage-edge);
   border-radius: 8px;
   padding: 12px;
   /* Two labels per row need more breathing room than one. Centred so
@@ -757,15 +757,15 @@ const presetSku = computed(() => {
 }
 .template-dialog .zoomable:hover,
 .template-dialog .zoomable:focus-visible {
-  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tds-stage-accent) 35%, transparent);
   outline: none;
 }
 .template-dialog .zoom-hint {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(15, 23, 42, 0.55);
-  color: #fff;
+  background: color-mix(in srgb, var(--tds-chrome) 55%, transparent);
+  color: var(--tds-chrome-ink);
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -816,10 +816,10 @@ const presetSku = computed(() => {
   padding-right: 4px;
 }
 .zoom-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--tds-edge);
   border-radius: 8px;
   padding: 12px;
-  background: #f8fafc;
+  background: var(--tds-sunken);
   /* Don't let PrimeVue's wider InputNumber children blow the card out of
      the column. ``min-width: 0`` lets flex/grid children shrink properly. */
   min-width: 0;
@@ -827,7 +827,7 @@ const presetSku = computed(() => {
 .zoom-card-title {
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--tds-ink-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin: 0 0 8px;
@@ -835,7 +835,7 @@ const presetSku = computed(() => {
 .zoom-field-label {
   display: block;
   font-size: 11px;
-  color: #475569;
+  color: var(--tds-ink-2);
   margin-bottom: 2px;
 }
 .zoom-shape {
@@ -847,8 +847,9 @@ const presetSku = computed(() => {
   align-items: center;
   justify-content: center;
   background:
-    repeating-conic-gradient(#f1f5f9 0 25%, #ffffff 0 50%) 0 0/24px 24px;
-  border: 1px dashed #cbd5e1;
+    repeating-conic-gradient(var(--tds-stage-muted) 0 25%, var(--tds-stage-sheet) 0 50%) 0 0/24px 24px;
+  color: var(--tds-stage-ink);
+  border: 1px dashed var(--tds-stage-edge-strong);
   border-radius: 8px;
   padding: 16px;
   min-height: 60vh;
@@ -858,7 +859,7 @@ const presetSku = computed(() => {
   max-width: 100%;
   max-height: 80vh;
   image-rendering: pixelated;
-  background: #ffffff;
+  background: var(--tds-stage-sheet);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
 }
 .template-dialog .preview-frame {
@@ -868,8 +869,9 @@ const presetSku = computed(() => {
   align-items: center;
   justify-content: center;
   background:
-    repeating-conic-gradient(#f1f5f9 0 25%, #ffffff 0 50%) 0 0/16px 16px;
-  border: 1px dashed #cbd5e1;
+    repeating-conic-gradient(var(--tds-stage-muted) 0 25%, var(--tds-stage-sheet) 0 50%) 0 0/16px 16px;
+  color: var(--tds-stage-ink);
+  border: 1px dashed var(--tds-stage-edge-strong);
   border-radius: 8px;
   overflow: hidden;
   padding: 8px;
@@ -882,7 +884,7 @@ const presetSku = computed(() => {
   height: auto;
   /* Keep printed pixels crisp at any zoom — these are 1-bit thermal rasters. */
   image-rendering: pixelated;
-  background: #ffffff;
+  background: var(--tds-stage-sheet);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 .template-dialog .preview-spinner {
@@ -896,25 +898,25 @@ const presetSku = computed(() => {
   text-align: center;
 }
 .template-dialog .template-editor { display: grid; gap: 1.25rem; }
-.template-dialog .editor-identity { padding: 1rem 1.25rem; border: 1px solid #dce4ed; border-radius: 12px; background: #fff; }
+.template-dialog .editor-identity { padding: 1rem 1.25rem; border: 1px solid var(--tds-edge); border-radius: 12px; background: var(--tds-surface); }
 .template-dialog .editor-identity legend { margin-bottom: .75rem; }
 .template-dialog .editor-workspace { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-.template-dialog .editor-preview { position: sticky; top: 0; min-width: 0; padding: 1.25rem; border: 1px solid #dbe4eb; border-radius: 14px; background: #edf2f5; }
-.template-dialog .preview-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; color: #536779; font-size: 11px; letter-spacing: .06em; }
+.template-dialog .editor-preview { position: sticky; top: 0; min-width: 0; padding: 1.25rem; border: 1px solid var(--tds-edge); border-radius: 14px; background: var(--tds-sunken); }
+.template-dialog .preview-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; color: var(--tds-ink-3); font-size: 11px; letter-spacing: .06em; }
 .template-dialog .preview-caption span:last-child { font-family: ui-monospace, monospace; letter-spacing: 0; }
 .template-dialog .editor-settings { min-width: 0; display: grid; gap: 1rem; }
-.template-dialog .editor-card { min-width: 0; border: 1px solid #dce4ed; border-radius: 12px; padding: 1.1rem; background: #fff; }
+.template-dialog .editor-card { min-width: 0; border: 1px solid var(--tds-edge); border-radius: 12px; padding: 1.1rem; background: var(--tds-surface); }
 .template-dialog .editor-text { display: grid; gap: 1.5rem; }
 .template-dialog .editor-text legend { margin-bottom: .65rem; }
-.template-dialog .shape-frame { width: 100%; max-width: none; margin: 0; padding: 1rem; background: #fff; box-sizing: border-box; }
+.template-dialog .shape-frame { width: 100%; max-width: none; margin: 0; padding: 1rem; background: var(--tds-stage-sheet); color: var(--tds-stage-ink); box-sizing: border-box; }
 .template-dialog .shape-frame svg { display: block; width: 100%; height: auto; }
 .template-dialog .preview-frame { min-height: 300px; padding: 1rem; }
-.template-dialog .preview-footnote { margin: .8rem 0 0; color: #64748b; text-align: center; font-size: 12px; }
-.template-dialog .printer-ready { color: #047857; font-size: 12px; margin-top: 6px; }
-.template-dialog .printer-setup-note { color: #9a5411; font-size: 12px; margin-top: 6px; line-height: 1.5; }
-.template-dialog .editor-advanced summary { cursor: pointer; font-weight: 600; color: #334155; }
-.template-dialog .editor-advanced summary span { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: #64748b; }
-.template-dialog .editor-advanced summary:focus-visible { outline: 2px solid #059669; outline-offset: 4px; }
+.template-dialog .preview-footnote { margin: .8rem 0 0; color: var(--tds-ink-3); text-align: center; font-size: 12px; }
+.template-dialog .printer-ready { color: var(--tds-ok); font-size: 12px; margin-top: 6px; }
+.template-dialog .printer-setup-note { color: var(--tds-warn); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.template-dialog .editor-advanced summary { cursor: pointer; font-weight: 600; color: var(--tds-ink-2); }
+.template-dialog .editor-advanced summary span { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--tds-ink-3); }
+.template-dialog .editor-advanced summary:focus-visible { outline: 2px solid var(--tds-ok); outline-offset: 4px; }
 .template-dialog .advanced-content { display: grid; gap: 1.25rem; padding-top: 1.5rem; }
 .editor-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .75rem; width: 100%; padding-top: .5rem; }
 @media (max-width: 980px) {
@@ -938,10 +940,10 @@ const presetSku = computed(() => {
 
 <style>
 .workspace-mirror { display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:10px; }
-.workspace-advanced { padding:16px; background:#f8fafc; border:1px solid #dbe4eb; border-radius:10px; }
-.workspace-advanced summary { cursor:pointer; font-size:13px; font-weight:600; color:#475569; padding:4px 0; }
+.workspace-advanced { padding:16px; background:var(--tds-sunken); border:1px solid var(--tds-edge); border-radius:10px; }
+.workspace-advanced summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--tds-ink-2); padding:4px 0; }
 .workspace-advanced[open] summary { margin-bottom:12px; }
-.workspace-draft-note { margin-right:auto; color:#64748b; font-size:12px; text-align:left; }
+.workspace-draft-note { margin-right:auto; color:var(--tds-ink-3); font-size:12px; text-align:left; }
 @media (max-width:900px) { .zoom-controls { max-height:none; overflow:visible; } }
 </style>
 
@@ -957,7 +959,7 @@ const presetSku = computed(() => {
 .zoom-dialog .workspace-toolbar strong { font-size:13px; }
 .zoom-dialog .workspace-toolbar small { font-size:10px; }
 .zoom-dialog .zoom-card { padding:10px; }
-.copy-label-text { color:#0369a1; font-size:11px; margin-top:8px; cursor:pointer; }
+.copy-label-text { color:var(--tds-accent-ink); font-size:11px; margin-top:8px; cursor:pointer; }
 @media(max-width:850px) { .zoom-layout { grid-template-columns:1fr; } }
 </style>
 

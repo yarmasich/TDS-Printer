@@ -110,17 +110,17 @@ function fmt(ts: string | null): string {
 </script>
 
 <template>
-  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
-    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+  <section class="admin-touch bg-surface border border-edge rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-danger my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-ink-2 my-3">Loading…</p>
     <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
 
     <div class="flex items-center justify-between mb-1">
       <h2 class="text-lg font-bold">
-        API keys <span class="text-slate-400">({{ keys.length }})</span>
+        API keys <span class="text-ink-4">({{ keys.length }})</span>
       </h2>
     </div>
-    <p class="text-sm text-slate-500 mb-3">
+    <p class="text-sm text-ink-3 mb-3">
       For external apps to print over <code class="text-xs">POST /api/v1/print</code>
       with an <code class="text-xs">X-API-Key</code> header. Prints land in History
       as <code class="text-xs">api:&lt;name&gt;</code>.
@@ -137,7 +137,7 @@ function fmt(ts: string | null): string {
       <Button :disabled="requests.pending.value.size > 0" label="Create key" :loading="creating" @click="create" />
     </div>
 
-    <p v-if="!keys.length" class="text-sm text-slate-400 italic">
+    <p v-if="!keys.length" class="text-sm text-ink-4 italic">
       No API keys yet.
     </p>
 
@@ -145,20 +145,20 @@ function fmt(ts: string | null): string {
       <li
         v-for="k in keys"
         :key="k.id"
-        class="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"
+        class="flex items-center gap-3 bg-sunken border border-edge rounded-lg px-3 py-2"
       >
         <span
           class="inline-block w-2 h-2 rounded-full shrink-0"
-          :class="k.enabled ? 'bg-emerald-500' : 'bg-slate-300'"
+          :class="k.enabled ? 'bg-ok-solid' : 'bg-edge-strong'"
           :title="k.enabled ? 'Enabled' : 'Disabled'"
         />
         <div class="min-w-0 flex-1">
           <div class="font-medium text-sm truncate">{{ k.name }}</div>
-          <div class="text-xs text-slate-400 font-mono">
+          <div class="text-xs text-ink-4 font-mono">
             {{ k.prefix }}••••••
           </div>
         </div>
-        <div class="text-xs text-slate-400 text-right hidden sm:block">
+        <div class="text-xs text-ink-4 text-right hidden sm:block">
           <div>created {{ fmt(k.created_at) }}</div>
           <div>last used {{ fmt(k.last_used_at) }}</div>
         </div>
@@ -188,18 +188,18 @@ function fmt(ts: string | null): string {
       @update:visible="(v: boolean) => { if (!v) created = null; }"
     >
       <template v-if="created">
-        <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+        <p class="text-sm text-warn bg-warn-soft border border-warn-edge rounded-lg px-3 py-2 mb-3">
           <i class="pi pi-exclamation-triangle mr-1" />
           Copy this key now — it is shown only once and cannot be retrieved later.
         </p>
 
-        <label class="text-xs font-semibold text-slate-500">Key</label>
+        <label class="text-xs font-semibold text-ink-3">Key</label>
         <div class="flex flex-wrap gap-2 mb-4">
           <InputText aria-label="API key" :model-value="created.key" readonly class="flex-1 font-mono text-sm" />
           <Button :disabled="requests.pending.value.size > 0" icon="pi pi-copy" label="Copy" @click="copy(created.key)" />
         </div>
 
-        <label class="text-xs font-semibold text-slate-500">Example request</label>
+        <label class="text-xs font-semibold text-ink-3">Example request</label>
         <pre class="bg-slate-900 text-slate-100 text-xs rounded-lg p-3 overflow-x-auto whitespace-pre">{{ curlExample }}</pre>
         <div class="flex justify-end mt-2">
           <Button :disabled="requests.pending.value.size > 0" icon="pi pi-copy" label="Copy example" text size="small" @click="copy(curlExample)" />

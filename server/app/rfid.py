@@ -136,10 +136,16 @@ def resolve_full_name(code: str | None) -> str:
     return resolve_employee(code).name
 
 
-def project_for_label(session: Session, label: Label | None) -> Project:
+def label_project(session: Session, label: Label | None) -> Project | None:
+    """None whenever the chain to a project is broken, so a batch can report the
+    single unprintable row instead of refusing every row with it."""
     disc = session.get(Discipline, label.discipline_id) if label else None
     hall = session.get(DataHall, disc.data_hall_id) if disc else None
-    project = session.get(Project, hall.project_id) if hall else None
+    return session.get(Project, hall.project_id) if hall else None
+
+
+def project_for_label(session: Session, label: Label | None) -> Project:
+    project = label_project(session, label)
     if project is None:
         raise HTTPException(409, 'Label project is missing; refresh the cart before printing.')
     return project

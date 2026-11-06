@@ -23,9 +23,14 @@ export const useStationAuth = defineStore("station-auth", {
         } else this.station = null;
       } catch (error) {
         if (token && sessionStorage.getItem(STATION_TOKEN_KEY) && token !== sessionStorage.getItem(STATION_TOKEN_KEY)) return;
+        // Offline or 5xx is no answer about station requirements. Claiming one
+        // strands the operator on a sign-in form with no credentials to type,
+        // because the router redirects on `error` and the form hides its way
+        // back. Only a 401 is an answer, and it fails closed.
+        if (!(error instanceof ApiError && error.status === 401)) return;
         this.required = true;
-        if (error instanceof ApiError && error.status === 401) this.logout();
-        this.error = error instanceof Error ? error.message : String(error);
+        this.logout();
+        this.error = error.message;
       }
     },
     async login(username: string, password: string) {
@@ -40,6 +45,9 @@ export const useStationAuth = defineStore("station-auth", {
       for (const scope of ["print", "kiosk"] as const) {
         const cart = useCart(scope);
         cart.revision++;
+        // Hand the print flag to this reset so an in-flight printAll cannot
+        // release it after the next station starts printing.
+        cart.printTicket++;
         cart.items = [];
         cart.loading = false;
         cart.printing = false;
@@ -51,6 +59,9 @@ export const useStationAuth = defineStore("station-auth", {
       sessionStorage.removeItem(STATION_TOKEN_KEY);
       sessionStorage.removeItem("tds-station-id");
       this.station = null;
+      // A stale message keeps the router bouncing to /login; callers that still
+      // need one (a revoked session) set it after signing out.
+      this.error = "";
     },
   },
 });

@@ -152,38 +152,38 @@ function clearCart() {
     class="print-cart-drawer"
   >
     <Button label="Refresh cart" icon="pi pi-refresh" severity="secondary" size="small" :loading="cart.loading" @click="refreshCart" />
-    <p v-if="cart.error" role="alert" class="text-red-700 mt-2">{{ cart.error }}</p>
-    <p class="text-sm text-slate-600 my-3">Only queued labels are sent. Check uncertain labels at the printer before removing or adding them again.</p>
-    <p v-if="!cart.count" class="text-slate-500">Cart is empty.</p>
+    <p v-if="cart.error" role="alert" class="text-danger mt-2">{{ cart.error }}</p>
+    <p class="text-sm text-ink-2 my-3">Only queued labels are sent. Check uncertain labels at the printer before removing or adding them again.</p>
+    <p v-if="!cart.count" class="text-ink-3">Cart is empty.</p>
     <ul v-else class="space-y-2">
       <li
         v-for="item in cart.items"
         :key="item.id"
-        class="bg-slate-50 border border-slate-200 rounded-xl p-3"
+        class="bg-sunken border border-edge rounded-xl p-3"
       >
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold capitalize">{{ item.status }}</p>
-            <p v-if="item.status === 'printing'" class="text-sm text-sky-800">Sending to printer. Wait, then refresh. This label cannot be removed or resent while active.</p>
-            <p v-if="item.status === 'uncertain'" class="text-sm text-amber-800">May have printed. Check the printer before removing this record or adding the label again.</p>
-            <p v-if="item.error" class="text-sm text-red-700">{{ item.error }}</p>
+            <p v-if="item.status === 'printing'" class="text-sm text-accent-ink">Sending to printer. Wait, then refresh. This label cannot be removed or resent while active.</p>
+            <p v-if="item.status === 'uncertain'" class="text-sm text-warn">May have printed. Check the printer before removing this record or adding the label again.</p>
+            <p v-if="item.error" class="text-sm text-danger">{{ item.error }}</p>
             <div class="text-sm font-medium truncate">
               <b>L:</b> {{ (item.left_text || "—").split("\n")[0] }}
             </div>
-            <div class="text-xs text-slate-500 truncate">
+            <div class="text-xs text-ink-3 truncate">
               <b>R:</b> {{ (item.right_text || "—").split("\n")[0] }}
             </div>
             <details class="cart-label-details mt-2">
-              <summary class="flex items-center min-h-12 cursor-pointer text-sm font-semibold text-sky-700">Full label text</summary>
+              <summary class="flex items-center min-h-12 cursor-pointer text-sm font-semibold text-accent-ink">Full label text</summary>
               <dl class="text-sm space-y-2 pb-2">
                 <div><dt class="font-semibold">Left</dt><dd class="whitespace-pre-wrap break-words">{{ item.left_text || "—" }}</dd></div>
                 <div><dt class="font-semibold">Right</dt><dd class="whitespace-pre-wrap break-words">{{ item.right_text || "—" }}</dd></div>
               </dl>
             </details>
-            <div class="text-[11px] text-slate-400 mt-1">
+            <div class="text-[11px] text-ink-4 mt-1">
               {{ item.project_name }} · {{ item.discipline_name }}
               <span v-if="item.template_name">· {{ item.template_name }}</span>
-              <span v-else class="text-red-600">· no template</span>
+              <span v-else class="text-danger">· no template</span>
             </div>
           </div>
           <Button
@@ -230,7 +230,7 @@ function clearCart() {
     @update:visible="(visible) => { if (!visible) closeScan(); }"
     @show="focusScan"
   >
-    <p class="mb-4 text-slate-600">Scan your badge with the reader to identify yourself and print this batch.</p>
+    <p class="mb-4 text-ink-2">Scan your badge with the reader to identify yourself and print this batch.</p>
     <form v-if="scanReady" @submit.prevent="submit">
       <label for="rfid-scan" class="block font-semibold mb-2">RFID badge</label>
       <input
@@ -243,10 +243,10 @@ function clearCart() {
         autocorrect="off"
         :spellcheck="false"
         :disabled="printing"
-        class="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg"
+        class="w-full rounded-lg border border-edge-strong px-4 py-3 text-lg"
         placeholder="Waiting for badge…"
       />
-      <p v-if="submitting" role="status" class="mt-3 text-sky-800">Checking badge and printing… Please wait.</p>
+      <p v-if="submitting" role="status" class="mt-3 text-accent-ink">Checking badge and printing… Please wait.</p>
       <Button
         type="submit"
         label="Verify badge and print"
@@ -257,7 +257,7 @@ function clearCart() {
         :disabled="printing || !scanCode.trim()"
       />
     </form>
-    <p v-if="printError" role="alert" class="mt-3 text-red-700">{{ printError }}</p>
+    <p v-if="printError" role="alert" class="mt-3 text-danger">{{ printError }}</p>
     <template #footer>
       <Button label="Cancel" severity="secondary" size="large" :disabled="printing" @click="closeScan" />
     </template>
@@ -274,9 +274,9 @@ function clearCart() {
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(
     to top,
-    rgba(248, 250, 252, 0.9) 0%,
-    rgba(248, 250, 252, 0.7) 70%,
-    rgba(248, 250, 252, 0) 100%
+    color-mix(in srgb, var(--tds-sunken) 90%, transparent) 0%,
+    color-mix(in srgb, var(--tds-sunken) 70%, transparent) 70%,
+    color-mix(in srgb, var(--tds-sunken) 0%, transparent) 100%
   );
   pointer-events: none;
 }
@@ -288,11 +288,11 @@ function clearCart() {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--tds-surface);
+  border: 1px solid var(--tds-edge);
   border-radius: 999px;
   padding: 8px 12px 8px 18px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 24px var(--tds-shadow-strong);
 }
 .cart-summary {
   display: inline-flex;
@@ -302,21 +302,21 @@ function clearCart() {
   border: 0;
   cursor: pointer;
   font-size: 14px;
-  color: #0f172a;
+  color: var(--tds-ink);
   padding: 4px 6px;
   border-radius: 8px;
 }
 .cart-summary:hover {
-  background: #f1f5f9;
+  background: var(--tds-muted);
 }
 .cart-label-details summary::before { content: '›'; margin-right: 8px; font-size: 20px; }
 .cart-label-details[open] summary::before { transform: rotate(90deg); }
-.cart-label-details summary:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+.cart-label-details summary:focus-visible { outline: 2px solid var(--tds-accent); outline-offset: 2px; }
 .cart-label-details dd { overflow-wrap: anywhere; }
 .cart-summary-count {
   display: inline-block;
-  background: #0284c7;
-  color: white;
+  background: var(--tds-accent-solid);
+  color: var(--tds-accent-solid-ink);
   font-weight: 700;
   border-radius: 999px;
   padding: 1px 8px;

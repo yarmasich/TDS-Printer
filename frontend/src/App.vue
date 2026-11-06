@@ -4,14 +4,17 @@ import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import Toast from "primevue/toast";
 import ConfirmDialog from "primevue/confirmdialog";
 import Button from "primevue/button";
+import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useStationAuth } from "@/stores/stationAuth";
 import { useAuth } from "@/stores/auth";
+import { useTheme } from "@/stores/theme";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuth();
 const stationAuth = useStationAuth();
 auth.load();
+useTheme().load();
 
 const isKiosk = computed(() => Boolean(route.meta.kiosk));
 const isAdminArea = computed(
@@ -73,6 +76,7 @@ function logoutAdmin() {
             class="!text-white hover:!bg-white/10"
             @click="logoutAdmin"
           />
+          <ThemeToggle />
         </nav>
         <div v-if="stationAuth.station && !isAdminArea" class="station-badge flex items-center gap-3 flex-wrap text-sm">
           <span><b>{{ stationAuth.station.display_name }}</b> · {{ stationAuth.station.printer_name }}</span>

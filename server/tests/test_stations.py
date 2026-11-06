@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app.api import cart, stations
+from app.api import cart, printers, stations
 from app.api import print as direct
 from app.auth_admin import create_admin_token
 from app.db import get_session
@@ -234,3 +234,25 @@ def test_running_cart_keeps_printer_and_station_snapshot(client, db):
     logs = session.exec(select(PrintLog)).all()
     assert all(log.station_name == 'First' and log.printer_name == 'P' for log in logs)
     assert client.get('/api/station-auth/me',headers=headers).json()['printer_id'] == other_id
+
+
+CATALOGUE_READS = ['/api/projects', '/api/halls', '/api/disciplines', '/api/reasons',
+                   '/api/auth-names', '/api/printers/1/ping']
+
+
+def test_catalogue_reads_follow_the_cart_gate(client):
+    # The ping pill is rendered by the kiosk for its own printer, so a station
+    # token must pass it; an admin token must keep working for the admin page.
+    with patch.object(printers,'ping_printer',return_value=(True,1.0,'')) as ping:
+        for url in CATALOGUE_READS:
+            assert client.get(url).status_code == 200, url
+        create(client)
+        headers = login(client)
+        for url in CATALOGUE_READS:
+            assert client.get(url).status_code == 401, url
+            assert client.get(url,headers=headers).status_code == 200, url
+            assert client.get(url,headers=admin()).status_code == 200, url
+        assert client.get('/api/printers/1/ping',headers={'Authorization':'Bearer forged'}).status_code == 401
+    # No reachability oracle for an anonymous caller: the rejected and forged
+    # requests never reached a socket, only the three authorized ones did.
+    assert ping.call_count == 3

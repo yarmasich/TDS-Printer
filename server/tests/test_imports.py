@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -7,7 +7,7 @@ from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, select
 from openpyxl import Workbook
 
-from app.models import CartItem, DataHall, Discipline, Import, Label, Project
+from app.models import CLAIM_EXPIRY, CartItem, DataHall, Discipline, Import, Label, Project
 from app.importer import InvalidWorkbookError, scan_labels_dir
 from app.api.projects import delete_discipline, DisciplinePatch, DisciplineIn, create_discipline
 from app.api.imports import delete_import
@@ -88,6 +88,80 @@ def test_deletion_rejects_active_jobs(import_engine, tmp_path, status, operation
             elif operation == 'discipline': delete_discipline(label.discipline_id, session)
             else: scan_labels_dir(session, tmp_path, wipe=True)
         assert exc.value.status_code == 409
+
+def blocked_discipline(session, tmp_path, rows):
+    """One imported label whose cart rows carry the given status/claim pairs."""
+    directory = tree(tmp_path)
+    workbook(directory / 'a.xlsx')
+    scan_labels_dir(session, tmp_path)
+    label = session.exec(select(Label)).one()
+    for status, claimed_at in rows:
+        session.add(CartItem(session_id='tablet', label_id=label.id, status=status, claimed_at=claimed_at))
+    session.commit()
+    return label.discipline_id
+
+def test_blocked_delete_names_the_blocking_items(import_engine, tmp_path):
+    with Session(import_engine) as session:
+        discipline_id = blocked_discipline(session, tmp_path,
+            [('printing', None), ('uncertain', None), ('uncertain', None)])
+        with pytest.raises(HTTPException) as exc:
+            delete_discipline(discipline_id, session)
+        assert exc.value.status_code == 409
+        assert '1 printing' in exc.value.detail and '2 uncertain' in exc.value.detail
+        assert 'force=true' in exc.value.detail
+        assert 'CBL#1.1' not in exc.value.detail
+        assert session.get(Discipline, discipline_id) is not None
+        assert len(session.exec(select(CartItem)).all()) == 3
+
+@pytest.mark.parametrize('claim,clearable', [(None, True), ('stale', True), ('fresh', False)])
+def test_force_clears_settled_blockers_but_never_a_live_print(import_engine, tmp_path, claim, clearable):
+    now = datetime.now(timezone.utc)
+    claimed_at = {None: None, 'stale': now - CLAIM_EXPIRY - timedelta(seconds=1), 'fresh': now}[claim]
+    with Session(import_engine) as session:
+        discipline_id = blocked_discipline(session, tmp_path, [('uncertain', None), ('printing', claimed_at)])
+        if clearable:
+            assert delete_discipline(discipline_id, session, force=True) == {'deleted': discipline_id}
+            assert session.exec(select(CartItem)).all() == []
+            assert session.exec(select(Label)).all() == []
+            assert session.get(Discipline, discipline_id) is None
+            return
+        with pytest.raises(HTTPException) as exc:
+            delete_discipline(discipline_id, session, force=True)
+        assert exc.value.status_code == 409
+        assert 'right now' in exc.value.detail and 'force=true' not in exc.value.detail
+        # Refusing must undo the released uncertain row, not half-clear the cart.
+        assert sorted(row.status for row in session.exec(select(CartItem)).all()) == ['printing', 'uncertain']
+        assert session.get(Discipline, discipline_id) is not None
+
+def test_force_is_opt_in_over_http(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.auth_admin import create_admin_token
+    from app.db import get_session
+    from app.main import app
+    monkeypatch.setenv('ADMIN_USERNAME', 'admin')
+    monkeypatch.setenv('ADMIN_PASSWORD', 'admin-password')
+    monkeypatch.setenv('ADMIN_JWT_SECRET', 'test-secret-with-enough-entropy-123456789')
+    # TestClient serves on another thread, so the DB cannot be in memory.
+    engine = create_engine(f'sqlite:///{tmp_path}/http.db')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        discipline_id = blocked_discipline(session, tmp_path, [('uncertain', None)])
+    def override():
+        with Session(engine) as s:
+            yield s
+    app.dependency_overrides[get_session] = override
+    headers = {'Authorization': 'Bearer ' + create_admin_token('admin')}
+    url = f'/api/disciplines/{discipline_id}'
+    with TestClient(app) as client:
+        assert client.delete(url).status_code == 401
+        blocked = client.delete(url, headers=headers)
+        assert blocked.status_code == 409 and '1 uncertain' in blocked.json()['detail']
+        assert client.delete(url, params={'force': 'true'}, headers=headers).json() == {'deleted': discipline_id}
+    app.dependency_overrides.clear()
+    with Session(engine) as session:
+        assert session.exec(select(CartItem)).all() == []
+        assert session.get(Discipline, discipline_id) is None
+    engine.dispose()
 
 @pytest.mark.parametrize('field', ['name', 'color', 'bundle_mode'])
 def test_patch_rejects_required_null(field):

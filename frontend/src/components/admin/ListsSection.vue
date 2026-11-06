@@ -62,13 +62,13 @@ async function removeOpRequest(id: number) {
 
 <template>
   <div class="admin-touch grid grid-cols-1 md:grid-cols-2 gap-4">
-    <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
-    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+    <section class="admin-touch bg-surface border border-edge rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-danger my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-ink-2 my-3">Loading…</p>
     <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
 
       <h2 class="text-lg font-bold mb-3">
-        Reasons <span class="text-slate-400">({{ reasons.length }})</span>
+        Reasons <span class="text-ink-4">({{ reasons.length }})</span>
       </h2>
       <div class="flex flex-wrap gap-2 mb-3">
         <InputText
@@ -80,12 +80,12 @@ async function removeOpRequest(id: number) {
         />
         <Button :disabled="requests.pending.value.size > 0" label="Add" @click="addReason" />
       </div>
-      <p v-if="!reasons.length && !requests.busy('refresh')" class="text-slate-600">No reasons yet.</p>
+      <p v-if="!reasons.length && !requests.busy('refresh')" class="text-ink-2">No reasons yet.</p>
       <ul class="space-y-1">
         <li
           v-for="r in reasons"
           :key="r.id"
-          class="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5"
+          class="flex justify-between items-center bg-sunken border border-edge rounded-lg px-3 py-1.5"
         >
           <span class="text-sm">{{ r.text }}</span>
           <Button :disabled="requests.pending.value.size > 0"
@@ -100,9 +100,9 @@ async function removeOpRequest(id: number) {
       </ul>
     </section>
 
-    <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+    <section class="bg-surface border border-edge rounded-2xl p-5 shadow-sm">
       <h2 class="text-lg font-bold mb-3">
-        Operators <span class="text-slate-400">({{ ops.length }})</span>
+        Operators <span class="text-ink-4">({{ ops.length }})</span>
       </h2>
       <div class="flex flex-wrap gap-2 mb-3">
         <InputText
@@ -114,12 +114,12 @@ async function removeOpRequest(id: number) {
         />
         <Button :disabled="requests.pending.value.size > 0" label="Add" @click="addOp" />
       </div>
-      <p v-if="!ops.length && !requests.busy('refresh')" class="text-slate-600">No operators yet.</p>
+      <p v-if="!ops.length && !requests.busy('refresh')" class="text-ink-2">No operators yet.</p>
       <ul class="space-y-1">
         <li
           v-for="a in ops"
           :key="a.id"
-          class="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5"
+          class="flex justify-between items-center bg-sunken border border-edge rounded-lg px-3 py-1.5"
         >
           <span class="text-sm">{{ a.name }}</span>
           <Button :disabled="requests.pending.value.size > 0"

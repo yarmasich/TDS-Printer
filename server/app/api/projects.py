@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, delete, func, select
 
 from ..auth_admin import require_admin
+from ..auth_station import require_reader
 from ..db import get_session
 from ..importer import begin_label_mutation, delete_labels
 from ..models import DataHall, Discipline, Import, Label, Printer, Project, Template
@@ -39,7 +40,7 @@ class ProjectIn(NamedInput):
     name: str
 
 
-@router.get("/projects", response_model=List[Project])
+@router.get("/projects", response_model=List[Project], dependencies=[Depends(require_reader)])
 def list_projects(session: Session = Depends(get_session)) -> List[Project]:
     return session.exec(select(Project).order_by(Project.name)).all()
 
@@ -95,7 +96,7 @@ class HallIn(NamedInput):
     name: str
 
 
-@router.get("/halls", response_model=List[DataHall])
+@router.get("/halls", response_model=List[DataHall], dependencies=[Depends(require_reader)])
 def list_halls(
     project_id: Optional[int] = None,
     session: Session = Depends(get_session),
@@ -178,7 +179,7 @@ class DisciplineDTO(BaseModel):
     bundle_mode: bool = False
 
 
-@router.get("/disciplines", response_model=List[DisciplineDTO])
+@router.get("/disciplines", response_model=List[DisciplineDTO], dependencies=[Depends(require_reader)])
 def list_disciplines(
     data_hall_id: Optional[int] = None,
     project_id: Optional[int] = None,
@@ -264,14 +265,22 @@ def update_discipline(
 
 @router.delete("/disciplines/{discipline_id}", dependencies=[Depends(require_admin)])
 def delete_discipline(
-    discipline_id: int, session: Session = Depends(get_session)
+    discipline_id: int, session: Session = Depends(get_session), force: bool = False
 ) -> dict:
     try:
         begin_label_mutation(session)
         d = session.get(Discipline, discipline_id)
         if not d:
             raise HTTPException(404, "Discipline not found")
-        _delete_discipline(session, d)
+        try:
+            _delete_discipline(session, d, force=force)
+        except HTTPException as exc:
+            # A blocking cart belongs to one tablet and admins cannot reach it,
+            # so point at the escape hatch — only this route offers it.
+            if exc.status_code == 409 and not force:
+                raise HTTPException(409, f"{exc.detail} Delete again with force=true "
+                                         "to clear the items that are no longer in flight.") from None
+            raise
         _commit(session)
         return {"deleted": discipline_id}
     except Exception:
@@ -279,8 +288,8 @@ def delete_discipline(
         raise
 
 
-def _delete_discipline(session: Session, d: Discipline) -> None:
-    delete_labels(session, Label.discipline_id == d.id)
+def _delete_discipline(session: Session, d: Discipline, *, force: bool = False) -> None:
+    delete_labels(session, Label.discipline_id == d.id, force=force)
     session.exec(delete(Import).where(Import.discipline_id == d.id))
     session.delete(d)
     session.flush()

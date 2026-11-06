@@ -240,7 +240,7 @@ function labelX(n: number): number {
         <span class="dot">·</span>
         <span>{{ COUNT }} per row</span>
       </div>
-      <div class="meta-row text-slate-600">
+      <div class="meta-row text-ink-2">
         <span><span class="swatch print-swatch" /> Print-On {{ formatInMm(spec.print_area_in) }}</span>
         <span class="dot">·</span>
         <span>
@@ -248,7 +248,7 @@ function labelX(n: number): number {
           wraps {{ ((spec.length_in - spec.print_area_in) / 2).toFixed(2) }}″ each side
         </span>
       </div>
-      <div class="meta-row text-slate-500">{{ spec.wire_range }}</div>
+      <div class="meta-row text-ink-3">{{ spec.wire_range }}</div>
     </div>
   </div>
 </template>
@@ -263,6 +263,8 @@ function labelX(n: number): number {
 .shape-canvas {
   position: relative;
   width: 100%;
+  background: var(--tds-stage-sheet);
+  color: var(--tds-stage-ink);
 }
 .shape-svg {
   width: 100%;
@@ -275,14 +277,14 @@ function labelX(n: number): number {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(248, 250, 252, 0.5);
+  background: color-mix(in srgb, var(--tds-stage-sunken) 50%, transparent);
   z-index: 1;
 }
 .shape-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #cbd5e1;
-  border-top-color: #0284c7;
+  border: 3px solid var(--tds-stage-edge-strong);
+  border-top-color: var(--tds-stage-accent);
   border-radius: 50%;
   animation: shape-spin 0.9s linear infinite;
 }
@@ -297,7 +299,7 @@ function labelX(n: number): number {
   flex-wrap: wrap;
 }
 .dot {
-  color: #94a3b8;
+  color: var(--tds-ink-4);
 }
 .swatch {
   display: inline-block;
@@ -308,17 +310,17 @@ function labelX(n: number): number {
   vertical-align: -1px;
 }
 .print-swatch {
-  background: #ffffff;
-  border: 1.5px dashed #0284c7;
+  background: var(--tds-stage-sheet);
+  border: 1.5px dashed var(--tds-stage-accent);
 }
 .wrap-swatch {
   background:
     repeating-linear-gradient(
       45deg,
-      transparent 0 2px,
-      #475569 2px 3px
+      var(--tds-stage-sheet) 0 2px,
+      var(--tds-stage-ink-2) 2px 3px
     );
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--tds-stage-edge-strong);
 }
 @keyframes shape-spin {
   to { transform: rotate(360deg); }

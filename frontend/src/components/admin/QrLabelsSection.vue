@@ -106,10 +106,10 @@ function nextLabel() {
 </script>
 
 <template>
-  <section class="qr-workspace bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="qr-workspace bg-surface border border-edge rounded-2xl p-5 shadow-sm">
     <h2 class="text-2xl font-bold">QR labels</h2>
-    <p class="text-slate-600 mt-2">Brother QL-1110NWBc · one label per request. Select the roll physically loaded in the printer.</p>
-    <p v-if="loadError" role="alert" class="text-red-700 mt-3">{{ loadError }}</p>
+    <p class="text-ink-2 mt-2">Brother QL-1110NWBc · one label per request. Select the roll physically loaded in the printer.</p>
+    <p v-if="loadError" role="alert" class="text-danger mt-3">{{ loadError }}</p>
     <p v-if="!printers.length" class="mt-3">Add a QL-1110NWBc in Printers to begin.</p>
     <form @submit.prevent="preview">
       <fieldset :disabled="busy || activeIntent" class="qr-fields">
@@ -121,34 +121,34 @@ function nextLabel() {
         <label>Description (optional)<input v-model="form.description" maxlength="240" /></label>
         <label class="qr-wide">Source reference (optional, history only)<input v-model="form.reference" maxlength="200" /></label>
       </fieldset>
-      <p class="text-sm text-slate-500 mt-3">Configured defaults: {{ configuredDefaults.media }} · {{ configuredDefaults.length_mm }} mm. Confirm the loaded roll before printing.</p>
+      <p class="text-sm text-ink-3 mt-3">Configured defaults: {{ configuredDefaults.media }} · {{ configuredDefaults.length_mm }} mm. Confirm the loaded roll before printing.</p>
       <div class="flex flex-wrap gap-3 mt-4">
         <Button type="submit" label="Preview label" icon="pi pi-eye" :disabled="busy || !form.printer_id || !form.scan" />
         <Button type="button" :label="activeIntent ? 'Check same request' : 'Send one label'" icon="pi pi-print" :disabled="!canSend" :loading="busy" @click="send" />
       </div>
     </form>
-    <p v-if="error" role="alert" class="text-red-700 mt-4">{{ error }}</p>
-    <p v-if="message" role="status" class="text-slate-700 mt-4">{{ message }}</p>
+    <p v-if="error" role="alert" class="text-danger mt-4">{{ error }}</p>
+    <p v-if="message" role="status" class="text-ink-2 mt-4">{{ message }}</p>
     <div v-if="activeIntent" class="qr-next">
       <label v-if="needsCheck" class="qr-check"><input v-model="checked" type="checkbox" />I checked the physical label and want to start a new label or another copy.</label>
       <Button label="Start new attempt" severity="secondary" :disabled="busy || (needsCheck && !checked)" @click="nextLabel" />
     </div>
     <figure v-if="image" class="qr-preview"><img :src="image" alt="QR label preview" /><figcaption>{{ form.media }} · {{ form.length_mm }} mm long · cut after label</figcaption></figure>
-    <p class="text-sm text-slate-500 mt-4">Sent means data was transferred. Loaded media and physical output are not confirmed automatically. Before use, disable the old FloorHub relay for this printer so only TDS-Printer controls it.</p>
+    <p class="text-sm text-ink-3 mt-4">Sent means data was transferred. Loaded media and physical output are not confirmed automatically. Before use, disable the old FloorHub relay for this printer so only TDS-Printer controls it.</p>
   </section>
 </template>
 
 <style scoped>
 .qr-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:24px; min-width:0; }
 .qr-fields label { display:flex; flex-direction:column; gap:6px; font-size:14px; font-weight:600; min-width:0; }
-.qr-fields input,.qr-fields select { width:100%; min-width:0; min-height:44px; padding:10px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; font-size:16px; }
-.qr-fields input:focus-visible,.qr-fields select:focus-visible { outline:2px solid #0284c7; outline-offset:2px; }
+.qr-fields input,.qr-fields select { width:100%; min-width:0; min-height:44px; padding:10px; border:1px solid var(--tds-edge-strong); border-radius:6px; background:var(--tds-surface); color:var(--tds-ink); font-size:16px; }
+.qr-fields input:focus-visible,.qr-fields select:focus-visible { outline:2px solid var(--tds-accent); outline-offset:2px; }
 .qr-wide { grid-column:1/-1; }
 .qr-next { display:grid; gap:12px; margin-top:20px; }
 .qr-check { display:flex; align-items:center; gap:10px; min-height:44px; }
 .qr-check input { width:20px; height:20px; }
-.qr-preview { margin:24px 0 0; padding:16px; background:#f1f5f9; border:1px solid #e2e8f0; }
+.qr-preview { margin:24px 0 0; padding:16px; background:var(--tds-stage-muted); color:var(--tds-stage-ink); border:1px solid var(--tds-stage-edge); }
 .qr-preview img { display:block; max-width:100%; max-height:560px; width:auto; margin:auto; image-rendering:pixelated; }
-.qr-preview figcaption { margin-top:12px; text-align:center; color:#475569; font-size:14px; }
+.qr-preview figcaption { margin-top:12px; text-align:center; color:var(--tds-stage-ink-2); font-size:14px; }
 @media(max-width:640px) { .qr-fields { grid-template-columns:1fr; } }
 </style>

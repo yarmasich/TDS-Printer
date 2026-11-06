@@ -1,13 +1,19 @@
-/* Split Tailwind v4 into its three sub-imports so we can inject
-   PrimeVue's `primevue` layer between Tailwind's preflight (`base`)
-   and `utilities`. Without this split, Safari ends up applying
-   preflight on top of PrimeVue's overlay styles (Dialog, Toast,
-   ConfirmDialog) and they render unpositioned. */
+/* Split Tailwind v4 into its three sub-imports so PrimeVue's generated CSS can
+   sit in its own layer between Tailwind's preflight (`base`) and `utilities`;
+   `main.ts` passes the matching `cssLayer.order` to PrimeVue.
+   Load-bearing detail: `@tailwindcss/postcss` does not emit this statement into
+   the build, so there the order comes from the order the `@layer` blocks
+   appear. The `layer(primevue)` import below is the only thing that emits a
+   `primevue` block, and it emits it between preflight and utilities. Move or
+   drop that import and PrimeVue's runtime-injected `@layer primevue {}` is
+   created last, after `utilities`, and PrimeVue's theme starts winning over
+   Tailwind utility classes. */
 @layer theme, base, primevue, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
+/* Fixes primeicons' font paths — and anchors the `primevue` layer, see above. */
 @import "./primeicons-font-face.css" layer(primevue);
 
 /* Sensible defaults for kiosk landscape display */
@@ -24,63 +30,83 @@ body {
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-/*
- * Tailwind preflight can break PrimeVue teleports on iOS/tablet: masks sit
- * over the page but mis-sized, so taps only land in a corner. Force
- * overlay positioning and never let closed masks eat touches.
- */
-.p-dialog-mask,
-.p-drawer-mask,
-.p-toast {
-  position: fixed !important;
-}
+/* ===========================================================================
+   PrimeVue overrides — read this before editing a `.p-` rule.
+   Verified against primevue 4.5.5 · @primeuix/themes 1.2.5 · tailwindcss 4.3.0
 
-/*
- * Anchored overlays (Select, etc.) must stay `absolute` so PrimeVue's
- * document-relative positioning lines them up under the trigger. Forcing
- * `fixed` reinterprets those coords against the viewport, so on a scrolled
- * page the panel detaches and floats over the content below.
- */
-.p-select-overlay,
-.p-connected-overlay {
-  position: absolute !important;
-}
+   Why the layer config above is not the whole story, and what `!important` is
+   for here: the rules below are deliberately UNLAYERED, and unlayered author
+   rules outrank every layer, so none of them needs `!important` to beat
+   PrimeVue's theme or a Tailwind utility. `!important` buys exactly one thing —
+   it beats an inline `style` attribute, which is what PrimeVue's `sx()` helper
+   writes (each component's `style/index.mjs` exports `inlineStyles`) and the
+   one author declaration an unlayered rule cannot outrank.
 
-/* PrimeVue manages overlay stacking dynamically, including nested dialogs. */
+   Never add an anchored overlay (`.p-select-overlay`, `.p-popover`, …) to a
+   `position` override: `absolutePosition()` in `@primeuix/utils/dom` writes a
+   document-relative `top` (viewport top + window scroll) and leaves `position`
+   alone. Forcing `fixed` makes the browser re-read that number against the
+   viewport, so on a scrolled page the panel detaches and floats over the
+   content below.
 
-.p-dialog-mask,
-.p-drawer-mask {
+   ON UPGRADE run this from `frontend/`. Anything it prints names a selector
+   below that has gone dead — the failure these rules otherwise hide, because
+   dead CSS raises nothing, anywhere:
+
+     for s in p-dialog-mask p-drawer-mask p-confirmdialog \
+              p-dialog-content p-dialog-footer; do
+       grep -rqF "$s" node_modules/primevue node_modules/@primeuix/styles \
+         || echo "STALE: $s"
+     done
+
+   Then rebuild and grep `dist/assets/index-*.css` for those class names: a
+   rule that is here but not there has been eaten, and nothing will say so.
+   (Keep shell globs out of these comments — a star directly before a slash
+   closes the comment and the parser silently swallows the next rule. That is
+   how this very block ate the mask rule once.)
+   =========================================================================== */
+
+/* A mask leaves the DOM only via Vue's after-leave hook (`Dialog.onAfterLeave`
+   sets `containerVisible = false`), which waits on the close animation's
+   `animationend`. On a tablet suspended or backgrounded mid-close that event
+   never arrives: the mask stays, keeps its inline `position: fixed;
+   width: 100%; height: 100%; pointer-events: auto`, and swallows every tap on
+   the kiosk with no error anywhere. A stranded mask is the one holding no
+   element — PrimeVue renders the overlay as the mask's only child, inside a
+   `<Transition>` that leaves just a comment node once `visible` flips false.
+   So: empty mask means inert. A live mask is left to PrimeVue's own inline
+   `pointer-events`, already correct for modal (`auto`, which `dismissable-mask`
+   needs) and non-modal (`none`, so the page behind stays usable).
+   Fails safe both ways: if `:has()` is unavailable, or these class names are
+   renamed, the selector stops matching and behaviour reverts to stock PrimeVue
+   rather than to a permanently inert mask. */
+.p-dialog-mask:not(:has(*)),
+.p-drawer-mask:not(:has(*)) {
   pointer-events: none !important;
 }
 
-.p-dialog-mask:has([role="dialog"]),
-.p-drawer-mask:has([role="dialog"]),
-.p-drawer-mask:has([role="complementary"]) {
-  pointer-events: auto !important;
-}
-
-.p-select-overlay,
-.p-connected-overlay {
-  pointer-events: auto !important;
-}
-
-/* ConfirmDialog shrinks to button width without a min-width. */
+/* ConfirmDialog ships no width — `@primeuix/styles/confirmdialog` styles only
+   the content gap and the icon, and `.p-dialog` sets only `max-height` — so it
+   shrinks to its footer buttons. `.tds-confirm-dialog` is our own class from
+   App.vue, which ConfirmDialog forwards onto the same element that carries
+   `p-confirmdialog`: it keeps these three rules alive through a PrimeVue
+   root-class rename. `!important` is for an inline `:style` on
+   `<ConfirmDialog>`, per the header. */
 .p-confirmdialog,
-.p-dialog.tds-confirm-dialog,
-.tds-confirm-dialog.p-dialog {
+.tds-confirm-dialog {
   width: min(26rem, 92vw) !important;
   max-width: 92vw;
 }
 
 .p-confirmdialog .p-dialog-content,
-.p-dialog.tds-confirm-dialog .p-dialog-content {
+.tds-confirm-dialog .p-dialog-content {
   padding: 1.25rem 1.5rem 0.75rem;
   font-size: 1rem;
   line-height: 1.5;
 }
 
 .p-confirmdialog .p-dialog-footer,
-.p-dialog.tds-confirm-dialog .p-dialog-footer {
+.tds-confirm-dialog .p-dialog-footer {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -88,4 +114,231 @@ body {
   padding: 0 1.5rem 1.25rem;
 }
 
-/* PrimeVue's preset styling will live alongside Tailwind utilities. */
+/* Dropped in this pass, with the evidence, so nobody re-adds them blind.
+   Each bullet is `selector` — why it is gone.
+
+   `.p-dialog-mask, .p-drawer-mask, .p-toast { position: fixed !important }` —
+   PrimeVue writes `position: fixed` into these elements' inline `style`
+   attribute (`inlineStyles.mask` / `inlineStyles.root`, identical in 4.2.5 and
+   4.5.5), and a modal mask also gets it from `.p-overlay-mask` in
+   `@primeuix/styles/base`. An inline declaration already outranks every
+   stylesheet rule in every layer, so preflight never had a say — its only
+   `position` declaration is `sub, sup { position: relative }`. If a mask ever
+   does render unpositioned, that one line is the fix.
+
+   `.p-select-overlay { position: absolute !important }` —
+   `@primeuix/styles/select` already declares `.p-select-overlay { position:
+   absolute }` and nothing contests it: no other author rule in the emitted CSS
+   sets `position` on a `.p-` overlay class.
+
+   `.p-select-overlay { pointer-events: auto !important }` — Select overlays
+   teleport to `<body>` (`appendTo` default), so they are siblings of any mask,
+   never descendants of one.
+
+   `.p-connected-overlay { … }` — never an applied class. In 4.2.5 it was a Vue
+   `<Transition name>` (Vue applies `<name>-enter-from` and friends, never the
+   bare name) and 4.5.5 renamed it to `p-anchored-overlay`. It matched nothing,
+   silently, which is the failure the header above exists to stop.
+
+   `.p-drawer-mask:has([role="complementary"])` — Drawer uses that role only
+   when `:modal="false"`, where PrimeVue deliberately makes the mask inert so
+   the page behind stays usable. Forcing `pointer-events: auto` there turns an
+   invisible full-viewport backdrop into a tap sink. No non-modal overlay
+   exists in this app, so it only ever armed a trap. */
+
+/* ===========================================================================
+   Theme tokens — single source of truth for every app colour.
+
+   Two families, and the split is the whole design:
+
+   `--tds-*` FLIP with the theme. Everything that is app chrome — cards, page,
+   borders, body copy, status tints — lives here.
+
+   `--tds-stage-*` DO NOT flip. They paint the "light table": the surfaces that
+   hold a rendering of a physical label. A label is black ink on white stock, so
+   inverting its preview would lie about what comes out of the printer. Instead
+   the label stays on a light plate that sits *inside* the dark card, the way a
+   real label sits under a lamp. Everything drawn on that plate (SVG annotation
+   text, dimension readouts, dashed print-area guides) must therefore also come
+   from this family — reach for a flipping token there and it vanishes in one
+   theme. `--tds-selected-*` is invariant for the same reason: it is a
+   saturated state colour that reads on both backgrounds.
+
+   Raw hex belongs in neither: in a `.vue` file it is invisible to this file and
+   silently light-only. The one sanctioned exception is a hex *inside* an SVG
+   that draws label stock (`StickerPreview.vue`, `PrintWorkspace.vue`,
+   `LabelShape.vue`, `data/panduit.ts` material colours) — those are physical
+   material colours, not theme choices.
+
+   Contrast: every pair these tokens can produce is enumerated and computed in
+   the report for this change. The dark values are chosen to clear WCAG AA
+   (4.5:1 body text, 3:1 informational boundaries); light values are unchanged
+   from what was hardcoded before, pre-existing shortfalls included.
+   =========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  --tds-surface: #ffffff;
+  --tds-surface-hover: #f8fafc;
+  --tds-sunken: #f8fafc;
+  --tds-muted: #f1f5f9;
+  --tds-edge: #e2e8f0;
+  --tds-edge-strong: #cbd5e1;
+
+  --tds-ink: #0f172a;
+  --tds-ink-2: #475569;
+  --tds-ink-3: #64748b;
+  --tds-ink-4: #94a3b8;
+
+  --tds-accent: #0284c7;
+  --tds-accent-ink: #0369a1;
+  /* A filled accent pill; its ink flips because the fill brightens in dark. */
+  --tds-accent-solid: #0284c7;
+  --tds-accent-solid-ink: #ffffff;
+  --tds-accent-soft: #f0f9ff;
+  --tds-accent-soft-hover: #e0f2fe;
+  --tds-accent-edge: #9dc8df;
+
+  --tds-danger: #b91c1c;
+  --tds-danger-soft: #fef2f2;
+  --tds-danger-edge: #fecaca;
+
+  --tds-warn: #92400e;
+  --tds-warn-soft: #fffbeb;
+  --tds-warn-edge: #fde68a;
+
+  --tds-ok: #047857;
+  --tds-ok-soft: #d1fae5;
+  --tds-ok-solid: #10b981;
+
+  --tds-badge: #6d28d9;
+  --tds-badge-soft: #ede9fe;
+
+  --tds-shadow-soft: rgb(30 41 59 / 0.02);
+  --tds-shadow: rgb(15 23 42 / 0.08);
+  --tds-shadow-strong: rgb(15 23 42 / 0.12);
+
+  /* Invariant: the app's dark chrome (header bar, kiosk bar, code block).
+     Already dark in light mode, so it needs no second set of values — and
+     anything placed on it must take its ink from here, not from --tds-ink. */
+  --tds-chrome: #0f172a;
+  --tds-chrome-to: #1e3a5f;
+  --tds-chrome-ink: #ffffff;
+  --tds-chrome-warn: #fecaca;
+
+  /* Invariant: the label light table and the saturated selected state. */
+  --tds-stage: #edf2f5;
+  --tds-stage-sheet: #ffffff;
+  --tds-stage-sunken: #f5f8fa;
+  --tds-stage-muted: #f1f5f9;
+  --tds-stage-edge: #e5ebf0;
+  --tds-stage-edge-strong: #cbd5df;
+  --tds-stage-ink: #334155;
+  --tds-stage-ink-2: #475569;
+  --tds-stage-ink-3: #637789;
+  --tds-stage-accent: #0284c7;
+  --tds-stage-accent-ink: #0369a1;
+  --tds-stage-accent-soft: #eff7fb;
+  --tds-stage-accent-edge: #9dc8df;
+  --tds-selected: #ea580c;
+  --tds-selected-edge: #c2410c;
+  --tds-selected-ink: #ffffff;
+}
+
+/* Unlayered on purpose, like the `.p-*` rules above: `@theme`'s `:root` lands
+   in the `theme` layer, and only an unlayered rule reliably outranks it.
+   `color-scheme` is load-bearing, not cosmetic — it is what turns native
+   scrollbars, date pickers and `<select>` popups dark. */
+.tds-dark {
+  color-scheme: dark;
+
+  /* Matches the PrimeVue dark surface ramp configured in `main.ts`:
+     card = slate.900, form field and page = slate.950, border = slate.700. */
+  --tds-surface: #0f172a;
+  --tds-surface-hover: #1e293b;
+  --tds-sunken: #020617;
+  --tds-muted: #1e293b;
+  --tds-edge: #334155;
+  --tds-edge-strong: #64748b;
+
+  --tds-ink: #f8fafc;
+  --tds-ink-2: #cbd5e1;
+  --tds-ink-3: #94a3b8;
+  --tds-ink-4: #8b9bb4;
+
+  --tds-accent: #38bdf8;
+  --tds-accent-ink: #bae6fd;
+  --tds-accent-solid: #38bdf8;
+  --tds-accent-solid-ink: #0f172a;
+  --tds-accent-soft: #0c4a6e;
+  --tds-accent-soft-hover: #075985;
+  --tds-accent-edge: #0284c7;
+
+  --tds-danger: #fca5a5;
+  --tds-danger-soft: #7f1d1d;
+  --tds-danger-edge: #dc2626;
+
+  --tds-warn: #fcd34d;
+  --tds-warn-soft: #78350f;
+  --tds-warn-edge: #b45309;
+
+  --tds-ok: #6ee7b7;
+  --tds-ok-soft: #065f46;
+  --tds-ok-solid: #34d399;
+
+  --tds-badge: #c4b5fd;
+  --tds-badge-soft: #5b21b6;
+
+  /* A dark page swallows a slate-tinted shadow, so the lift has to come from
+     something darker than the surface it falls on. */
+  --tds-shadow-soft: rgb(0 0 0 / 0.35);
+  --tds-shadow: rgb(0 0 0 / 0.5);
+  --tds-shadow-strong: rgb(0 0 0 / 0.65);
+}
+
+/* `inline` substitutes the value into each utility instead of adding a second
+   layer of indirection, so `bg-surface` resolves straight to `var(--tds-*)`
+   and flips with the rule above. It also keeps Tailwind from tree-shaking a
+   token that only a scoped `<style>` block references. */
+@theme inline {
+  --color-surface: var(--tds-surface);
+  --color-surface-hover: var(--tds-surface-hover);
+  --color-sunken: var(--tds-sunken);
+  --color-muted: var(--tds-muted);
+  --color-edge: var(--tds-edge);
+  --color-edge-strong: var(--tds-edge-strong);
+  --color-ink: var(--tds-ink);
+  --color-ink-2: var(--tds-ink-2);
+  --color-ink-3: var(--tds-ink-3);
+  --color-ink-4: var(--tds-ink-4);
+  --color-accent: var(--tds-accent);
+  --color-accent-ink: var(--tds-accent-ink);
+  --color-accent-soft: var(--tds-accent-soft);
+  --color-accent-soft-hover: var(--tds-accent-soft-hover);
+  --color-accent-edge: var(--tds-accent-edge);
+  --color-danger: var(--tds-danger);
+  --color-danger-soft: var(--tds-danger-soft);
+  --color-danger-edge: var(--tds-danger-edge);
+  --color-warn: var(--tds-warn);
+  --color-warn-soft: var(--tds-warn-soft);
+  --color-warn-edge: var(--tds-warn-edge);
+  --color-ok: var(--tds-ok);
+  --color-ok-soft: var(--tds-ok-soft);
+  --color-ok-solid: var(--tds-ok-solid);
+  --color-badge: var(--tds-badge);
+  --color-badge-soft: var(--tds-badge-soft);
+  --color-selected: var(--tds-selected);
+  /* The `--tds-stage-*` family is deliberately NOT exposed as utilities. A
+     light table only works if its background and its ink come from the same
+     invariant family, and a lone `bg-stage` in a template is how you get a
+     white panel with white text in dark mode. Reach for them via `var()` in
+     the component's own `<style>`, where both ends are visible at once. */
+}
+
+/* Moved off `<body class>` so the resolved theme paints with the stylesheet
+   rather than one frame after Vue mounts. */
+body {
+  background-color: var(--tds-sunken);
+  color: var(--tds-ink);
+}

@@ -27,9 +27,25 @@ export function isStationRequest(path: string): boolean {
   return /^\/api\/(cart(?:[/?]|$)|print(?:[?]|$)|station-auth\/me(?:[?]|$)|labels\/\d+\/preview(?:[?]|$))/.test(path);
 }
 
+/**
+ * Catalogue reads the backend gates with ``require_reader``: a station token
+ * and an admin token are both accepted. The kiosk browser holds only the
+ * former and the admin browser only the latter, so send whichever exists and
+ * prefer the station token when a tablet happens to hold both.
+ */
+export function isSharedReadRequest(path: string): boolean {
+  return /^\/api\/(projects|halls|disciplines|labels|reasons|auth-names)(?:[/?]|$)|^\/api\/printers\/\d+\/ping(?:[?]|$)/.test(
+    path,
+  );
+}
+
 export function requestAuthHeader(path: string): Record<string, string> {
   if (isStationRequest(path)) return stationAuthHeader();
   if (path.startsWith("/api/station-auth/")) return {};
+  if (isSharedReadRequest(path)) {
+    const station = stationAuthHeader();
+    return station.Authorization ? station : adminAuthHeader();
+  }
   return adminAuthHeader();
 }
 
