@@ -1,4 +1,4 @@
-"""Read-only Brother SNMP snapshots. Never touches the raster/printing socket.
+"""Read-only Brother and Panduit SNMP snapshots. Never touches the raster/printing socket.
 
 Brother developer FAQ specifies this fixed OID for QL-1110NWB. Its octet value
 uses the ESC/P reference docp100367, pp90–91 (not the raster status layout).
@@ -18,6 +18,13 @@ from time import monotonic
 _STATUS_OID = bytes.fromhex('2b06010401930303030901060100')
 # Fixed Printer-MIB prtMarkerLifeCount. A global counter, not a job receipt.
 _COUNTER_OID = bytes.fromhex('2b060102012b0a0201040101')
+# SNMPv2-MIB sysDescr.0 and HOST-RESOURCES-MIB hrDeviceType.1,
+# hrPrinterStatus.1 and hrPrinterDetectedErrorState.1 (RFC 2790).
+_PANDUIT_OIDS = tuple(bytes.fromhex(oid) for oid in (
+    '2b06010201010100', '2b06010201190302010201',
+    '2b06010201190305010101', '2b06010201190305010201',
+))
+_HR_DEVICE_PRINTER = bytes.fromhex('2b0601020119030105')
 _HEADER = bytes.fromhex('802042344430')
 _MODELS = {'QL-1110NWB', 'QL-1110NWBc'}
 _TIMEOUT = 0.5
@@ -87,24 +94,33 @@ class _Reader:
 def _request(request_id, community, oid=_STATUS_OID):
     if oid not in (_STATUS_OID, _COUNTER_OID):
         raise ValueError("Unsupported OID")
-    binding = _tlv(0x30, _tlv(6, oid) + _tlv(5, b''))
-    pdu = _tlv(0xa0, _integer(request_id) + _integer(0) + _integer(0) + _tlv(0x30, binding))
-    return _tlv(0x30, _integer(0) + _tlv(4, community) + pdu)
+    return _get_request(request_id, community, 0, (oid,))
 
 
-def _response(data, request_id, community, oid=_STATUS_OID):
-    if oid not in (_STATUS_OID, _COUNTER_OID):
-        raise ValueError("Unsupported OID")
+def _get_request(request_id, community, version, oids):
+    bindings = b''.join(_tlv(0x30, _tlv(6, oid) + _tlv(5, b'')) for oid in oids)
+    pdu = _tlv(0xa0, _integer(request_id) + _integer(0) + _integer(0) + _tlv(0x30, bindings))
+    return _tlv(0x30, _integer(version) + _tlv(4, community) + pdu)
+
+
+def _response_bindings(data, request_id, community, version):
     if len(data) > 4096:
         raise ValueError('Oversized response')
     outer = _Reader(data)
     message = _Reader(outer.value(0x30)); outer.done()
-    if message.integer() != 0 or message.value(4) != community:
+    if message.integer() != version or message.value(4) != community:
         raise ValueError('Unexpected SNMP identity')
     pdu = _Reader(message.value(0xa2)); message.done()
     if pdu.integer() != request_id or pdu.integer() != 0 or pdu.integer() != 0:
         raise ValueError('SNMP request mismatch or error')
     bindings = _Reader(pdu.value(0x30)); pdu.done()
+    return bindings
+
+
+def _response(data, request_id, community, oid=_STATUS_OID):
+    if oid not in (_STATUS_OID, _COUNTER_OID):
+        raise ValueError("Unsupported OID")
+    bindings = _response_bindings(data, request_id, community, 0)
     binding = _Reader(bindings.value(0x30)); bindings.done()
     if binding.value(6) != oid:
         raise ValueError('Unexpected OID')
@@ -159,11 +175,10 @@ def parse_status(data):
     return result
 
 
-def _probe_value(ip, community, port=161, oid=_STATUS_OID):
+def _exchange(ip, port, request):
     # Numeric configured addresses avoid unbounded DNS resolution in status polling.
     address = ipaddress.ip_address(ip)
     family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
-    request_id = secrets.randbelow(0x7ffffffe) + 1
     deadline = monotonic() + _TIMEOUT
     def remaining():
         budget = deadline - monotonic()
@@ -174,10 +189,51 @@ def _probe_value(ip, community, port=161, oid=_STATUS_OID):
         sock.settimeout(remaining())
         sock.connect((str(address), port))  # Connected UDP accepts only this peer.
         sock.settimeout(remaining())
-        sock.send(_request(request_id, community, oid))
+        sock.send(request)
         sock.settimeout(remaining())
-        packet = sock.recv(4097)
+        return sock.recv(4097)
+
+
+def _probe_value(ip, community, port=161, oid=_STATUS_OID):
+    request_id = secrets.randbelow(0x7ffffffe) + 1
+    packet = _exchange(ip, port, _request(request_id, community, oid))
     return _response(packet, request_id, community, oid)
+
+
+def _panduit_state(status, flags):
+    if status not in range(1, 6) or len(flags) not in (1, 2):
+        return 'unknown'
+    # RFC 2790 numbers bits MSB first. Recognized faults outrank warnings.
+    primary = flags[0]
+    if primary & 0x08:
+        return 'cover_open'
+    if primary & 0x40:
+        return 'no_media'
+    if primary & 0x17:  # No toner/ribbon, jam, offline or service requested.
+        return 'error'
+    if any(flags):
+        return 'unknown'
+    return {3: 'ready', 4: 'busy', 5: 'busy'}.get(status, 'unknown')
+
+
+def _panduit_probe(ip, community, port):
+    request_id = secrets.randbelow(0x7ffffffe) + 1
+    request = _get_request(request_id, community, 1, _PANDUIT_OIDS)
+    packet = _exchange(ip, port, request)
+    bindings = _response_bindings(packet, request_id, community, 1)
+    values = []
+    for oid, tag in zip(_PANDUIT_OIDS, (4, 6, 2, 4)):
+        binding = _Reader(bindings.value(0x30))
+        if binding.value(6) != oid:
+            raise ValueError('Unexpected Panduit OID')
+        values.append(binding.integer() if tag == 2 else binding.value(tag))
+        binding.done()
+    bindings.done()
+    description, device_type, printer_status, flags = values
+    result = _unknown()
+    if description == b'Panduit DP4300H label printer' and device_type == _HR_DEVICE_PRINTER:
+        result['state'] = _panduit_state(printer_status, flags)
+    return result
 
 
 def _probe(ip, community, port=161):
@@ -207,14 +263,23 @@ def print_snapshot(printer):
     return result
 
 
-def device_status(printer_id, ip, model, *, enabled=True, port=161, community_override=None):
-    if model not in _MODELS:
+def device_status(printer_id, ip, model, *, enabled=True, port=161, community_override=None, fresh=False):
+    panduit = model == 'DP4300H'
+    if not panduit and model not in _MODELS:
         return None
     if not enabled:
         return _unknown()
-    community = (community_override if community_override is not None else os.getenv('BROTHER_SNMP_COMMUNITY', 'public')).encode('utf-8')
+    if community_override is None:
+        community_override = 'public' if panduit else os.getenv('BROTHER_SNMP_COMMUNITY', 'public')
+    community = community_override.encode('utf-8')
     if not community or len(community) > 128:
         return _unknown()
+    if panduit and fresh:
+        # A deliberate retry must see a cleared fault even while the UI cache is warm.
+        try:
+            return _panduit_probe(ip, community, port)
+        except (OSError, ValueError, OverflowError):
+            return _unknown()
     key = (printer_id, ip, model, port, community)
     with _lock:
         cached = _cache.get(key)
@@ -226,7 +291,10 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
         _inflight.add(key)
     result = _unknown()
     try:
-        result = _probe(ip, community) if port == 161 else _probe(ip, community, port)
+        if panduit:
+            result = _panduit_probe(ip, community, port)
+        else:
+            result = _probe(ip, community) if port == 161 else _probe(ip, community, port)
     except (OSError, ValueError, OverflowError):
         pass  # Disabled/blocked SNMP is unknown, never a fabricated ready state.
     finally:

@@ -221,3 +221,71 @@ def test_denied_attempt_audit(scope):
         log=s.exec(select(PrintLog)).one()
         assert log.status=='denied' and log.print_purpose=='cable_labels' and log.external_project_id==p
         assert log.error=='policy_missing' and log.printer_ip==''
+
+
+def configure_panduit(scope):
+    client, engine, headers, project, _ = scope
+    with Session(engine) as session:
+        printer = session.get(Printer, 1)
+        printer.model = 'DP4300H'
+        printer.snmp_port = 1161
+        printer.snmp_community = 'test-only-read-community'
+        session.commit()
+    response = client.put(f'/api/v1/integrations/projects/{project}/policy',
+                          headers=headers, json=policy(project))
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize('fault', ['cover_open', 'no_media', 'error'])
+def test_panduit_fault_audited_before_send_and_replayed(scope, fault):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    configure_panduit(scope)
+    with patch.object(scoped_integrations.printer_device_status, 'device_status',
+                      return_value={'state': fault}) as probe, patch.object(integrations, 'render_and_send') as transport:
+        response = send(client, headers, project)
+        assert response.status_code == 400 and response.json()['detail']['code'] == 'printer_fault'
+        probe.assert_called_once_with(1, '192.0.2.1', 'DP4300H', enabled=True, port=1161,
+                                      community_override='test-only-read-community', fresh=True)
+        with Session(engine) as session:
+            log = session.exec(select(PrintLog)).one()
+            assert (log.status, log.error) == ('denied', 'printer_fault')
+        probe.return_value = {'state': 'ready'}
+        replay = send(client, headers, project)
+        assert replay.status_code == 400 and replay.json() == response.json()
+        assert replay.headers['X-Idempotent-Replay'] == 'true'
+        assert probe.call_count == 1
+        transport.assert_not_called()
+        assert send(client, headers, project, token='new-attempt').json()['printed'] == 2
+        assert probe.call_count == 2 and transport.call_count == 2
+
+
+@pytest.mark.parametrize('state', ['busy', 'unknown'])
+def test_panduit_only_probes_for_matched_labels(scope, state):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    configure_panduit(scope)
+    with patch.object(scoped_integrations.printer_device_status, 'device_status',
+                      return_value={'state': state}) as probe, patch.object(integrations, 'render_and_send') as transport:
+        assert send(client, headers, project, token='missing', cables=['99.1']).json()['printed'] == 0
+        probe.assert_not_called()
+        transport.assert_not_called()
+        assert send(client, headers, project).json()['printed'] == 2
+        assert probe.call_count == 1 and transport.call_count == 2
+
+
+def test_scoped_cable_status_uses_saved_config_only_when_requested(scope):
+    client, _, headers, project, _ = scope
+    configure_panduit(scope)
+    path = f'/api/v1/integrations/projects/{project}/printers?purpose=cable_labels'
+    device = scoped_integrations.printer_device_status
+    snapshot = {**device._unknown(), 'state': 'busy'}
+    with patch.object(device, 'device_statuses', return_value={1: snapshot}) as probes, patch.object(
+            scoped_integrations.printer_reachability, 'printer_statuses', return_value={1: True}):
+        assert 'device_status' not in client.get(path, headers=headers).json()['printers'][0]
+        probes.assert_not_called()
+        response = client.get(path + '&ping=true', headers=headers)
+        assert response.json()['printers'][0]['device_status'] == snapshot
+        config, = probes.call_args.args[0]
+        assert config.printer_id == 1 and config.port == 1161 and config.community == 'test-only-read-community'
+        assert config.community not in response.text and config.ip not in response.text

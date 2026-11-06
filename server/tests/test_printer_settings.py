@@ -28,13 +28,15 @@ def setup(tmp_path):
     engine.dispose()
 
 
-def test_secret_round_trip_redaction_and_reset(setup):
+@pytest.mark.parametrize('model,version', [('QL-1110NWBc', '1'), ('DP4300H', '2c')])
+def test_secret_round_trip_redaction_and_reset(setup, model, version):
     client, engine = setup
-    response = client.post('/api/printers', json=dict(name='QR', ip='192.0.2.1', model='QL-1110NWBc', snmp_community=SECRET))
+    response = client.post('/api/printers', json=dict(name='Configured', ip='192.0.2.1', model=model, snmp_community=SECRET))
     assert response.status_code == 200, response.text
     assert SECRET not in response.text and 'snmp_community"' not in response.text
     data = response.json(); pid = data['id']
     assert data['snmp_source'] == 'custom' and data['snmp_community_configured']
+    assert data['snmp_version'] == version
     assert data['qr_media_id'] == 'DK-2246'
     with Session(engine) as session:
         printer = session.get(Printer, pid)
@@ -43,7 +45,7 @@ def test_secret_round_trip_redaction_and_reset(setup):
         assert SECRET not in str(printer)
         assert SECRET not in repr(PrinterInput.model_validate(printer))
         assert not any(k.startswith('snmp') for k in catalog(printer))
-        assert catalog(printer)['qr_defaults'] == {'media_id':'DK-2246', 'label_length_mm':60}
+        assert catalog(printer)['qr_defaults'] == ({'media_id':'DK-2246', 'label_length_mm':60} if model == 'QL-1110NWBc' else None)
     assert client.put(f'/api/printers/{pid}', json={'notes':'changed'}).status_code == 200
     with Session(engine) as session: assert session.get(Printer, pid).snmp_community == SECRET
     for path in ('/api/printers', f'/api/printers/{pid}'):
@@ -51,6 +53,7 @@ def test_secret_round_trip_redaction_and_reset(setup):
     with patch.object(printers, 'ping_printer', return_value=(True, 1, '')), patch.object(status, 'device_status', return_value=status._unknown()) as probe:
         result = client.get(f'/api/printers/{pid}/status')
         assert result.status_code == 200 and SECRET not in result.text
+        assert result.json()['snmp_version'] == version
         assert probe.call_args.kwargs['community_override'] == SECRET
     assert client.put(f'/api/printers/{pid}', json={'snmp_community':None}).json()['snmp_source'] == 'inherited'
     with Session(engine) as session: assert session.get(Printer, pid).snmp_community is None
