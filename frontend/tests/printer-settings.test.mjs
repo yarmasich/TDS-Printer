@@ -32,3 +32,11 @@ test('DK-2246 accepts Brother 104mm media reporting while detecting true roll mi
   assert.equal(printerMediaMismatch('DK-2205', 62, 'die_cut'), true);
   assert.equal(printerMediaMismatch('DK-2205', null, 'unknown'), false);
 });
+
+test('both Panduit H models expose SNMP while QR defaults remain Brother-only', async () => {
+  const {readFile} = await import('node:fs/promises');
+  const view = await readFile(new URL('../src/components/admin/PrintersSection.vue', import.meta.url), 'utf8');
+  assert.match(view, /const panduitSnmp = computed\(\(\) => form\.model === 'DP4300H' \|\| form\.model === 'DP4600H'\)/);
+  assert.match(view, /v-if="selectedBrand === 'brother' \|\| panduitSnmp">\s*<h3[^>]*>Device status/);
+  assert.match(view, /v-if="selectedBrand === 'brother'">\s*<h3[^>]*>QR label defaults/);
+});

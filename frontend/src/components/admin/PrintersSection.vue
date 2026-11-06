@@ -95,6 +95,7 @@ const form = reactive<Omit<Printer, "id">>({
   qr_label_length_mm: 60,
 });
 
+const panduitSnmp = computed(() => form.model === 'DP4300H' || form.model === 'DP4600H');
 const modelOptions = computed(() => modelsForBrand(selectedBrand.value));
 const effectiveSettings = computed(() => selectedModel.value
   ? settingsForModel(selectedModel.value, form)
@@ -474,11 +475,11 @@ async function remove(p: Printer) {
           <label for="printerssection-field-7" class="block text-xs font-bold text-slate-600 mb-1">Notes</label>
           <InputText id="printerssection-field-7" aria-label="Notes" v-model="form.notes" class="w-full" />
         </div>
-        <template v-if="selectedBrand === 'brother' || form.model === 'DP4300H'">
+        <template v-if="selectedBrand === 'brother' || panduitSnmp">
           <h3 class="settings-wide settings-heading">Device status</h3>
           <label class="settings-wide settings-check"><input v-model="form.snmp_enabled" type="checkbox" /> Check printer status using SNMP</label>
           <div><label class="settings-label" for="snmp-port">SNMP UDP port</label><InputNumber input-id="snmp-port" v-model="form.snmp_port" :min="1" :max="65535" :use-grouping="false" :disabled="!form.snmp_enabled" class="w-full" /></div>
-          <div class="settings-note">SNMP {{ form.model === 'DP4300H' ? 'v2c' : 'v1' }} · read-only requests<br />Enable SNMP on the printer separately.</div>
+          <div class="settings-note">SNMP {{ panduitSnmp ? 'v2c' : 'v1' }} · read-only requests<br />Enable SNMP on the printer separately.</div>
           <div><label class="settings-label" for="community-mode">Community</label><select id="community-mode" v-model="communityMode" class="settings-select"><option value="keep">Keep {{ communityConfigured ? 'saved community' : 'server default' }}</option><option value="replace">Replace community</option><option value="reset">Use server default</option></select></div>
           <div v-if="communityMode === 'replace'"><label class="settings-label" for="printer-snmp-replacement">New community</label><InputText id="printer-snmp-replacement" name="printer-snmp-community-replacement" v-model="communityValue" type="password" autocomplete="new-password" class="w-full" /></div>
           <div class="settings-wide settings-status">

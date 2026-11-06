@@ -72,3 +72,35 @@ def test_print_preflight_bypasses_display_cache(monkeypatch):
     assert read()['state'] == 'cover_open'
     assert read(fresh=True)['state'] == 'ready'
     assert exchange.call_count == 2
+
+
+@pytest.mark.parametrize('configured,reported,expected', [
+    ('DP4600H', b'Panduit DP4600H label printer', 'no_media'),
+    ('DP4300H', b'Panduit DP4600H label printer', 'unknown'),
+    ('DP4600H', b'Panduit DP4300H label printer', 'unknown'),
+])
+def test_status_requires_exact_configured_model(monkeypatch, configured, reported, expected):
+    monkeypatch.setattr(device, '_exchange', lambda *args: reply(flags=b'\x40', model=reported))
+    assert device.device_status(9, '192.0.2.4', configured, community_override='sample')['state'] == expected
+
+
+def test_cache_isolated_after_model_change_and_default_community(monkeypatch):
+    monkeypatch.setenv('BROTHER_SNMP_COMMUNITY', 'brother-only')
+    response = reply(model=b'Panduit DP4600H label printer').replace(b'sample', b'public')
+    exchange = MagicMock(return_value=response)
+    monkeypatch.setattr(device, '_exchange', exchange)
+    assert device.device_status(9, '192.0.2.4', 'DP4600H')['state'] == 'ready'
+    assert device.device_status(9, '192.0.2.4', 'DP4300H')['state'] == 'unknown'
+    assert exchange.call_count == 2
+    for call in exchange.call_args_list:
+        assert call.args[2] == device._get_request(123, b'public', 1, device._PANDUIT_OIDS)
+
+
+def test_4600h_unexpected_device_index_and_malformed_fields(monkeypatch):
+    packet = reply(model=b'Panduit DP4600H label printer')
+    index_oid = device._PANDUIT_OIDS[1]
+    for malformed in (packet.replace(index_oid, index_oid[:-1] + b'\x02'),
+                      reply(model=b'Panduit DP4600H label printer', device_type=b'wrong'),
+                      reply(model=b'Panduit DP4600H label printer', flags=b'\x04'*3)):
+        monkeypatch.setattr(device, '_exchange', lambda *args: malformed)
+        assert device.device_status(9, '192.0.2.4', 'DP4600H', community_override='sample', fresh=True)['state'] == 'unknown'
