@@ -11,12 +11,19 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlmodel import Session, func, select
 
-from ..auth_station import OperatorCredentials, resolve_operator
+from ..auth_station import OperatorCredentials, require_reader, resolve_operator
 from ..db import get_session
 from ..models import DataHall, Discipline, Label, Project
-from ..search import cable_query_pattern, parse_batch_query, validate_query
+from ..search import (
+    MAX_PREFILTER_TERMS,
+    cable_query_pattern,
+    like_prefilter,
+    parse_batch_query,
+    validate_query,
+)
 
 router = APIRouter(prefix="/api/labels", tags=["labels"])
 
@@ -49,13 +56,13 @@ class BundleDTO(BaseModel):
     count: int
 
 
-@router.get("/count")
+@router.get("/count", dependencies=[Depends(require_reader)])
 def count(session: Session = Depends(get_session)) -> dict:
     n = session.exec(select(func.count()).select_from(Label)).one()
     return {"labels": n}
 
 
-@router.get("/bundles", response_model=List[BundleDTO])
+@router.get("/bundles", response_model=List[BundleDTO], dependencies=[Depends(require_reader)])
 def bundles(
     discipline_id: int, session: Session = Depends(get_session)
 ) -> List[BundleDTO]:
@@ -71,7 +78,7 @@ def bundles(
     return out
 
 
-@router.get("/by-bundle", response_model=SearchResponse)
+@router.get("/by-bundle", response_model=SearchResponse, dependencies=[Depends(require_reader)])
 def by_bundle(
     discipline_id: int, bundle: str, session: Session = Depends(get_session)
 ) -> SearchResponse:
@@ -93,7 +100,7 @@ def by_bundle(
     return SearchResponse(query=f"BUNDLE #{bundle}", expanded=[], hits=hits, total=len(hits))
 
 
-@router.get("/search", response_model=SearchResponse)
+@router.get("/search", response_model=SearchResponse, dependencies=[Depends(require_reader)])
 def search(
     q: str = Query(..., description="cable id, text, range '45.5-7' or list '45.5,6,7'"),
     project_id: Optional[int] = None,
@@ -107,6 +114,11 @@ def search(
         queries = parse_batch_query(q)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+    patterns = [(single, cable_query_pattern(single))
+                for ok, single in map(validate_query, queries) if ok]
+    if not patterns:
+        return SearchResponse(query=q, expanded=queries, hits=[], total=0, offset=offset)
 
     stmt = select(Label, Discipline, DataHall, Project).join(
         Discipline, Label.discipline_id == Discipline.id
@@ -122,6 +134,16 @@ def search(
     if project_id is not None:
         stmt = stmt.where(Project.id == project_id)
 
+    # Regex matching happens in Python, so keep the rows it never could match
+    # out of the process entirely. The LIKE terms are a superset of the
+    # patterns, which still decide every hit below.
+    terms = list(dict.fromkeys(like_prefilter(single) for single, _ in patterns))
+    if len(terms) <= MAX_PREFILTER_TERMS:
+        stmt = stmt.where(or_(*(
+            column.ilike(term, escape="\\")
+            for term in terms for column in (Label.left_text, Label.right_text)
+        )))
+
     candidates = session.exec(stmt.order_by(Label.id)).all()
 
     # One row → one hit. We OR the matched_left/matched_right flags across
@@ -129,11 +151,7 @@ def search(
     # single hit per cable row that already contains several of the matches.
     matches: dict[int, dict] = {}  # ordered by first appearance
 
-    for single in queries:
-        ok, single = validate_query(single)
-        if not ok:
-            continue
-        pat = cable_query_pattern(single)
+    for _, pat in patterns:
         for label, disc, hall, proj in candidates:
             existing = matches.get(label.id)
             ml = existing["matched_left"] if existing else False

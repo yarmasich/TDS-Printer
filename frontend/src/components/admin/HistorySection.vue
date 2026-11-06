@@ -67,7 +67,7 @@ onBeforeUnmount(()=>{generation++;});
 </script>
 
 <template>
-  <section class="history-section bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="history-section bg-surface border border-edge rounded-2xl p-5 shadow-sm">
     <h2 class="text-2xl font-bold">Print history</h2>
     <p class="history-note">Times are shown in your local time zone. Counts are print attempts / rows (normally a pair of labels), not confirmed physical output.</p>
     <form class="history-filters" @submit.prevent="load">
@@ -78,7 +78,7 @@ onBeforeUnmount(()=>{generation++;});
       <label>Operator (exact name)<input v-model="operator" placeholder="All operators" /></label>
       <Button type="submit" label="Apply / refresh" :loading="loading" :disabled="loading" />
     </form>
-    <p v-if="error" role="alert" class="text-red-700 my-3">{{error}}</p>
+    <p v-if="error" role="alert" class="text-danger my-3">{{error}}</p>
     <div v-if="summary" class="history-counts">
       <div><span>Sent to printer</span><strong>{{summary.totals.sent}}</strong></div>
       <div><span>Errors</span><strong>{{summary.totals.errors}}</strong></div>
@@ -138,21 +138,21 @@ onBeforeUnmount(()=>{generation++;});
 .print-history-table :deep(th:last-child) { width: 20%; }
 .history-section :deep(.p-datatable-tbody > tr > td),
 .history-section :deep(.p-datatable-thead > tr > th) { padding: 14px 12px; font-size: 16px; vertical-align: top; overflow-wrap: anywhere; }
-.history-details summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0369a1; font-size: 14px; }
+.history-details summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--tds-accent-ink); font-size: 14px; }
 .history-details summary::before { content: '›'; font-size: 20px; }
 .history-details[open] summary::before { transform: rotate(90deg); }
-.history-details summary:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+.history-details summary:focus-visible { outline: 2px solid var(--tds-accent); outline-offset: 2px; }
 .history-details dl { display: grid; gap: 10px; margin: 0; padding-bottom: 8px; font-size: 14px; }
-.history-details dt { font-weight: 600; color: #475569; }
+.history-details dt { font-weight: 600; color: var(--tds-ink-2); }
 .history-details dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.history-note { color:#64748b; font-size:14px; margin:8px 0 16px; }
+.history-note { color:var(--tds-ink-3); font-size:14px; margin:8px 0 16px; }
 .history-filters { display:flex; flex-wrap:wrap; align-items:end; gap:12px; }
-.history-filters label { display:flex; flex-direction:column; gap:5px; font-size:14px; color:#475569; min-width:160px; flex:1; }
+.history-filters label { display:flex; flex-direction:column; gap:5px; font-size:14px; color:var(--tds-ink-2); min-width:160px; flex:1; }
 .history-filters label:has(input[type="datetime-local"]) { min-width: min(230px, 100%); flex-basis: 230px; max-width: 100%; }
-.history-filters input,.history-filters select { min-height:44px; border:1px solid #cbd5e1; border-radius:6px; padding:8px; font-size:16px; min-width:0; background:white; }
+.history-filters input,.history-filters select { min-height:44px; border:1px solid var(--tds-edge-strong); border-radius:6px; padding:8px; font-size:16px; min-width:0; background:var(--tds-surface); color:var(--tds-ink); }
 .history-counts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:20px; }
-.history-counts div { padding:14px; border:1px solid #e2e8f0; border-radius:8px; }
-.history-counts span { display:block; font-size:12px; color:#64748b; }
+.history-counts div { padding:14px; border:1px solid var(--tds-edge); border-radius:8px; }
+.history-counts span { display:block; font-size:12px; color:var(--tds-ink-3); }
 .history-counts strong { font-size:24px; font-variant-numeric:tabular-nums; }
 @media(max-width:700px) { .history-counts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:900px) { .history-section :deep(.p-datatable-thead > tr > th), .history-section :deep(.p-datatable-tbody > tr > td) { padding: 12px 8px; font-size: 14px; } }

@@ -253,10 +253,10 @@ async function onAddAllToCart() {
     <!-- ============ Context bar (desktop only) ============ -->
     <header
       v-if="!kiosk"
-      class="bg-white border border-slate-200 rounded-2xl px-5 py-3 shadow-sm flex items-center gap-3 flex-wrap"
+      class="bg-surface border border-edge rounded-2xl px-5 py-3 shadow-sm flex items-center gap-3 flex-wrap"
     >
       <div class="context-filters">
-        <span class="text-xs font-bold text-slate-500 uppercase">Context</span>
+        <span class="text-xs font-bold text-ink-3 uppercase">Context</span>
         <Select
           v-model="selectedProject"
           aria-label="Project"
@@ -286,14 +286,14 @@ async function onAddAllToCart() {
           <template #option="{ option }">
             <span
               v-if="option.data_hall_name"
-              class="text-slate-400"
+              class="text-ink-4"
             >{{ option.data_hall_name }} / </span>{{ option.name }}
           </template>
           <template #value="{ placeholder }">
             <template v-if="currentDiscipline">
               <span
                 v-if="currentDiscipline.data_hall_name"
-                class="text-slate-400"
+                class="text-ink-4"
               >{{ currentDiscipline.data_hall_name }} / </span>{{ currentDiscipline.name }}
             </template>
             <span v-else>{{ placeholder }}</span>
@@ -318,15 +318,15 @@ async function onAddAllToCart() {
 
       <div v-if="currentDiscipline" class="printer-context flex items-center gap-2 text-sm">
         <template v-if="!currentDiscipline.template_id">
-          <span class="text-red-700 font-semibold">
+          <span class="text-danger font-semibold">
             ⚠ no template — printing will fail
           </span>
-          <RouterLink to="/admin" class="text-sky-600 underline">
+          <RouterLink to="/admin" class="text-accent underline">
             Open Admin
           </RouterLink>
         </template>
         <template v-else-if="targetPrinterId">
-          <span class="text-slate-600">Printer:</span>
+          <span class="text-ink-2">Printer:</span>
           <b>{{ targetPrinterName }}</b>
           <PingPill :ping="printerPing" />
         </template>
@@ -335,7 +335,7 @@ async function onAddAllToCart() {
 
     <!-- ============ Hero search ============ -->
     <section
-      class="bg-white border border-slate-200 rounded-2xl shadow-sm"
+      class="bg-surface border border-edge rounded-2xl shadow-sm"
       :class="kiosk ? 'p-4 mx-3 mt-3' : 'p-6'"
     >
       <div v-if="kiosk && currentDiscipline?.bundle_mode" class="mb-4">
@@ -382,23 +382,23 @@ async function onAddAllToCart() {
           label="Find"
           icon="pi pi-search"
           :loading="searching"
-          :size="kiosk ? 'large' : 'large'"
+          size="large"
           class="find-btn"
           @click="doSearch"
         />
       </div>
 
-      <p id="search-help" class="text-sm text-slate-600 mt-3">Search by cable ID or text. Range: <b>45.5-7</b> · List: <b>45.5,6,7</b> · Whole group: <b>20.*</b></p>
-      <p v-if="searchError" role="alert" class="text-red-700 mt-3">Search failed: {{ searchError }}. Try Find again.</p>
-      <p v-if="setupError || projects.disciplineError" role="alert" class="text-red-700 mt-3">Could not load setup: {{ setupError || projects.disciplineError }}. Reload to retry.</p>
-      <p v-if="bundleResource.error.value" role="alert" class="text-red-700 mt-3">Could not load bundles: {{ bundleResource.error.value }}. Choose the discipline again to retry.</p>
-      <p v-if="cart.error" role="alert" class="text-red-700 mt-3">Could not load cart: {{ cart.error }}.</p>
+      <p id="search-help" class="text-sm text-ink-2 mt-3">Search by cable ID or text. Range: <b>45.5-7</b> · List: <b>45.5,6,7</b> · Whole group: <b>20.*</b></p>
+      <p v-if="searchError" role="alert" class="text-danger mt-3">Search failed: {{ searchError }}. Try Find again.</p>
+      <p v-if="setupError || projects.disciplineError" role="alert" class="text-danger mt-3">Could not load setup: {{ setupError || projects.disciplineError }}. Reload to retry.</p>
+      <p v-if="bundleResource.error.value" role="alert" class="text-danger mt-3">Could not load bundles: {{ bundleResource.error.value }}. Choose the discipline again to retry.</p>
+      <p v-if="cart.error" role="alert" class="text-danger mt-3">Could not load cart: {{ cart.error }}.</p>
       <!-- Operator / Reason chips (compact, opt-in) -->
       <div
         class="flex items-center gap-2 mt-4 flex-wrap"
         :class="kiosk ? 'text-base' : 'text-sm'"
       >
-        <span class="text-slate-500">When printing:</span>
+        <span class="text-ink-3">When printing:</span>
         <QuickPickChip
           v-model="operator"
           label="Operator"
@@ -419,17 +419,17 @@ async function onAddAllToCart() {
     <!-- ============ Results / Empty ============ -->
     <section
       v-if="searchResults"
-      class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
+      class="bg-surface border border-edge rounded-2xl p-5 shadow-sm"
       :class="kiosk ? 'mx-3' : ''"
     >
       <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
         <h2 class="text-lg font-bold">
-          <i class="pi pi-list-check text-sky-600 mr-1"></i>
+          <i class="pi pi-list-check text-accent mr-1"></i>
           Results
-          <span class="text-slate-400">({{ searchResults.hits.length }} displayed / {{ searchResults.total }} total)</span>
+          <span class="text-ink-4">({{ searchResults.hits.length }} displayed / {{ searchResults.total }} total)</span>
           <span
             v-if="searchResults.expanded.length > 1"
-            class="text-sm font-normal text-slate-500 ml-2"
+            class="text-sm font-normal text-ink-3 ml-2"
           >
             for {{ searchResults.expanded.join(", ") }}
           </span>
@@ -449,12 +449,12 @@ async function onAddAllToCart() {
           @click="onAddAllToCart"
         />
       </div>
-      <p v-if="searchResults.truncated" class="text-sm text-amber-800 mb-3">Only the displayed labels will be added. Narrow your search to find the remaining matches.</p>
+      <p v-if="searchResults.truncated" class="text-sm text-warn mb-3">Only the displayed labels will be added. Narrow your search to find the remaining matches.</p>
       <button
         v-if="groupSuggestion"
         type="button"
         class="w-full mb-3 flex items-center gap-2 text-left text-sm
-               bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200
+               bg-accent-soft hover:bg-accent-soft-hover text-accent-ink border border-accent-edge
                rounded-xl px-3 py-2 transition-colors"
         @click="searchGroup"
       >
@@ -465,7 +465,7 @@ async function onAddAllToCart() {
         </span>
         <i class="pi pi-arrow-right ml-auto"></i>
       </button>
-      <p v-if="searchResults.hits.length === 0" class="text-slate-500">
+      <p v-if="searchResults.hits.length === 0" class="text-ink-3">
         No matches.
       </p>
       <div v-else class="space-y-3">
@@ -480,17 +480,17 @@ async function onAddAllToCart() {
     </section>
 
     <section v-else class="empty-state" :class="kiosk ? 'mx-3 empty-state--kiosk' : ''">
-      <i class="pi pi-search text-5xl text-slate-300 mb-3"></i>
-      <p class="text-slate-500">
+      <i class="pi pi-search text-5xl text-edge-strong mb-3"></i>
+      <p class="text-ink-3">
         {{
           kiosk
             ? "Type a cable id, range, or list to search."
             : "Pick a project / discipline above and type a cable id to begin."
         }}
       </p>
-      <p v-if="!projects.projects.length" class="text-slate-400 text-sm mt-2">
+      <p v-if="!projects.projects.length" class="text-ink-4 text-sm mt-2">
         No projects yet —
-        <RouterLink to="/admin" class="text-sky-600 underline">
+        <RouterLink to="/admin" class="text-accent underline">
           add one in Admin
         </RouterLink>.
       </p>
@@ -521,17 +521,17 @@ async function onAddAllToCart() {
   align-items: center;
   gap: 10px;
   padding: 6px 10px 6px 18px;
-  border: 2px solid #e2e8f0;
+  border: 2px solid var(--tds-edge);
   border-radius: 16px;
-  background: #f8fafc;
+  background: var(--tds-sunken);
   transition: border-color 0.15s;
 }
 .search-row:focus-within {
-  border-color: #0284c7;
-  background: #ffffff;
+  border-color: var(--tds-accent);
+  background: var(--tds-surface);
 }
 .search-icon {
-  color: #94a3b8;
+  color: var(--tds-ink-4);
   font-size: 18px;
 }
 .search-input {
@@ -550,8 +550,8 @@ async function onAddAllToCart() {
 .empty-state {
   text-align: center;
   padding: 64px 24px;
-  background: #ffffff;
-  border: 1px dashed #cbd5e1;
+  background: var(--tds-surface);
+  border: 1px dashed var(--tds-edge-strong);
   border-radius: 16px;
 }
 

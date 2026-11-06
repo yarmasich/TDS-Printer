@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
+from ..auth_station import require_reader
 from ..db import get_session
 from ..models import AuthName
 
 router = APIRouter(prefix="/api/auth-names", tags=["auth-names"])
 
 
-@router.get("", response_model=List[AuthName])
+@router.get("", response_model=List[AuthName], dependencies=[Depends(require_reader)])
 def list_auth(session: Session = Depends(get_session)) -> List[AuthName]:
     return session.exec(select(AuthName).order_by(AuthName.name)).all()
 

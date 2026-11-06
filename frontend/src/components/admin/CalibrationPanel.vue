@@ -69,13 +69,13 @@ async function save() {
   </details>
 </template>
 <style scoped>
-.calibration-panel { border:1px solid #dbe4ee; border-radius:10px; padding:14px; color:#475569; font-size:12px; }
-summary { cursor:pointer; font-weight:600; } summary span { display:block; color:#64748b; font-size:11px; margin-top:3px; }
+.calibration-panel { border:1px solid var(--tds-edge); border-radius:10px; padding:14px; color:var(--tds-ink-2); font-size:12px; }
+summary { cursor:pointer; font-weight:600; } summary span { display:block; color:var(--tds-ink-3); font-size:11px; margin-top:3px; }
 p, ol { margin:10px 0; line-height:1.5; } ol { padding-left:18px; }
 .calibration-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
-input { display:block; width:100%; border:1px solid #cbd5e1; border-radius:6px; padding:7px; margin-top:5px; }
-button { border:1px solid #cbd5e1; background:white; border-radius:6px; padding:7px 9px; cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
+input { display:block; width:100%; border:1px solid var(--tds-edge-strong); border-radius:6px; padding:7px; margin-top:5px; background:var(--tds-surface); color:var(--tds-ink); }
+button { border:1px solid var(--tds-edge-strong); background:var(--tds-surface); color:var(--tds-ink); border-radius:6px; padding:7px 9px; cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
 .calibration-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
-.calibration-error { color:#b91c1c; } :focus-visible { outline:2px solid #0284c7; outline-offset:2px; }
+.calibration-error { color:var(--tds-danger); } :focus-visible { outline:2px solid var(--tds-accent); outline-offset:2px; }
 @media (pointer: coarse), (max-width:1100px) { button, input { min-height:44px; } summary { min-height:44px; } }
 </style>

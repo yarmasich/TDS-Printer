@@ -55,3 +55,9 @@ test('known model display/save settings normalize stale metadata without mutatin
  assert.deepEqual(saved,{model:'DP4600H',protocol:'epl2',dpi:300});
  assert.equal(Object.hasOwn(settings,'brand'),false);
 });
+
+test('an unrecognised model renders with its stored settings instead of throwing',()=>{
+ assert.deepEqual(settingsForModel('DP9000X',{protocol:'jscript',dpi:600}),{model:'DP9000X',protocol:'jscript',dpi:600});
+ assert.deepEqual(settingsForModel(undefined,{protocol:'epl2',dpi:203}),{model:undefined,protocol:'epl2',dpi:203});
+ assert.equal(isValidPrinterSelection('panduit','DP9000X','jscript',600),false);
+});

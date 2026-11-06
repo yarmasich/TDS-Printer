@@ -6,6 +6,11 @@ test('validation errors show messages without echoed input', async () => {
  const response = new Response(JSON.stringify({detail:[{loc:['body','template'],msg:'Value error, right text area must fit within the bitmap width',input:{name:'private'}}]}),{status:422});
  assert.equal(await readApiError(response), 'right text area must fit within the bitmap width');
 });
+test('structured error details explain themselves without echoing the payload', async () => {
+ const reason = 'QR code does not fit at the minimum module size';
+ assert.equal(await readApiError(new Response(JSON.stringify({detail:{code:'error_not_sent',message:reason}}),{status:400})), reason);
+ assert.equal(await readApiError(new Response(JSON.stringify({detail:{code:'uncertain',input:{password:'secret'}}}),{status:502})), 'Request failed (502).');
+});
 test('non JSON error has readable fallback', async () => {
  assert.equal(await readApiError(new Response('<html>bad gateway</html>',{status:502})), 'Request failed (502).');
 });

@@ -254,15 +254,15 @@ async function remove(p: Printer) {
 </script>
 
 <template>
-  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <section class="admin-touch bg-surface border border-edge rounded-2xl p-5 shadow-sm">
     <Button v-if="requestError" label="Retry loading" @click="refresh" />
-    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
-    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+    <p v-if="requestError" role="alert" class="text-danger my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-ink-2 my-3">Loading…</p>
 
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-lg font-bold">
         Printers
-        <span class="text-slate-400">({{ store.printers.length }})</span>
+        <span class="text-ink-4">({{ store.printers.length }})</span>
       </h2>
       <div class="flex gap-2">
         <Button :disabled="requests.pending.value.size > 0"
@@ -283,9 +283,9 @@ async function remove(p: Printer) {
 
     <div v-if="!requests.busy('refresh') || store.printers.length" class="space-y-6">
       <section v-for="group in printerGroups" :key="group.key" :aria-labelledby="`printers-${group.key}`"
-        class="border-t border-slate-200 pt-4">
-        <h3 :id="`printers-${group.key}`" class="mb-3 text-sm font-semibold text-slate-700">
-          {{ group.title }} <span class="text-slate-400">({{ group.printers.length }})</span>
+        class="border-t border-edge pt-4">
+        <h3 :id="`printers-${group.key}`" class="mb-3 text-sm font-semibold text-ink-2">
+          {{ group.title }} <span class="text-ink-4">({{ group.printers.length }})</span>
         </h3>
         <DataTable
           :value="group.printers"
@@ -309,15 +309,15 @@ async function remove(p: Printer) {
                   class="px-2 py-0.5 rounded text-xs font-mono"
                   :class="
                     data.protocol === 'jscript'
-                      ? 'bg-violet-100 text-violet-700'
-                      : 'bg-slate-100 text-slate-700'
+                      ? 'bg-badge-soft text-badge'
+                      : 'bg-muted text-ink-2'
                   "
                 >
                   {{ data.protocol }}
                 </span>
                 <span
                   v-if="data.protocol !== 'epl2'"
-                  class="px-2 py-0.5 rounded text-xs font-mono bg-slate-100 text-slate-600"
+                  class="px-2 py-0.5 rounded text-xs font-mono bg-muted text-ink-2"
                 >
                   {{ data.dpi ?? 300 }} dpi
                 </span>
@@ -381,22 +381,22 @@ async function remove(p: Printer) {
       <div class="printer-settings-grid">
         <h3 class="settings-wide settings-heading">Connection</h3>
         <div>
-          <label for="printerssection-brand" class="block text-xs font-bold text-slate-600 mb-1">Brand</label>
+          <label for="printerssection-brand" class="block text-xs font-bold text-ink-2 mb-1">Brand</label>
           <Select input-id="printerssection-brand" aria-label="Brand" v-model="selectedBrand" :options="brandOptions"
             option-label="label" option-value="value" placeholder="Select brand" class="w-full" @change="changeBrand" />
         </div>
         <div>
-          <label for="printerssection-field-4" class="block text-xs font-bold text-slate-600 mb-1">Printer model</label>
+          <label for="printerssection-field-4" class="block text-xs font-bold text-ink-2 mb-1">Printer model</label>
           <Select input-id="printerssection-field-4" aria-label="Model" v-model="selectedModel" :options="modelOptions" option-label="label" option-value="value"
             :disabled="!selectedBrand || selectedBrand === 'custom'" :placeholder="selectedBrand ? 'Select printer model' : 'Select brand first'"
             class="w-full" @change="applyModel" />
-          <p v-if="form.model === 'QL-1110NWBc'" class="mt-1 text-xs text-slate-500">
+          <p v-if="form.model === 'QL-1110NWBc'" class="mt-1 text-xs text-ink-3">
             Brother QL raster · 300 dpi. Configure label defaults below.
           </p>
-          <p v-else-if="form.model !== 'custom'" class="mt-1 text-xs text-slate-500">
+          <p v-else-if="form.model !== 'custom'" class="mt-1 text-xs text-ink-3">
             Protocol and native resolution are set by model. Printable width: 105.7 mm per side.
           </p>
-          <p v-if="form.model === 'DP4300HD'" class="mt-2 text-sm text-amber-700">
+          <p v-if="form.model === 'DP4300HD'" class="mt-2 text-sm text-warn">
             Single-sided templates only. Configure the printer for single-sided operation
             (Disable lower head), following the Panduit instructions. This profile does not
             map a template to two separate printheads.
@@ -404,19 +404,19 @@ async function remove(p: Printer) {
         </div>
 
         <div>
-          <label for="printerssection-field-1" class="block text-xs font-bold text-slate-600 mb-1">Name</label>
+          <label for="printerssection-field-1" class="block text-xs font-bold text-ink-2 mb-1">Name</label>
           <InputText id="printerssection-field-1" aria-label="Name" v-model="form.name" class="w-full" />
         </div>
         <div>
-          <label for="printerssection-field-2" class="block text-xs font-bold text-slate-600 mb-1">IP</label>
+          <label for="printerssection-field-2" class="block text-xs font-bold text-ink-2 mb-1">IP</label>
           <InputText id="printerssection-field-2" aria-label="IP address" v-model="form.ip" class="w-full" />
         </div>
         <div>
-          <label for="printerssection-field-3" class="block text-xs font-bold text-slate-600 mb-1">Port</label>
+          <label for="printerssection-field-3" class="block text-xs font-bold text-ink-2 mb-1">Port</label>
           <InputNumber input-id="printerssection-field-3" aria-label="Port" v-model="form.port" :use-grouping="false" class="w-full" />
         </div>
         <div v-if="selectedBrand && selectedModel">
-          <label for="printerssection-field-5" class="block text-xs font-bold text-slate-600 mb-1">
+          <label for="printerssection-field-5" class="block text-xs font-bold text-ink-2 mb-1">
             Protocol
           </label>
           <Select input-id="printerssection-field-5"
@@ -428,25 +428,25 @@ async function remove(p: Printer) {
             option-value="value"
             class="w-full"
           />
-          <p v-if="selectedBrand === 'brother'" class="mt-1 text-xs text-slate-500">
+          <p v-if="selectedBrand === 'brother'" class="mt-1 text-xs text-ink-3">
             Raw TCP printing, normally port 9100.
           </p>
-          <p v-else-if="selectedBrand === 'panduit'" class="mt-1 text-xs text-slate-500">
+          <p v-else-if="selectedBrand === 'panduit'" class="mt-1 text-xs text-ink-3">
             Protocol and native resolution are fixed by the selected Panduit model.
           </p>
-          <p v-else class="mt-1 text-xs text-slate-500">
+          <p v-else class="mt-1 text-xs text-ink-3">
             Select the protocol supported by your printer.
           </p>
-          <p v-if="selectedBrand === 'custom' && form.protocol === 'brother_ql'" role="alert" class="mt-2 text-sm text-red-700">
+          <p v-if="selectedBrand === 'custom' && form.protocol === 'brother_ql'" role="alert" class="mt-2 text-sm text-danger">
             Select a manual protocol, or choose Brother → QL-1110NWBc.
           </p>
         </div>
-        <p v-if="form.model === 'TDP43ME'" class="text-sm text-slate-600">
+        <p v-if="form.model === 'TDP43ME'" class="text-sm text-ink-2">
           Network printing · 300 dpi. Enter this printer’s IP and RAW TCP port (normally 9100).
           Verify alignment with a test label before production printing.
         </p>
         <div v-if="selectedBrand && selectedModel && (effectiveSettings.protocol !== 'epl2' || invalidManualDpi)">
-          <label for="printerssection-field-6" class="block text-xs font-bold text-slate-600 mb-1">
+          <label for="printerssection-field-6" class="block text-xs font-bold text-ink-2 mb-1">
             Printhead resolution
           </label>
           <Select input-id="printerssection-field-6"
@@ -458,21 +458,21 @@ async function remove(p: Printer) {
             option-value="value"
             class="w-full"
           />
-          <p v-if="selectedBrand === 'brother'" class="mt-1 text-xs text-slate-500">
+          <p v-if="selectedBrand === 'brother'" class="mt-1 text-xs text-ink-3">
             QL-1110NWBc uses 300 dpi. QR labels are rendered at this resolution for the selected DK roll.
           </p>
-          <p v-else-if="selectedBrand === 'panduit'" class="mt-1 text-xs text-slate-500">
+          <p v-else-if="selectedBrand === 'panduit'" class="mt-1 text-xs text-ink-3">
             Must match the physical head. DP4600H is 600 dpi — the label is
             rendered at 2× so it prints the same size as a 300-dpi DP4300H.
             Wrong value prints everything half/double size.
           </p>
-          <p v-else class="mt-1 text-xs text-slate-500">Must match the physical printhead resolution.</p>
-          <p v-if="invalidManualDpi" role="alert" class="mt-2 text-sm text-red-700">
+          <p v-else class="mt-1 text-xs text-ink-3">Must match the physical printhead resolution.</p>
+          <p v-if="invalidManualDpi" role="alert" class="mt-2 text-sm text-danger">
             Choose a supported printhead resolution: 203, 300 or 600 dpi.
           </p>
         </div>
         <div>
-          <label for="printerssection-field-7" class="block text-xs font-bold text-slate-600 mb-1">Notes</label>
+          <label for="printerssection-field-7" class="block text-xs font-bold text-ink-2 mb-1">Notes</label>
           <InputText id="printerssection-field-7" aria-label="Notes" v-model="form.notes" class="w-full" />
         </div>
         <template v-if="selectedBrand === 'brother' || panduitSnmp">
@@ -500,7 +500,7 @@ async function remove(p: Printer) {
           <p class="settings-wide settings-note">Defaults for new labels; existing print settings stay unchanged. Configured media does not confirm the roll physically loaded.</p>
         </template>
       </div>
-      <p v-if="requestError" role="alert" class="text-red-700 mt-3">{{ requestError }} — Please try again.</p>
+      <p v-if="requestError" role="alert" class="text-danger mt-3">{{ requestError }} — Please try again.</p>
       <template #footer>
         <Button :disabled="requests.pending.value.size > 0"
           label="Cancel"
@@ -517,14 +517,14 @@ async function remove(p: Printer) {
 .printer-settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; }
 .printer-settings-grid > * { min-width:0; }
 .settings-wide { grid-column:1/-1; }
-.settings-heading { font-size:14px; font-weight:700; margin:8px 0 0; padding-top:14px; border-top:1px solid #e2e8f0; }
+.settings-heading { font-size:14px; font-weight:700; margin:8px 0 0; padding-top:14px; border-top:1px solid var(--tds-edge); }
 .settings-heading:first-child { padding-top:0; border:0; margin-top:0; }
-.settings-label { display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:4px; }
-.settings-select { width:100%; min-height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:8px; background:white; }
-.settings-note { font-size:12px; color:#64748b; line-height:1.5; }
+.settings-label { display:block; font-size:12px; font-weight:700; color:var(--tds-ink-2); margin-bottom:4px; }
+.settings-select { width:100%; min-height:40px; border:1px solid var(--tds-edge-strong); border-radius:6px; padding:8px; background:var(--tds-surface); color:var(--tds-ink); }
+.settings-note { font-size:12px; color:var(--tds-ink-3); line-height:1.5; }
 .settings-check { display:flex; gap:8px; align-items:center; font-size:14px; }
-.settings-status { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:12px; background:#f8fafc; border-radius:6px; font-size:13px; }
-.settings-warning { color:#92400e; width:100%; }
+.settings-status { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:12px; background:var(--tds-sunken); border-radius:6px; font-size:13px; }
+.settings-warning { color:var(--tds-warn); width:100%; }
 @media(max-width:560px) { .printer-settings-grid { grid-template-columns:1fr; } .printer-settings-grid > * { grid-column:1; } }
 
 .printer-group-table :deep(.p-datatable-table-container) { overflow-x: auto; }

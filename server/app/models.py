@@ -12,7 +12,7 @@ given label. Labels are owned by a Discipline.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -213,6 +213,12 @@ class Reason(SQLModel, table=True):
 class AuthName(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
+
+
+# A claim with no progress for this long is an interrupted job, not an active
+# one. Both the cart's own expiry sweep and the admin unblock path read it, so
+# the two can never disagree about which items are still printing.
+CLAIM_EXPIRY = timedelta(minutes=5)
 
 
 class CartItem(SQLModel, table=True):

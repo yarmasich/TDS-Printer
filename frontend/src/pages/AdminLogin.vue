@@ -112,25 +112,25 @@ async function submit() {
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--tds-surface);
+  border: 1px solid var(--tds-edge);
   border-radius: 16px;
   padding: 28px 24px;
-  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 30px var(--tds-shadow);
 }
 
 .login-title {
   margin: 0 0 8px;
   font-size: 24px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--tds-ink);
 }
 
 .login-lead {
   margin: 0 0 20px;
   font-size: 14px;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--tds-ink-3);
 }
 
 .login-label {
@@ -139,7 +139,7 @@ async function submit() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #475569;
+  color: var(--tds-ink-2);
   margin-bottom: 6px;
   margin-top: 14px;
 }
@@ -153,9 +153,9 @@ async function submit() {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.4;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--tds-danger);
+  background: var(--tds-danger-soft);
+  border: 1px solid var(--tds-danger-edge);
   border-radius: 8px;
 }
 
@@ -168,7 +168,7 @@ async function submit() {
   margin-top: 16px;
   text-align: center;
   font-size: 14px;
-  color: #0284c7;
+  color: var(--tds-accent);
   text-decoration: none;
 }
 

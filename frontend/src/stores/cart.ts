@@ -12,6 +12,7 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
     printing: false,
     error: "",
     revision: 0,
+    printTicket: 0,
   }),
   getters: {
     queuedCount: (state) => state.items.filter(i => i.status === "queued").length,
@@ -82,6 +83,7 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
       if (this.hasPrinting) throw new Error("Printing is already active. Wait, then refresh the cart.");
       if (!this.queuedCount) throw new Error("No queued labels. Check uncertain labels at the printer before deciding to print again.");
       this.printing = true;
+      const ticket = ++this.printTicket;
       try {
         return await api.post<PrintAllResult>("/api/cart/print", {
           sid, operator: operator ?? "", reason: reason ?? "",
@@ -96,8 +98,13 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
               item.status = "uncertain";
               item.error = "Could not refresh print status. Refresh the cart and check the printer before printing again.";
             }
-          } finally { if (account === identity()) this.printing = false; }
+          }
         }
+        // A 401 drops the station token before the request rejects, so the station
+        // guard cannot own this local flag — the ticket does. Only the newest
+        // printAll (or a cart reset) releases it, so a stale call cannot unlock a
+        // print the next station started.
+        if (ticket === this.printTicket) this.printing = false;
       }
     },
   },

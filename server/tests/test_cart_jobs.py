@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import event
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import SQLModel, Session, create_engine, delete, select
 
 from app.api import cart
 from app.models import CartItem, DataHall, Discipline, Label, Printer, PrintLog, Project, Template
@@ -122,3 +122,51 @@ def test_orphaned_uncertain_snapshot_remains_visible(db):
     s.add(item); s.commit()
     ident=item.id
     assert any(row.id==ident and row.status=="uncertain" for row in cart.list_cart("sid",s))
+
+
+def drop_row(session, model, ident):
+    """Carts outlive the rows they point at; FK enforcement is bypassed because
+    only history, not today's API, leaves a cart row dangling."""
+    session.commit()
+    session.connection().exec_driver_sql("PRAGMA foreign_keys=OFF")
+    session.exec(delete(model).where(model.id == ident))
+    session.commit()
+    session.connection().exec_driver_sql("PRAGMA foreign_keys=ON")
+
+
+def orphan_rows(session):
+    """A legacy row with no label_id, plus one whose label was deleted under it."""
+    legacy=CartItem(session_id="sid", label_id=None, left_text="Legacy snapshot")
+    session.add(legacy); session.commit()
+    disc=session.exec(select(Discipline)).one()
+    label=Label(discipline_id=disc.id, left_text="CBL#1.2")
+    session.add(label); session.commit()
+    cart.add_to_cart(cart.AddRequest(sid="sid",label_id=label.id),session)
+    dangling=session.exec(select(CartItem).where(CartItem.label_id==label.id)).one().id
+    drop_row(session, Label, label.id)
+    return legacy.id, dangling
+
+
+def test_orphaned_rows_are_reported_without_blocking_healthy_rows(db):
+    s,_=db
+    orphans=orphan_rows(s)
+    with patch.object(cart,"render_and_send") as send:
+        result=cart.print_all(cart.PrintAllRequest(sid="sid"),s)
+    assert result.ok == send.call_count == 2
+    assert sorted(call.args[2] for call in send.call_args_list)==["CBL#1.0","CBL#1.1"]
+    assert {error["item_id"] for error in result.errors}==set(orphans)
+    assert all(error["uncertain"] is False for error in result.errors)
+    assert len(result.log_ids)==4
+    remaining=s.exec(select(CartItem)).all()
+    assert {row.id for row in remaining}==set(orphans)
+    # Nothing was sent for them, so they stay plainly queued with their reason.
+    assert all(row.status=="queued" and row.error and not row.claim_token for row in remaining)
+
+
+def test_print_policy_describes_a_cart_holding_an_orphaned_row(db):
+    s,_=db
+    project=s.exec(select(Project)).one()
+    project.require_rfid=True
+    s.add(project); s.commit()
+    orphan_rows(s)
+    assert cart.print_policy("sid",s)["requires_rfid"] is True

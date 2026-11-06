@@ -13,6 +13,11 @@ export async function readApiError(response: Response): Promise<string> {
         return [`${field ? field + ': ' : ''}${issue.msg.replace(/^Value error, /, '')}`];
       });
       if (messages.length) return [...new Set(messages)].join('; ');
+    } else if (data?.detail && typeof data.detail === 'object') {
+      // Structured details carry the operator-facing reason in `message`; the
+      // other fields are codes and echoes, so only `message` is rendered.
+      const message = (data.detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) return message;
     }
   } catch { /* Non-JSON errors use the HTTP status. */ }
   return fallback;

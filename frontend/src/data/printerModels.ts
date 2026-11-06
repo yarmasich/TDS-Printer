@@ -33,9 +33,11 @@ export function modelsForBrand(brand: PrinterBrand | null): { label: string; val
 }
 
 export function settingsForModel(model: Model, current: Settings): Pick<Printer, 'model' | 'protocol' | 'dpi'> {
-  if (model === 'custom') return { model, protocol: current.protocol, dpi: current.dpi };
-  const profile = profiles[model];
-  if (!profile) throw new Error('Unsupported printer model');
+  // A newer server can return a model this build has no profile for, and render
+  // paths call this unguarded. Keep the stored settings instead of throwing;
+  // isValidPrinterSelection still refuses to save an unknown model.
+  const profile = model === 'custom' ? undefined : profiles[model];
+  if (!profile) return { model, protocol: current.protocol, dpi: current.dpi };
   return { model, protocol: profile.protocol, dpi: profile.dpi };
 }
 

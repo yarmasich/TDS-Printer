@@ -6,10 +6,13 @@ hash field, never unrelated LU/SU identifiers in the same label.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 MAX_QUERY_ITEMS = 5000
 MAX_QUERY_LENGTH = 20000
+# SQLite refuses an expression tree deeper than 1000 and the prefilter spends
+# two LIKE clauses per token, so larger batches scan as they did before.
+MAX_PREFILTER_TERMS = 256
 
 
 def cable_query_pattern(query: str) -> re.Pattern:
@@ -42,6 +45,29 @@ def cable_query_pattern(query: str) -> re.Pattern:
     )
 
 
+# ``re.I`` folds these onto characters SQLite's ASCII-only lower() leaves
+# alone (k↔U+212A, s↔U+017F, i↔U+0131), as it does every non-ASCII letter.
+# LIKE's single-character wildcard covers them instead of missing a row.
+_LIKE_ANY_CHAR = re.compile(r"[IiKkSs]|[^\x00-\x7f]")
+
+
+def like_prefilter(query: str) -> str:
+    """LIKE pattern for a substring every ``cable_query_pattern`` match holds.
+
+    Lets SQL drop rows the regex could never match, which is what keeps a
+    search off the whole label table. Deliberately a superset — the regex
+    still decides each hit — so a whole-group query like ``20.*`` contributes
+    only its base, matching both ``#20`` and ``#20.1``.
+    """
+    query = query.strip()
+    group = re.fullmatch(r"(\d+)\.\*?", query)
+    if group:
+        query = group.group(1)
+    for char in ("\\", "%", "_"):
+        query = query.replace(char, "\\" + char)
+    return "%" + _LIKE_ANY_CHAR.sub("_", query) + "%"
+
+
 def parse_batch_query(query: str, *, max_items: int = MAX_QUERY_ITEMS) -> List[str]:
     """Expand numeric lists/ranges, bounding allocation before creating items.
 
@@ -53,14 +79,25 @@ def parse_batch_query(query: str, *, max_items: int = MAX_QUERY_ITEMS) -> List[s
         raise ValueError(f"Query is too long (max {MAX_QUERY_LENGTH} characters)")
     if not re.fullmatch(r"[\d\s.,-]+", query) or not any(c in query for c in ",-"):
         return [query]
+    expanded = _expand_list(query, max_items)
+    # Digits and dashes that are not a cable list — a date, a port like 7-3 —
+    # are what the operator typed, so search for them instead of failing.
+    return expanded if expanded is not None else [query]
 
+
+def _expand_list(query: str, max_items: int) -> Optional[List[str]]:
+    """The expanded cable list/range, or ``None`` when it is not one.
+
+    Only the item ceiling raises: it bounds allocation before the items exist,
+    which a fallback to searching the text verbatim would defeat.
+    """
     out: List[str] = []
     base = None
     for token in query.split(","):
         token = re.sub(r"\s+", "", token)
         match = re.fullmatch(r"(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?", token)
         if not match:
-            raise ValueError(f"Invalid cable list/range: {query!r}")
+            return None
         start, end = match.groups()
         if "." in start:
             base, minor = start.split(".")
@@ -77,11 +114,11 @@ def parse_batch_query(query: str, *, max_items: int = MAX_QUERY_ITEMS) -> List[s
         if "." in end:
             end_base, end = end.split(".")
             if base != end_base:
-                raise ValueError("Range endpoints must belong to the same cable group")
+                return None
         lo, hi = int(minor), int(end)
         count = hi - lo + 1
         if count <= 0:
-            raise ValueError("Range end must be greater than or equal to its start")
+            return None
         if count > max_items - len(out):
             raise ValueError(f"Too many queries (max {max_items})")
         out.extend(f"{base}.{i}" if base is not None else str(i) for i in range(lo, hi + 1))

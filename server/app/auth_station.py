@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from .auth_admin import ALGORITHM, TOKEN_HOURS, _env_value, decode_admin_token
+from .db import get_session
 from .models import Station
 
 OperatorCredentials = Annotated[Optional[HTTPAuthorizationCredentials], Depends(HTTPBearer(auto_error=False))]
@@ -74,6 +75,20 @@ def resolve_operator(db: Session, credentials, *, station_only: bool = False) ->
     if not station or not station.enabled or payload.get('version') != station.session_version:
         raise HTTPException(401, 'Station session revoked; log in again')
     return station
+
+
+def require_reader(
+    db: Session = Depends(get_session),
+    credentials: OperatorCredentials = None,
+) -> Optional[Station]:
+    """Gate catalogue reads exactly like cart and print do.
+
+    Installs with no provisioned station stay passwordless, so a LAN-only
+    deployment keeps working unchanged. As soon as one station exists, every
+    reader must present a station or admin token — the label database is no
+    longer readable by anyone who can reach the host.
+    """
+    return resolve_operator(db, credentials)
 
 
 def cart_sid(sid: str, station: Optional[Station]) -> str:

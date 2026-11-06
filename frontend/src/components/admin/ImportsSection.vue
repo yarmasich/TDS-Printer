@@ -120,17 +120,17 @@ function remove(imp: ImportDTO) {
 </script>
 
 <template>
-  <section class="admin-touch bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <p v-if="requestError" role="alert" class="text-red-700 my-3">{{ requestError }} — Please try again.</p>
-    <p v-if="requests.busy('refresh')" role="status" class="text-slate-600 my-3">Loading…</p>
+  <section class="admin-touch bg-surface border border-edge rounded-2xl p-5 shadow-sm">
+    <p v-if="requestError" role="alert" class="text-danger my-3">{{ requestError }} — Please try again.</p>
+    <p v-if="requests.busy('refresh')" role="status" class="text-ink-2 my-3">Loading…</p>
     <Button v-if="requestError" label="Retry loading" severity="secondary" @click="refresh" />
 
     <h2 class="text-lg font-bold mb-3">Import labels</h2>
 
-    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+    <div class="bg-sunken border border-edge rounded-xl p-3 mb-4">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
         <div>
-          <label for="importssection-field-1" class="block text-xs font-bold text-slate-600 mb-1">Project</label>
+          <label for="importssection-field-1" class="block text-xs font-bold text-ink-2 mb-1">Project</label>
           <Select input-id="importssection-field-1"
             aria-label="Project"
             v-model="projectId" :disabled="requests.busy('upload')"
@@ -142,7 +142,7 @@ function remove(imp: ImportDTO) {
           />
         </div>
         <div>
-          <label for="importssection-field-2" class="block text-xs font-bold text-slate-600 mb-1">Discipline</label>
+          <label for="importssection-field-2" class="block text-xs font-bold text-ink-2 mb-1">Discipline</label>
           <Select input-id="importssection-field-2"
             aria-label="Discipline"
             v-model="disciplineId"
@@ -167,7 +167,7 @@ function remove(imp: ImportDTO) {
           />
         </div>
       </div>
-      <p v-if="destinationError" role="alert" class="text-red-700 mt-3">{{ destinationError }} <Button label="Retry disciplines" @click="destination.load(projectId)" /></p>
+      <p v-if="destinationError" role="alert" class="text-danger mt-3">{{ destinationError }} <Button label="Retry disciplines" @click="destination.load(projectId)" /></p>
       <p v-if="projectId && !destinationLoading && !destinationError && !disciplines.length" class="mt-3">No disciplines in this project. Add one in Projects · Halls · Disciplines first.</p>
       <div class="mt-3 flex justify-end">
         <Button :disabled="!canUpload || requests.pending.value.size > 0"
@@ -179,7 +179,7 @@ function remove(imp: ImportDTO) {
       </div>
     </div>
 
-    <h3 class="text-sm font-bold text-slate-600 mb-2 uppercase">
+    <h3 class="text-sm font-bold text-ink-2 mb-2 uppercase">
       Uploaded files ({{ imports.length }})
     </h3>
     <DataTable
@@ -199,7 +199,7 @@ function remove(imp: ImportDTO) {
       <Column field="filename" header="File" sortable />
       <Column header="Project / Hall / Discipline">
         <template #body="{ data }">
-          <span class="text-slate-600">
+          <span class="text-ink-2">
             {{ data.project_name }} / {{ data.data_hall_name }} /
             <b>{{ data.discipline_name }}</b>
           </span>

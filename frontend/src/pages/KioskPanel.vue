@@ -9,6 +9,7 @@ import PrintPanel from "@/pages/PrintPanel.vue";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import PingPill from "@/components/PingPill.vue";
+import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
 import type { Discipline, PingResult, Project } from "@/api/types";
@@ -271,6 +272,7 @@ async function tryFullscreen() {
       </div>
       <div class="kiosk-bar-actions">
         <span v-if="stationAuth.station" class="text-sm">{{ stationAuth.station.display_name }}</span>
+        <ThemeToggle />
         <Button v-if="stationAuth.station" label="Sign out" icon="pi pi-sign-out" severity="secondary" @click="stationAuth.logout(); router.replace('/login')" />
         <Button
           icon="pi pi-expand"
@@ -303,7 +305,7 @@ async function tryFullscreen() {
           after that.
         </p>
 
-        <p v-if="setupError || projects.disciplineError" role="alert" class="text-red-700">{{ setupError || projects.disciplineError }}. Choose the project again or reload to retry.</p>
+        <p v-if="setupError || projects.disciplineError" role="alert" class="text-danger">{{ setupError || projects.disciplineError }}. Choose the project again or reload to retry.</p>
         <label for="kiosk-project" class="kiosk-label">Project</label>
         <Select
           input-id="kiosk-project"
@@ -333,14 +335,14 @@ async function tryFullscreen() {
           <template #option="{ option }">
             <span
               v-if="option.data_hall_name"
-              class="text-slate-400"
+              class="text-ink-4"
             >{{ option.data_hall_name }} / </span>{{ option.name }}
           </template>
           <template #value="{ value, placeholder }">
             <template v-if="value">
               <span
                 v-if="value.data_hall_name"
-                class="text-slate-400"
+                class="text-ink-4"
               >{{ value.data_hall_name }} / </span>{{ value.name }}
             </template>
             <span v-else>{{ placeholder }}</span>
@@ -380,7 +382,7 @@ async function tryFullscreen() {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: #f1f5f9;
+  background: var(--tds-sunken);
   padding-top: env(safe-area-inset-top);
 }
 
@@ -392,8 +394,8 @@ async function tryFullscreen() {
   padding: 10px 14px;
   padding-left: max(14px, env(safe-area-inset-left));
   padding-right: max(14px, env(safe-area-inset-right));
-  background: linear-gradient(90deg, #0f172a, #1e3a5f);
-  color: #fff;
+  background: linear-gradient(90deg, var(--tds-chrome), var(--tds-chrome-to));
+  color: var(--tds-chrome-ink);
   flex-shrink: 0;
 }
 
@@ -417,9 +419,9 @@ async function tryFullscreen() {
   gap: 6px;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--tds-chrome-ink) 25%, transparent);
+  background: color-mix(in srgb, var(--tds-chrome-ink) 10%, transparent);
+  color: var(--tds-chrome-ink);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -443,7 +445,7 @@ async function tryFullscreen() {
 .kiosk-warn {
   font-size: 13px;
   font-weight: 700;
-  color: #fecaca;
+  color: var(--tds-chrome-warn);
 }
 
 .kiosk-bar-actions {
@@ -467,10 +469,10 @@ async function tryFullscreen() {
   z-index: 20;
   width: 100%;
   max-width: 480px;
-  background: #fff;
+  background: var(--tds-surface);
   border-radius: 20px;
   padding: 28px 24px;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 40px var(--tds-shadow-strong);
   isolation: isolate;
 }
 
@@ -478,14 +480,14 @@ async function tryFullscreen() {
   margin: 0 0 8px;
   font-size: 28px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--tds-ink);
 }
 
 .kiosk-setup-lead {
   margin: 0 0 24px;
   font-size: 15px;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--tds-ink-3);
 }
 
 .kiosk-label {
@@ -494,7 +496,7 @@ async function tryFullscreen() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #475569;
+  color: var(--tds-ink-2);
   margin-bottom: 8px;
   margin-top: 16px;
 }

@@ -6,7 +6,7 @@ from sqlmodel import select
 
 from app.api import cart
 from app.models import CartItem, PrintLog, Project
-from test_cart_jobs import db
+from test_cart_jobs import db, drop_row
 
 
 def test_required_project_cannot_print_manual_operator(db, monkeypatch):
@@ -90,6 +90,47 @@ def test_mixed_project_policy_checks_every_queued_label(db, monkeypatch):
             cart.print_all(cart.PrintAllRequest(sid='sid', operator='Manual'), session)
     send.assert_not_called()
     assert all(row.status == 'queued' for row in session.exec(select(CartItem)).all())
+
+
+def test_orphaned_row_does_not_relax_required_rfid(db, monkeypatch):
+    session, _ = db
+    require_project(session)
+    session.add(CartItem(session_id='sid', label_id=None, left_text='Legacy snapshot'))
+    session.commit()
+    monkeypatch.delenv('RFID_API_URL', raising=False)
+    assert cart.print_policy('sid', session)['requires_rfid'] is True
+    with patch.object(cart, 'render_and_send') as send:
+        with pytest.raises(HTTPException) as error:
+            cart.print_all(cart.PrintAllRequest(sid='sid', operator='Manual'), session)
+        assert error.value.status_code == 503
+    send.assert_not_called()
+    assert all(row.status == 'queued' and not row.claim_token for row in session.exec(select(CartItem)).all())
+    assert session.exec(select(PrintLog)).all() == []
+
+
+def test_label_whose_project_vanished_is_refused_not_printed(db):
+    from app.models import CartItem, DataHall, Discipline, Label, Template
+    session, _ = db
+    # The policy of a project that is gone is unknowable, so its label must not
+    # print under the policy of the other projects in the same cart.
+    project = Project(name='Second', require_rfid=True)
+    session.add(project); session.commit()
+    hall = DataHall(name='Second hall', project_id=project.id)
+    session.add(hall); session.commit()
+    disc = Discipline(name='Second disc', data_hall_id=hall.id, template_id=session.exec(select(Template)).one().id)
+    session.add(disc); session.commit()
+    label = Label(discipline_id=disc.id, left_text='Second')
+    session.add(label); session.commit()
+    cart.add_to_cart(cart.AddRequest(sid='sid', label_id=label.id), session)
+    orphan = session.exec(select(CartItem).where(CartItem.label_id == label.id)).one().id
+    drop_row(session, Project, project.id)
+    assert cart.print_policy('sid', session)['requires_rfid'] is False
+    with patch.object(cart, 'render_and_send') as send:
+        result = cart.print_all(cart.PrintAllRequest(sid='sid', operator='Manual'), session)
+    assert result.ok == send.call_count == 2
+    assert 'Second' not in [call.args[2] for call in send.call_args_list]
+    assert [error['item_id'] for error in result.errors] == [orphan]
+    assert session.exec(select(CartItem)).one().id == orphan
 
 
 @pytest.mark.parametrize('failure', [403, 503])

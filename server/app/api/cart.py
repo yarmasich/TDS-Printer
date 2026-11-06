@@ -192,8 +192,10 @@ class PrintAllResult(BaseModel):
 def print_policy(sid: str = Query(...), db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> dict:
     sid = cart_sid(sid, resolve_operator(db, credentials))
     items = db.exec(select(CartItem).where(CartItem.session_id == sid, CartItem.status == "queued")).all()
-    projects = [rfid.project_for_label(db, db.get(Label, item.label_id) if item.label_id else None) for item in items]
-    return {"requires_rfid": any(project.require_rfid for project in projects), "configured": rfid.configured()}
+    # A row whose label is gone has no policy of its own and cannot print; it
+    # must not hide the policy of the rows that still can.
+    projects = [rfid.label_project(db, db.get(Label, item.label_id) if item.label_id else None) for item in items]
+    return {"requires_rfid": any(project.require_rfid for project in projects if project), "configured": rfid.configured()}
 
 
 @router.post("/print", response_model=PrintAllResult)
@@ -235,8 +237,11 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
         for item_id in ids:
             item = db.get(CartItem, item_id)
             label = db.get(Label, item.label_id) if item and item.label_id else None
-            projects[item_id] = rfid.project_for_label(db, label)
-        identity = rfid.identify(list(projects.values()), req.rfid_code, req.operator)
+            # An unresolved row is rejected per item below. It carries no project,
+            # so it can neither relax nor satisfy the policy of the resolved ones.
+            projects[item_id] = rfid.label_project(db, label)
+        identity = rfid.identify([project for project in projects.values() if project],
+                                 req.rfid_code, req.operator)
     except Exception:
         db.rollback()
         db.execute(update(CartItem).where(CartItem.claim_token == token,
@@ -262,11 +267,15 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
             error, uncertain = None, False
             try:
                 label = db.get(Label, item.label_id) if item.label_id else None
-                disc = db.get(Discipline, label.discipline_id) if label else None
+                if not label or projects[item_id] is None:
+                    # Without a project the RFID policy of this row is unknowable,
+                    # so it is refused here rather than sent on an unchecked policy.
+                    raise PrintError("Label or project no longer exists; remove the row from the cart.")
+                disc = db.get(Discipline, label.discipline_id)
                 tmpl = db.get(Template, disc.template_id) if disc and disc.template_id else None
                 printer = assigned_printer or (db.get(Printer, tmpl.printer_id) if tmpl else None)
-                if not (label and disc and tmpl and printer):
-                    raise PrintError("Label, template or printer is missing; check the discipline settings.")
+                if not (disc and tmpl and printer):
+                    raise PrintError("Template or printer is missing; check the discipline settings.")
                 log.template_name = tmpl.name
                 log.printer_ip = f"{printer.ip}:{printer.port}"
                 log.printer_name = printer.name

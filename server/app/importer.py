@@ -13,6 +13,7 @@ import logging
 import re
 import zlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from zipfile import BadZipFile
@@ -20,10 +21,10 @@ from zipfile import BadZipFile
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 from fastapi import HTTPException
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, delete, func, select
 
 from .import_limits import ImportLimitError, ImportLimits, validate_archive
-from .models import CartItem, DataHall, Discipline, Import, Label, Project
+from .models import CLAIM_EXPIRY, CartItem, DataHall, Discipline, Import, Label, Project
 
 log = logging.getLogger("tds.importer")
 
@@ -198,17 +199,49 @@ def begin_label_mutation(session: Session) -> None:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
-def delete_labels(session: Session, condition=None) -> int:
-    """Remove labels and their inactive carts in the caller's transaction."""
+# Statuses whose physical print outcome is not yet confirmed by an operator.
+BLOCKING_STATUSES = ["printing", "uncertain"]
+
+
+def _blocking_counts(session: Session, affected) -> list[tuple[str, int]]:
+    """Count blockers per status — never their label text, which the operator's
+    own cart may draw from projects this delete does not touch."""
+    rows = session.exec(
+        select(CartItem.status, func.count()).where(
+            affected, CartItem.status.in_(BLOCKING_STATUSES)
+        ).group_by(CartItem.status)
+    ).all()
+    return sorted((status, count) for status, count in rows)
+
+
+def delete_labels(session: Session, condition=None, *, force: bool = False) -> int:
+    """Remove labels and their inactive carts in the caller's transaction.
+
+    ``force`` releases blockers whose outcome is already settled: uncertain
+    items, and claims the cart's own sweep would expire anyway. A claim younger
+    than ``CLAIM_EXPIRY`` means a printer is being driven right now, so it
+    still refuses — a delete must never cancel a live print.
+    """
     begin_label_mutation(session)
     ids = select(Label.id)
     if condition is not None:
         ids = ids.where(condition)
     affected = CartItem.label_id.in_(ids)
-    if session.exec(select(CartItem.id).where(
-        affected, CartItem.status.in_(["printing", "uncertain"])
-    )).first() is not None:
-        raise HTTPException(409, "Labels belong to an active or uncertain print job")
+    if force:
+        # begin_label_mutation already holds BEGIN IMMEDIATE, so no claim can
+        # be taken or renewed between this release and the check below.
+        stale = datetime.now(timezone.utc) - CLAIM_EXPIRY
+        session.exec(delete(CartItem).where(affected, (CartItem.status == "uncertain") | (
+            (CartItem.status == "printing")
+            & (CartItem.claimed_at.is_(None) | (CartItem.claimed_at < stale))
+        )))
+    blockers = _blocking_counts(session, affected)
+    if blockers:
+        summary = ", ".join(f"{count} {status}" for status, count in blockers)
+        if force:
+            raise HTTPException(409, f"A print job is running right now ({summary}); "
+                                     "a forced delete never cancels a live print. Wait for it to finish.")
+        raise HTTPException(409, f"Labels belong to an active or uncertain print job ({summary}).")
     session.exec(delete(CartItem).where(affected))
     statement = delete(Label)
     if condition is not None:

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, useTemplateRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
@@ -20,11 +20,22 @@ const password = ref("");
 const loading = ref(false);
 const error = ref<string | null>(null);
 
+// PrimeVue InputText wraps a native <input>; reach through `$el` to focus
+// the real element.
+const userInput = useTemplateRef<{ $el: HTMLInputElement }>("userInput");
+
 onMounted(async () => {
   await auth.restore();
+  // A restored station redirects, so don't focus a field on the way out.
   if (auth.station) {
     await router.replace(destination());
+    return;
   }
+  // `restore()` is async: by now the operator may already be typing, or have
+  // tapped Password. Only take focus when nothing else holds it. Unlike the
+  // search box this focuses on tablets too — sign-in always ends in typing.
+  const active = document.activeElement;
+  if (!active || active === document.body) userInput.value?.$el?.focus();
 });
 
 async function submit() {
@@ -58,23 +69,21 @@ async function submit() {
 
       <label class="login-label" for="station-user">Username</label>
       <InputText
+        ref="userInput"
         id="station-user"
         v-model="username"
         autocomplete="username"
         class="w-full"
-        
       />
 
-        <label class="login-label" for="station-pass">Password</label>
-        <InputText
-          id="station-pass"
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          class="w-full"
-          
-          
-        />
+      <label class="login-label" for="station-pass">Password</label>
+      <InputText
+        id="station-pass"
+        v-model="password"
+        type="password"
+        autocomplete="current-password"
+        class="w-full"
+      />
 
       <p v-if="error || auth.error" class="login-error" role="alert">{{ error || auth.error }}</p>
 
@@ -104,25 +113,25 @@ async function submit() {
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--tds-surface);
+  border: 1px solid var(--tds-edge);
   border-radius: 16px;
   padding: 28px 24px;
-  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 30px var(--tds-shadow);
 }
 
 .login-title {
   margin: 0 0 8px;
   font-size: 24px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--tds-ink);
 }
 
 .login-lead {
   margin: 0 0 20px;
   font-size: 14px;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--tds-ink-3);
 }
 
 .login-label {
@@ -131,7 +140,7 @@ async function submit() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #475569;
+  color: var(--tds-ink-2);
   margin-bottom: 6px;
   margin-top: 14px;
 }
@@ -145,9 +154,9 @@ async function submit() {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.4;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--tds-danger);
+  background: var(--tds-danger-soft);
+  border: 1px solid var(--tds-danger-edge);
   border-radius: 8px;
 }
 
@@ -160,7 +169,7 @@ async function submit() {
   margin-top: 16px;
   text-align: center;
   font-size: 14px;
-  color: #0284c7;
+  color: var(--tds-accent);
   text-decoration: none;
 }
 

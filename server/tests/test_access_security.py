@@ -142,3 +142,23 @@ def test_application_cross_origin_integration_headers_and_retry_after(monkeypatc
     assert limited.headers["access-control-allow-origin"] == origin
     assert "retry-after" in limited.headers["access-control-expose-headers"].lower()
     assert 1 <= int(limited.headers["retry-after"]) <= 60
+
+
+def test_catalogue_reads_require_a_reader_and_mutations_stay_admin():
+    from app.api import auth_names, printers, projects, reasons
+    from app.auth_admin import require_admin
+    from app.auth_station import require_reader
+
+    guards = {(route.path, method): {dep.call for dep in route.dependant.dependencies}
+              for router in (projects.router, reasons.router, auth_names.router, printers.router)
+              for route in router.routes
+              for method in getattr(route, "methods", ())}
+    for path in ("/api/projects", "/api/halls", "/api/disciplines", "/api/reasons",
+                 "/api/auth-names", "/api/printers/{printer_id}/ping"):
+        assert require_reader in guards[(path, "GET")], path
+    # The kiosk's reachability pill is the one operator-facing printer route;
+    # the rest of that surface, and every mutation, stays admin-only.
+    for (path, method), deps in guards.items():
+        admin_only = method != "GET" or path.startswith("/api/printers")
+        if admin_only and path != "/api/printers/{printer_id}/ping":
+            assert require_admin in deps, (path, method)

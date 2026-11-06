@@ -81,23 +81,23 @@ const mm = (px: number) => (px * 25.4 / 300).toFixed(2);
   </section>
 </template>
 <style scoped>
-.print-workspace { border:1px solid #d4dfe7; border-radius:12px; overflow:hidden; background:#fff; color:#334155; }
+.print-workspace { border:1px solid var(--tds-edge); border-radius:12px; overflow:hidden; background:var(--tds-surface); color:var(--tds-ink-2); }
 .workspace-toolbar,.workspace-status,.reference-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
-.workspace-toolbar { padding:16px 18px; border-bottom:1px solid #d4dfe7; }
-.workspace-toolbar strong { font-size:16px; } .workspace-toolbar small { display:block; margin-top:3px; color:#64748b; }
+.workspace-toolbar { padding:16px 18px; border-bottom:1px solid var(--tds-edge); }
+.workspace-toolbar strong { font-size:16px; } .workspace-toolbar small { display:block; margin-top:3px; color:var(--tds-ink-3); }
 .workspace-tools { display:flex; gap:8px; flex-wrap:wrap; }
-.workspace-tools button,.workspace-tools select { padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; background:white; font-size:12px; cursor:pointer; }
-.workspace-tools button[aria-pressed=true] { color:#0369a1; border-color:#7fb3ce; background:#f0f9ff; }
-.workspace-tools :focus-visible { outline:2px solid #0369a1; outline-offset:2px; }
-.workspace-stage { padding:24px; overflow:auto; max-height:65vh; background-color:#edf2f5; background-image:radial-gradient(#cbd5df .7px, transparent .7px); background-size:16px 16px; }
+.workspace-tools button,.workspace-tools select { padding:7px 10px; border:1px solid var(--tds-edge-strong); border-radius:6px; background:var(--tds-surface); color:var(--tds-ink); font-size:12px; cursor:pointer; }
+.workspace-tools button[aria-pressed=true] { color:var(--tds-accent-ink); border-color:var(--tds-accent-edge); background:var(--tds-accent-soft); }
+.workspace-tools :focus-visible { outline:2px solid var(--tds-accent); outline-offset:2px; }
+.workspace-stage { padding:24px; overflow:auto; max-height:65vh; background-color:var(--tds-stage); color:var(--tds-stage-ink); background-image:radial-gradient(var(--tds-stage-edge-strong) .7px, transparent .7px); background-size:16px 16px; }
 .workspace-sheet { min-width:100%; } .workspace-sheet > svg { display:block; width:100%; }
-.workspace-dimension { text-align:center; color:#637789; font:11px ui-monospace,monospace; margin-bottom:8px; }
-.workspace-status { font-size:11px; padding:10px 16px; background:#f8fafc; border-top:1px solid #d4dfe7; }
-.workspace-note,.workspace-error { padding:10px 16px; margin:0; font-size:12px; color:#64748b; } .workspace-error { color:#b91c1c; }
-.manufacturer-reference { padding:16px; border-top:1px solid #d4dfe7; }
-.reference-heading { font-size:13px; } .reference-heading a { color:#0369a1; text-decoration:underline; font-size:12px; }
+.workspace-dimension { text-align:center; color:var(--tds-stage-ink-3); font:11px ui-monospace,monospace; margin-bottom:8px; }
+.workspace-status { font-size:11px; padding:10px 16px; background:var(--tds-sunken); border-top:1px solid var(--tds-edge); }
+.workspace-note,.workspace-error { padding:10px 16px; margin:0; font-size:12px; color:var(--tds-ink-3); } .workspace-error { color:var(--tds-danger); }
+.manufacturer-reference { padding:16px; border-top:1px solid var(--tds-edge); }
+.reference-heading { font-size:13px; } .reference-heading a { color:var(--tds-accent-ink); text-decoration:underline; font-size:12px; }
 .manufacturer-reference dl { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:16px 0; }
-.manufacturer-reference dt,.manufacturer-reference p { font-size:11px; color:#64748b; } .manufacturer-reference dd { font-size:14px; margin:4px 0 0; font-variant-numeric:tabular-nums; }
+.manufacturer-reference dt,.manufacturer-reference p { font-size:11px; color:var(--tds-ink-3); } .manufacturer-reference dd { font-size:14px; margin:4px 0 0; font-variant-numeric:tabular-nums; }
 .compact .workspace-stage { padding:10px; }
 @media(max-width:600px) { .workspace-stage { padding:10px; } .manufacturer-reference dl { grid-template-columns:1fr; } }
 @media (pointer:coarse), (max-width:1100px) { .workspace-tools button, .workspace-tools select, .workspace-error button { min-height:44px; } }

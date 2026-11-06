@@ -85,9 +85,9 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
 
 <template>
   <div class="flex flex-col xl:flex-row gap-4">
-    <label class="xl:hidden flex flex-col gap-1 text-sm font-medium text-slate-600">
+    <label class="xl:hidden flex flex-col gap-1 text-sm font-medium text-ink-2">
       Admin section
-      <select :value="active" :disabled="navigating" class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base" @change="onSelectChange">
+      <select :value="active" :disabled="navigating" class="min-h-11 w-full rounded-lg border border-edge-strong bg-surface px-3 text-base" @change="onSelectChange">
         <option v-for="section in sections" :key="section.key" :value="section.key">{{ section.label }}</option>
       </select>
     </label>
@@ -95,7 +95,7 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
     <nav
       aria-label="Admin sections"
       class="hidden xl:block min-w-0 xl:w-64 shrink-0 xl:sticky xl:top-4 xl:self-start
-             bg-white border border-slate-200 rounded-2xl p-2 shadow-sm"
+             bg-surface border border-edge rounded-2xl p-2 shadow-sm"
     >
       <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1 gap-1">
         <li v-for="s in sections" :key="s.key" class="min-w-0">
@@ -106,8 +106,8 @@ onUnmounted(() => window.removeEventListener("hashchange", onHashChange));
                    transition-colors"
             :class="
               active === s.key
-                ? 'bg-sky-50 text-sky-700 font-semibold'
-                : 'text-slate-600 hover:bg-slate-50'
+                ? 'bg-accent-soft text-accent-ink font-semibold'
+                : 'text-ink-2 hover:bg-surface-hover'
             "
             :aria-current="active === s.key ? 'page' : undefined"
             @click="select(s.key)"

@@ -1,0 +1,16 @@
+{
+  "name": "TDS Printer",
+  "short_name": "TDS Print",
+  "description": "Cable-label printing for data halls.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}

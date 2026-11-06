@@ -13,6 +13,7 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
+from ..auth_station import require_reader
 from ..db import get_session
 from ..models import PrintLog, Printer, Template, Station, ProjectPrinterAssignment
 from ..printer import PrintError, ping_printer, render_and_send
@@ -175,7 +176,7 @@ def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> 
     return {"deleted": printer_id}
 
 
-@router.get("/{printer_id}/ping", response_model=PingResult)
+@router.get("/{printer_id}/ping", response_model=PingResult, dependencies=[Depends(require_reader)])
 def ping(printer_id: int, session: Session = Depends(get_session)) -> PingResult:
     """TCP-connect check. Fast (~2s timeout) and does not send any bytes."""
     p = session.get(Printer, printer_id)

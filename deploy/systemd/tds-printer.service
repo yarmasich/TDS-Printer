@@ -7,6 +7,16 @@
 #   systemctl status tds-printer
 #
 # Adjust User, WorkingDirectory and the venv path to your install location.
+# nginx fronts this; see deploy/nginx/ for the two supported site configs.
+#
+# ⚠ THERE ARE TWO UNITS IN THIS REPO. This one assumes /opt/tds-printer with
+#   the venv inside server/. deploy/tds-printer.service assumes
+#   /opt/TDS-Printer with the venv one level up, runs `pip install -e` on every
+#   start and adds NoNewPrivileges/ProtectSystem sandboxing. Install ONE.
+#   Check which is actually live before editing either:
+#       systemctl cat tds-printer | head -5
+#   Linux paths are case-sensitive, so the wrong one fails at ExecStartPre
+#   rather than silently starting against the wrong tree.
 
 [Unit]
 Description=TDS Printer API server
@@ -17,13 +27,74 @@ Wants=network-online.target
 Type=simple
 User=tds
 Group=tds
+# Load-bearing, not cosmetic. Two things resolve against it:
+#   • `alembic upgrade head` below finds alembic.ini only in the cwd, and that
+#     ini sets `script_location = %(here)s/alembic`.
+#   • server/app/db.py and server/app/main.py both call load_dotenv() on a path
+#     derived from the *module* location, so that part is cwd-independent — but
+#     the SQLite file is data/tds.db under this directory.
 WorkingDirectory=/opt/tds-printer/server
-# server/.env holds ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_JWT_SECRET — uvicorn
-# does not auto-load it, but app.main does via python-dotenv on import.
+
+# server/.env holds ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_JWT_SECRET.
+#
+# The leading `-` means "optional: do not fail the unit if the file is
+# missing", which is correct here — the app does not depend on systemd to read
+# it. server/app/main.py calls `load_dotenv(<server>/.env)` at import time and
+# server/app/db.py does the same (so `alembic` picks up TDS_DATABASE_URL even
+# though it never imports app.main). The path above matches what those two
+# compute: <WorkingDirectory>/.env.
+#
+# ⚠ Both loaders run, and they do not parse identically. python-dotenv is
+# called without `override=True`, so anything systemd already put in the
+# environment WINS over the file's own value — and systemd applies C-style
+# backslash unescaping while python-dotenv instead does `${VAR}` interpolation.
+# A password containing `\` or `$` can therefore reach the process in two
+# different forms depending on which loader got there first, with systemd's
+# version the one that sticks. Keep values quote-free and escape-free (as
+# server/.env.example says) or drop this line and let load_dotenv own it.
 EnvironmentFile=-/opt/tds-printer/server/.env
-# No --reload in prod (it watches the cwd, and writes to data/tds.db would
-# bounce the process mid-transaction). Bind to localhost — nginx fronts it.
+
+# Migrations before the app: server/README.md notes the startup `init_db()`
+# hook was removed, so alembic is the only thing that creates the schema and a
+# worker started first would 500 on every DB query. Runs with the
+# WorkingDirectory above, which is where alembic.ini lives.
 ExecStartPre=/opt/tds-printer/server/.venv/bin/alembic upgrade head
+
+# ==========================================================================
+# DO NOT ADD --workers (or --reload) TO THIS LINE.
+#
+# --workers silently weakens login throttling. server/app/login_limits.py says
+# so in its own module docstring — "Process-local login throttling; use a
+# shared edge limiter for multiple workers" — and the limiter is instantiated
+# per process in app/api/admin_auth.py and app/api/stations.py. Its ceilings
+# (10 attempts per client address and 100 per process, per 60s) therefore
+# multiply by the worker count, and an attacker's attempts get spread across
+# independent buckets by whichever worker accepts the connection. Nothing
+# fails; the brute-force window just quietly widens N-fold on
+# POST /api/auth/login and POST /api/station-auth/login. If you genuinely need
+# more than one worker, put a rate limit in nginx FIRST (limit_req on those two
+# locations) and only then scale out.
+#   Not a reason to avoid workers: the printer transport lock. That one is
+#   flock-based in app/printer_dispatch.py and is explicitly multi-worker safe
+#   as long as all workers share TDS_PRINTER_LOCK_DIR. The caches in
+#   app/printer_reachability.py / app/printer_device_status.py are per process
+#   too, but they only cost duplicate probes, not safety.
+#
+# --reload watches the whole cwd including data/tds.db; every SQLite write
+# bumps its mtime and restarts the process mid-transaction, after which SQLite
+# starts answering "attempt to write a readonly database" (server/README.md).
+#
+# Binds to localhost on purpose — nginx fronts it. Keep it that way: the
+# per-IP login limit works only because uvicorn rewrites the client address
+# from X-Forwarded-For, and it only trusts that header from
+# forwarded_allow_ips, which defaults to 127.0.0.1 (proxy_headers defaults to
+# on). Move nginx to another host and you must set FORWARDED_ALLOW_IPS to that
+# host's address, or every client collapses into one throttle bucket.
+# ==========================================================================
+# Nothing to add here, but if you want the proxy behaviour stated rather than
+# inherited from uvicorn's defaults, append:
+#     --proxy-headers --forwarded-allow-ips=127.0.0.1
+# (that is exactly what the defaults already are on uvicorn 0.40 — see above.)
 ExecStart=/opt/tds-printer/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
