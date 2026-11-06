@@ -85,3 +85,22 @@ In **Admin → Printers → Edit**, configure the printer connection, Brother st
 Deploy the printer-service migration with `cd server && alembic upgrade head` before starting updated workers. It preserves printer records, calibration and print history. Tests use disposable databases; the installed database is not migrated automatically by this change.
 
 Authenticated admin `GET /api/printers/{id}/status` reports the saved printer's reachability and device observation. Scoped integration catalogs expose optional `qr_defaults` per supported QR printer, alongside the existing normalized `device_status` when requested. They do not expose SNMP connection credentials. Readiness is a device observation, not confirmation that a particular label printed. Status reads keep the existing bounded timeout and cache; no status check retries a print.
+
+### Project Inventory packing bitmaps
+
+The project-scoped QR preview and send endpoints accept an optional
+`bitmap_1bpp_base64` for Inventory box and pallet labels. Use DK-2246,
+a reference of `inventory-packing:box:<id>` or `inventory-packing:pallet:<id>`,
+and an empty description. Supply the stored QR value in `scan`. The printable
+image is 1200 dots wide at 300 dpi. Encode 150 bytes per row, top to bottom,
+most significant bit first, with one for white. Base64-encode the packed
+pixels without compression. Set `length_mm` to the row count times 25.4 / 300,
+within the existing 30–200 mm limit. The largest input is 472400 base64
+characters. The serialized preview response must fit in 256 KiB.
+
+The service hashes the canonical ASCII JSON array
+`["inventory-packing-bitmap-1",printer_id,media,reference,scan,width,height]`
+(no spaces, non-ASCII escaped), one newline, then the packed pixels.
+Send the preview fingerprint as `expected_fingerprint`. A successful bitmap
+send echoes the digest in `bitmap_fingerprint`. Project assignment, printer
+readiness and send idempotency checks apply to bitmap jobs.
