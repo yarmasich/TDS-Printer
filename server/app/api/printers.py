@@ -42,7 +42,7 @@ class PrinterRead(BaseModel):
     material_calibrations: dict
     snmp_enabled: bool
     snmp_port: int
-    snmp_version: Literal['1'] = '1'
+    snmp_version: Literal['1', '2c'] = '1'
     snmp_community_configured: bool = False
     snmp_source: Literal['inherited', 'custom'] = 'inherited'
     qr_media_id: str
@@ -51,6 +51,7 @@ class PrinterRead(BaseModel):
 
 def public_printer(printer):
     result = PrinterRead.model_validate(printer)
+    result.snmp_version = '2c' if printer.model == 'DP4300H' else '1'
     result.snmp_community_configured = printer.snmp_community is not None
     result.snmp_source = 'custom' if result.snmp_community_configured else 'inherited'
     return result
@@ -286,5 +287,5 @@ def printer_status(printer_id: int, session: Session = Depends(get_session)):
         enabled=config.enabled, port=config.port, community_override=config.community)
     return dict(printer_id=printer_id, online=online, connection_state=connection_state, device_status=status,
         snmp_enabled=metadata.snmp_enabled, snmp_port=metadata.snmp_port,
-        snmp_version='1', snmp_source=metadata.snmp_source,
+        snmp_version=metadata.snmp_version, snmp_source=metadata.snmp_source,
         qr_defaults={'media_id': metadata.qr_media_id, 'label_length_mm': metadata.qr_label_length_mm})

@@ -474,11 +474,11 @@ async function remove(p: Printer) {
           <label for="printerssection-field-7" class="block text-xs font-bold text-slate-600 mb-1">Notes</label>
           <InputText id="printerssection-field-7" aria-label="Notes" v-model="form.notes" class="w-full" />
         </div>
-        <template v-if="selectedBrand === 'brother'">
+        <template v-if="selectedBrand === 'brother' || form.model === 'DP4300H'">
           <h3 class="settings-wide settings-heading">Device status</h3>
-          <label class="settings-wide settings-check"><input v-model="form.snmp_enabled" type="checkbox" /> Check readiness and loaded media using SNMP</label>
+          <label class="settings-wide settings-check"><input v-model="form.snmp_enabled" type="checkbox" /> Check printer status using SNMP</label>
           <div><label class="settings-label" for="snmp-port">SNMP UDP port</label><InputNumber input-id="snmp-port" v-model="form.snmp_port" :min="1" :max="65535" :use-grouping="false" :disabled="!form.snmp_enabled" class="w-full" /></div>
-          <div class="settings-note">SNMP v1 · read-only requests<br />Enable SNMP on the printer separately.</div>
+          <div class="settings-note">SNMP {{ form.model === 'DP4300H' ? 'v2c' : 'v1' }} · read-only requests<br />Enable SNMP on the printer separately.</div>
           <div><label class="settings-label" for="community-mode">Community</label><select id="community-mode" v-model="communityMode" class="settings-select"><option value="keep">Keep {{ communityConfigured ? 'saved community' : 'server default' }}</option><option value="replace">Replace community</option><option value="reset">Use server default</option></select></div>
           <div v-if="communityMode === 'replace'"><label class="settings-label" for="printer-snmp-replacement">New community</label><InputText id="printer-snmp-replacement" name="printer-snmp-community-replacement" v-model="communityValue" type="password" autocomplete="new-password" class="w-full" /></div>
           <div class="settings-wide settings-status">
@@ -488,9 +488,11 @@ async function remove(p: Printer) {
               <strong role="status">{{ statusLabel }}</strong>
               <span v-if="checkedStatus.device_status?.media_width_mm" class="settings-note">Detected: {{ checkedStatus.device_status.media_width_mm }} mm {{ checkedStatus.device_status.media_type }}</span>
               <span v-if="checkedStatus.device_status?.checked_at" class="settings-note">Checked {{ new Date(checkedStatus.device_status.checked_at).toLocaleTimeString() }}</span>
-              <span v-if="mediaMismatch" role="status" class="settings-warning">Loaded media differs from the configured default.</span>
+              <span v-if="selectedBrand === 'brother' && mediaMismatch" role="status" class="settings-warning">Loaded media differs from the configured default.</span>
             </template>
           </div>
+        </template>
+        <template v-if="selectedBrand === 'brother'">
           <h3 class="settings-wide settings-heading">QR label defaults</h3>
           <div><label class="settings-label" for="qr-default-roll">Default roll</label><select id="qr-default-roll" v-model="form.qr_media_id" class="settings-select"><option value="DK-2205">DK-2205 · 62 mm continuous</option><option value="DK-2246">DK-2246 · 103 mm continuous</option></select></div>
           <div><label class="settings-label" for="qr-default-length">Default length, mm</label><InputNumber input-id="qr-default-length" v-model="form.qr_label_length_mm" :min="30" :max="200" :use-grouping="false" class="w-full" /></div>

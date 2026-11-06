@@ -26,7 +26,7 @@ export interface PrinterStatus {
   device_status: PrinterDeviceStatus | null;
   snmp_enabled: boolean;
   snmp_port: number;
-  snmp_version: '1';
+  snmp_version: '1' | '2c';
   snmp_source: 'inherited' | 'custom';
   qr_defaults: { media_id: 'DK-2246' | 'DK-2205'; label_length_mm: number };
 }
@@ -36,7 +36,7 @@ export interface Printer {
   snmp_port?: number;
   snmp_community_configured?: boolean;
   snmp_source?: 'inherited' | 'custom';
-  snmp_version?: '1';
+  snmp_version?: '1' | '2c';
   qr_media_id?: 'DK-2246' | 'DK-2205';
   qr_label_length_mm?: number;
   material_calibrations?: Record<string, { x_mm: number; y_mm: number }>;
