@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, model_serializer
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from .scoped_integrations import router, find_policy, policy_dto, check_scope, require_integration, require_api_key, get_session, fail
+from ..preparation_qr_layout import PreparationLayout, LayoutError, render_preparation_layout
 from ..models import ApiKey, Printer, PrintLog
 from ..qr_labels import MEDIA, QrLabelRequest, render_bitmap
 from ..printer import PrintError
@@ -29,6 +30,7 @@ class ScopedQrPreview(QrLabelRequest):
     media: str = Field(..., pattern=r'^DK-(2205|2246)$')
     length_mm: float = Field(..., ge=30, le=200, allow_inf_nan=False)
 
+    layout: PreparationLayout | None = None
     bitmap_1bpp_base64: str | None = Field(default=None, max_length=MAX_BITMAP_BASE64, repr=False)
 
     @model_serializer(mode='wrap')
@@ -37,6 +39,8 @@ class ScopedQrPreview(QrLabelRequest):
         fields = handler(self)
         if self.bitmap_1bpp_base64 is None:
             fields.pop('bitmap_1bpp_base64', None)
+        if self.layout is None:
+            fields.pop('layout', None)
         return fields
 
 
@@ -50,6 +54,10 @@ class ScopedQrResult(BaseModel):
     printer_id: int
     scan: str
     print_observation: Literal['counter_advanced', 'unconfirmed'] = 'unconfirmed'
+
+class PreparationLayoutQrResult(ScopedQrResult):
+    layout_version: Literal[1, 2]
+
 
 class PackingQrResult(ScopedQrResult):
     bitmap_fingerprint: str
@@ -78,7 +86,12 @@ def packing_bitmap(req, encoded):
 
 
 def bitmap(req):
-    plain=QrLabelRequest.model_validate(req.model_dump(exclude={'expected_fingerprint', 'bitmap_1bpp_base64'}))
+    plain=QrLabelRequest.model_validate(req.model_dump(exclude={'expected_fingerprint', 'bitmap_1bpp_base64', 'layout'}))
+    if req.layout is not None:
+        if req.bitmap_1bpp_base64 is not None:
+            raise LayoutError('Supply a Preparation layout without a packing bitmap.')
+        image, digest = render_preparation_layout(plain, req.layout)
+        return plain, image, digest
     if req.bitmap_1bpp_base64 is not None:
         image, digest = packing_bitmap(plain, req.bitmap_1bpp_base64)
         return plain, image, digest
@@ -105,10 +118,15 @@ def preview(external_project_id:UUID,req:ScopedQrPreview,session:Session=Depends
     try:
         _,image,digest=bitmap(req)
         output=io.BytesIO();image.save(output,format='PNG')
-        response = JSONResponse(dict(png_base64=base64.b64encode(output.getvalue()).decode(),fingerprint=digest), headers={'Cache-Control':'no-store'})
+        body = dict(png_base64=base64.b64encode(output.getvalue()).decode(), fingerprint=digest)
+        if req.layout is not None:
+            body['layout_version'] = req.layout.version
+        response = JSONResponse(body, headers={'Cache-Control':'no-store'})
         if req.bitmap_1bpp_base64 is not None and len(response.body) > MAX_PREVIEW_JSON:
             raise PrintError('Packing label preview is too large')
         return response
+    except LayoutError as exc:
+        raise HTTPException(422, {'code': 'layout_invalid', 'message': str(exc)}) from exc
     except PrintError: fail(400,'error_not_sent')
 
 @router.post('/projects/{external_project_id}/qr-labels')
@@ -121,7 +139,7 @@ def send(external_project_id:UUID,req:ScopedQrSend,session:Session=Depends(get_s
             printer,policy=assigned(session,key,external_project_id,req)
             plain,image,digest=bitmap(req)
             if digest!=req.expected_fingerprint: fail(409,'fingerprint_mismatch')
-            if req.bitmap_1bpp_base64 is None:
+            if req.bitmap_1bpp_base64 is None and req.layout is None:
                 raster = build_qr_job(plain, printer)
             else:
                 raster = build_qr_job(plain, printer, image=image)
@@ -129,6 +147,8 @@ def send(external_project_id:UUID,req:ScopedQrSend,session:Session=Depends(get_s
             session.add(PrintLog(operator=f'api:{key.name}',operator_source='api',integration_id=key.integration_id,
                 external_project_id=str(external_project_id),print_purpose='qr_labels',label_kind='qr',status='denied',reason='Scoped preparation QR',error='request_denied'))
             session.commit()
+            if isinstance(exc, LayoutError):
+                raise HTTPException(422, {'code': 'layout_invalid', 'message': str(exc)}) from exc
             if isinstance(exc,PrintError): fail(400,'error_not_sent')
             raise
         log=PrintLog(label_kind='qr',qr_scan=req.scan,media_code=req.media,printer_model=printer.model,source_reference=req.reference,
@@ -144,6 +164,8 @@ def send(external_project_id:UUID,req:ScopedQrSend,session:Session=Depends(get_s
         log.status='ok';session.add(log);session.commit()
         result = ScopedQrResult(code='sent',message='Sent to printer; physical output not confirmed.',log_id=log.id,printer_id=printer.id,scan=req.scan,
             print_observation=observation if observation in ('counter_advanced','unconfirmed') else 'unconfirmed')
+        if req.layout is not None:
+            return PreparationLayoutQrResult(**result.model_dump(), layout_version=req.layout.version)
         if req.bitmap_1bpp_base64 is not None:
             return PackingQrResult(**result.model_dump(), bitmap_fingerprint=digest)
         return result
