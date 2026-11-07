@@ -22,12 +22,14 @@ def data(**changes):
 def test_preview_send_replay_and_fingerprint(ready,monkeypatch):
     c,h,path=ready;send=Mock();monkeypatch.setattr(qr,'send_brother_job',send)
     preview=c.post(path+'/preview',headers=h,json=data());assert preview.status_code==200
+    assert 'layout_version' not in preview.json()
     plain,image,digest=qr.bitmap(qr.ScopedQrPreview(**data()))
     decoded=Image.open(io.BytesIO(base64.b64decode(preview.json()['png_base64'])))
     assert decoded.tobytes()==image.tobytes() and digest==preview.json()['fingerprint']
     body={**data(),'expected_fingerprint':digest}
     headers={**h,'Idempotency-Key':'test-one'}
     result=c.post(path,headers=headers,json=body);assert result.status_code==200,result.text
+    assert 'layout_version' not in result.json()
     assert c.post(path,headers=headers,json=body).json()==result.json();assert send.call_count==1
     mismatch=c.post(path,headers={**h,'Idempotency-Key':'new'},json={**body,'expected_fingerprint':'0'*64});assert mismatch.status_code==409
     assert send.call_count==1
@@ -131,6 +133,7 @@ def test_packing_preview_and_actual_wire(ready, monkeypatch):
     body = {**payload, 'expected_fingerprint': digest}
     headers = {**h, 'Idempotency-Key': 'packing-wire'}
     result = c.post(path, headers=headers, json=body)
+    assert 'layout_version' not in preview.json() and 'layout_version' not in result.json()
     assert result.status_code == 200 and result.json()['bitmap_fingerprint'] == digest
     assert c.post(path, headers=headers, json=body).json() == result.json()
     wire = send.call_args.args[1]
