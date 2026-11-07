@@ -18,3 +18,27 @@ test('a stale print cannot release the lock the next station holds',async()=>{se
 test('a backend outage keeps the print page reachable while a revoked session fails closed',async()=>{setup();sessionStorage.removeItem('tds-station-token');const auth=useStationAuth();globalThis.fetch=async()=>new Response('{"required":false}');await auth.restore();assert.equal(auth.required,false);
  for(const outage of [async()=>{throw new TypeError('Failed to fetch')},async()=>new Response('{"detail":"offline"}',{status:503})]){globalThis.fetch=outage;await auth.restore();assert.equal(auth.required,false);assert.equal(auth.error,'');}
  sessionStorage.setItem('tds-station-token','station-a');globalThis.fetch=async(url)=>url.endsWith('/status')?new Response('{"required":false}'):new Response('{"detail":"Station session expired"}',{status:401});await auth.restore();assert.equal(auth.required,true);assert.equal(auth.error,'Station session expired');assert.equal(auth.station,null);assert.equal(sessionStorage.getItem('tds-station-token'),null);});
+
+test('saving RFID settings uses the admin token even with a station session', async () => {
+  setup();
+  globalThis.fetch = async (_url, request) => {
+    assert.equal(request.method, 'PATCH');
+    assert.equal(request.headers.Authorization, 'Bearer admin');
+    assert.deepEqual(JSON.parse(request.body), { require_rfid: false });
+    return new Response(JSON.stringify({ id: 1, require_rfid: false }));
+  };
+  assert.equal((await api.patch('/api/projects/1', { require_rfid: false })).require_rfid, false);
+  assert.equal(sessionStorage.getItem('tds-admin-token'), 'admin');
+  assert.equal(sessionStorage.getItem('tds-station-token'), 'station-a');
+});
+
+test('a rejected shared catalogue read only clears the token it sent', async () => {
+  setup();
+  globalThis.fetch = async (_url, request) => {
+    assert.equal(request.headers.Authorization, 'Bearer station-a');
+    return new Response('{"detail":"Expired token"}', { status: 401 });
+  };
+  await assert.rejects(api.get('/api/projects'), { status: 401 });
+  assert.equal(sessionStorage.getItem('tds-admin-token'), 'admin');
+  assert.equal(sessionStorage.getItem('tds-station-token'), null);
+});
