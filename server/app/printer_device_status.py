@@ -25,6 +25,7 @@ _PANDUIT_OIDS = tuple(bytes.fromhex(oid) for oid in (
     '2b06010201190305010101', '2b06010201190305010201',
 ))
 PANDUIT_SNMP_DESCRIPTIONS = {
+    'DP4300M': b'Panduit DP4300M label printer',
     'DP4300H': b'Panduit DP4300H label printer',
     # Expected description and device index 1 are unverified for this firmware.
     # The live GET timed out. A different identity or index yields unknown.
