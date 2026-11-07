@@ -95,7 +95,7 @@ const form = reactive<Omit<Printer, "id">>({
   qr_label_length_mm: 60,
 });
 
-const panduitSnmp = computed(() => form.model === 'DP4300H' || form.model === 'DP4600H');
+const panduitSnmp = computed(() => ['DP4300M', 'DP4300H', 'DP4600H'].includes(form.model));
 const modelOptions = computed(() => modelsForBrand(selectedBrand.value));
 const effectiveSettings = computed(() => selectedModel.value
   ? settingsForModel(selectedModel.value, form)

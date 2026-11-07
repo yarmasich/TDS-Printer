@@ -28,7 +28,7 @@ def setup(tmp_path):
     engine.dispose()
 
 
-@pytest.mark.parametrize('model,version', [('QL-1110NWBc', '1'), ('DP4300H', '2c'), ('DP4600H', '2c')])
+@pytest.mark.parametrize('model,version', [('QL-1110NWBc', '1'), ('DP4300M', '2c'), ('DP4300H', '2c'), ('DP4600H', '2c')])
 def test_secret_round_trip_redaction_and_reset(setup, model, version):
     client, engine = setup
     response = client.post('/api/printers', json=dict(name='Configured', ip='192.0.2.1', model=model, snmp_community=SECRET))

@@ -57,7 +57,7 @@ def test_unverified_snapshot(monkeypatch, packet):
 def test_timeout_and_no_probe_when_disabled(monkeypatch):
     assert read(enabled=False)['state'] == 'unknown'
     assert device.device_status(5, '', 'DP4300H')['state'] == 'unknown'
-    assert device.device_status(5, '192.0.2.4', 'DP4300M') is None
+    assert device.device_status(5, '192.0.2.4', 'DP4300HD') is None
     assert device.print_snapshot(SimpleNamespace(model='DP4300H'))['counter'] is None
     exchange = MagicMock(side_effect=TimeoutError())
     monkeypatch.setattr(device, '_exchange', exchange)
@@ -75,6 +75,8 @@ def test_print_preflight_bypasses_display_cache(monkeypatch):
 
 
 @pytest.mark.parametrize('configured,reported,expected', [
+    ('DP4300M', b'Panduit DP4300M label printer', 'no_media'),
+    ('DP4300M', b'Panduit DP4300H label printer', 'unknown'),
     ('DP4600H', b'Panduit DP4600H label printer', 'no_media'),
     ('DP4300H', b'Panduit DP4600H label printer', 'unknown'),
     ('DP4600H', b'Panduit DP4300H label printer', 'unknown'),
