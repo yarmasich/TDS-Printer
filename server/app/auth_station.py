@@ -9,7 +9,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
-from .auth_admin import ALGORITHM, TOKEN_HOURS, _env_value, decode_admin_token
+from .auth_admin import ALGORITHM, _env_value, decode_admin_token
 from .db import get_session
 from .models import Station
 
@@ -41,8 +41,14 @@ def _secret() -> str:
 
 
 def create_station_token(station: Station) -> str:
+    try:
+        days = int(_env_value('STATION_TOKEN_DAYS') or '30')
+    except ValueError:
+        raise HTTPException(503, 'STATION_TOKEN_DAYS must be an integer from 1 to 365')
+    if not 1 <= days <= 365:
+        raise HTTPException(503, 'STATION_TOKEN_DAYS must be an integer from 1 to 365')
     return jwt.encode({'sub': str(station.id), 'scope': 'station', 'version': station.session_version,
-                       'exp': datetime.now(timezone.utc) + timedelta(hours=TOKEN_HOURS)},
+                       'exp': datetime.now(timezone.utc) + timedelta(days=days)},
                       _secret(), algorithm=ALGORITHM)
 
 
