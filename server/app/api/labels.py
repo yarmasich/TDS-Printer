@@ -199,11 +199,12 @@ def _hit(
 
 
 @router.get('/{label_id}/preview')
-def label_preview(label_id: int, session: Session = Depends(get_session), credentials: OperatorCredentials = None):
+def label_preview(label_id: int, printer_id: int | None = None, session: Session = Depends(get_session), credentials: OperatorCredentials = None):
     """Operator preview of a stored label only; no draft input or printer send."""
     import base64
     import re
-    from ..models import Printer, Template
+    from ..models import Template
+    from ..station_routing import allowed_printers, select_printer
     from ..calibration import render_preview_png
     from ..label_geometry import is_turn_tell_300
     from ..materials import get_material
@@ -217,10 +218,14 @@ def label_preview(label_id: int, session: Session = Depends(get_session), creden
     template = session.get(Template, discipline.template_id) if discipline and discipline.template_id else None
     if not template:
         raise HTTPException(400, 'No template assigned to this discipline')
-    printer = session.get(Printer, station.printer_id if station else template.printer_id)
-    if not printer:
-        raise HTTPException(400, 'No printer assigned to this template')
+    allowed = allowed_printers(session, station.id) if station else None
+    default = station.default_printer_id if station else None
+    candidates = template.printer_ids or [template.printer_id]
+    eligible = {key for key, target in (allowed or {}).items()
+                if key in candidates and target.protocol != "brother_ql"}
+    template_only = printer_id is None and len(eligible) > 1 and default not in eligible
     try:
+        printer = None if template_only else select_printer(session, allowed, template, default, printer_id)
         png = render_preview_png(template, label.left_text or '', label.right_text or '', printer=printer)
     except PrintError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -248,4 +253,4 @@ def label_preview(label_id: int, session: Session = Depends(get_session), creden
             pass
     return dict(image='data:image/png;base64,'+base64.b64encode(png).decode('ascii'),
                 width=width, height=template.height, material_sku=sku,
-                areas=areas, material=material)
+                areas=areas, material=material, template_only=template_only)

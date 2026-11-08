@@ -2,6 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -33,12 +34,21 @@ def get_template(template_id: int, session: Session = Depends(get_session)) -> T
     return t
 
 
+def _validate_printers(session: Session, template: TemplateCreate) -> None:
+    template.printer_ids = list(dict.fromkeys([template.printer_id, *template.printer_ids]))
+    # SQLite serializes writers. Hold the write lock until the template and its
+    # full printer list are saved so a concurrent delete cannot orphan an entry.
+    session.execute(update(Printer).where(Printer.id == template.printer_id).values(id=Printer.id))
+    printers = session.exec(select(Printer).where(Printer.id.in_(template.printer_ids))).all()
+    if len(printers) != len(template.printer_ids):
+        raise HTTPException(400, "Select existing printers for this template")
+    if any(printer.protocol == "brother_ql" for printer in printers):
+        raise HTTPException(400, "Brother printers use QR labels, not cable templates")
+
+
 @router.post("", response_model=Template)
 def create_template(t: TemplateCreate, session: Session = Depends(get_session)) -> Template:
-    if not session.get(Printer, t.printer_id):
-        raise HTTPException(400, f"Printer {t.printer_id} does not exist")
-    if session.get(Printer, t.printer_id).protocol == 'brother_ql':
-        raise HTTPException(400, 'Brother printers use QR labels, not cable templates')
+    _validate_printers(session, t)
     row = Template(**t.model_dump())
     session.add(row)
     _commit(session, "Template name already exists or its printer is no longer available")
@@ -57,10 +67,7 @@ def update_template(
         updated = TemplateCreate.model_validate({**t.model_dump(), **patch.model_dump(exclude_unset=True)})
     except ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
-    if not session.get(Printer, updated.printer_id):
-        raise HTTPException(400, f"Printer {updated.printer_id} does not exist")
-    if session.get(Printer, updated.printer_id).protocol == 'brother_ql':
-        raise HTTPException(400, 'Brother printers use QR labels, not cable templates')
+    _validate_printers(session, updated)
     for k, v in updated.model_dump().items():
         setattr(t, k, v)
     session.add(t)

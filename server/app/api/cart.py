@@ -21,6 +21,7 @@ from sqlmodel import Session, delete, select
 from ..auth_station import OperatorCredentials, resolve_operator, cart_sid, station_audit
 from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
+from ..station_routing import allowed_printers, select_printer
 from ..printer import PrintError, render_and_send
 from .. import rfid
 
@@ -37,6 +38,8 @@ class CartItemDTO(BaseModel):
     left_text: str
     right_text: str
     template_name: Optional[str] = None
+    template_id: int | None = None
+    printer_ids: list[int] = Field(default_factory=list)
     added_at: str
     status: str = "queued"
     error: str = ""
@@ -53,6 +56,7 @@ class PrintAllRequest(BaseModel):
     operator: str = ""
     reason: str = ""
     clear_after: bool = True
+    printer_choices: dict[int, int] = Field(default_factory=dict)
 
 
 def _item_to_dto(item: CartItem, db: Session) -> CartItemDTO:
@@ -71,6 +75,8 @@ def _item_to_dto(item: CartItem, db: Session) -> CartItemDTO:
         left_text=item.left_text,
         right_text=item.right_text,
         template_name=tmpl.name if tmpl else None,
+        template_id=tmpl.id if tmpl else None,
+        printer_ids=(tmpl.printer_ids or [tmpl.printer_id]) if tmpl else [],
         status=item.status, error=item.error,
         added_at=item.added_at.isoformat(timespec="seconds"),
     )
@@ -102,8 +108,10 @@ def list_cart(sid: str = Query(...), db: Session = Depends(get_session), credent
             left_text=item.left_text,
             right_text=item.right_text,
             template_name=tmpl.name if tmpl else None,
+            template_id=tmpl.id if tmpl else None,
+            printer_ids=(tmpl.printer_ids or [tmpl.printer_id]) if tmpl else [],
             status=item.status, error=item.error,
-        added_at=item.added_at.isoformat(timespec="seconds"),
+            added_at=item.added_at.isoformat(timespec="seconds"),
         ))
     return out
 
@@ -182,10 +190,17 @@ def clear_cart(sid: str = Query(...), db: Session = Depends(get_session), creden
     return {"cleared": n}
 
 
+class PrinterResult(BaseModel):
+    printer_name: str
+    sent: int = 0
+    failed: int = 0
+
+
 class PrintAllResult(BaseModel):
     ok: int
     errors: List[dict]
     log_ids: List[int]
+    printers: list[PrinterResult] = Field(default_factory=list)
 
 
 @router.get("/print-policy")
@@ -202,12 +217,8 @@ def print_policy(sid: str = Query(...), db: Session = Depends(get_session), cred
 def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credentials: OperatorCredentials = None) -> PrintAllResult:
     station = resolve_operator(db, credentials)
     sid = cart_sid(req.sid, station)
-    assigned_printer = db.get(Printer, station.printer_id) if station else None
-    if station and not assigned_printer:
-        raise HTTPException(409, "Station has no available assigned printer")
-    # A print job uses a consistent printer snapshot through per-label commits.
-    if assigned_printer:
-        assigned_printer = Printer.model_validate(assigned_printer.model_dump())
+    allowed = allowed_printers(db, station.id) if station else None
+    default = station.default_printer_id if station else None
     audit = station_audit(station)
     _expire_claims(db, sid)
     token = uuid4().hex
@@ -234,12 +245,33 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
     # Validate the projects of the actual claimed rows, before any physical send.
     try:
         projects = {}
+        groups = {}
+        templates = {}
+        item_templates = {}
+        destinations = {}
+        routing_errors = {}
         for item_id in ids:
             item = db.get(CartItem, item_id)
             label = db.get(Label, item.label_id) if item and item.label_id else None
             # An unresolved row is rejected per item below. It carries no project,
             # so it can neither relax nor satisfy the policy of the resolved ones.
             projects[item_id] = rfid.label_project(db, label)
+            discipline = db.get(Discipline, label.discipline_id) if label else None
+            template_id = discipline.template_id if discipline else None
+            if template_id and template_id not in templates:
+                template = db.get(Template, template_id)
+                templates[template_id] = Template.model_validate(template.model_dump()) if template else None
+            template = templates.get(template_id)
+            item_templates[item_id] = template
+            target = None
+            if template:
+                try:
+                    printer = select_printer(db, allowed, template, default, req.printer_choices.get(template.id))
+                    destinations[item_id] = Printer.model_validate(printer.model_dump()) if allowed is None else printer
+                    target = printer.id
+                except PrintError as exc:
+                    routing_errors[item_id] = exc
+            groups.setdefault(target, []).append(item_id)
         identity = rfid.identify([project for project in projects.values() if project],
                                  req.rfid_code, req.operator)
     except Exception:
@@ -250,8 +282,9 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
         raise
     ok, errors, log_ids = 0, [], []
     current_id = None
+    results: dict[int, PrinterResult] = {}
     try:
-        for item_id in ids:
+        for item_id in (item_id for group in groups.values() for item_id in group):
             current_id = item_id
             # Renew only our remaining claim; never revive an expired claim.
             db.execute(update(CartItem).where(
@@ -264,6 +297,7 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
                 continue
             log = PrintLog(**identity.audit(projects[item_id]), **audit, reason=req.reason,
                            left_text=item.left_text, right_text=item.right_text)
+            printer_result = None
             error, uncertain = None, False
             try:
                 label = db.get(Label, item.label_id) if item.label_id else None
@@ -271,11 +305,13 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
                     # Without a project the RFID policy of this row is unknowable,
                     # so it is refused here rather than sent on an unchecked policy.
                     raise PrintError("Label or project no longer exists; remove the row from the cart.")
-                disc = db.get(Discipline, label.discipline_id)
-                tmpl = db.get(Template, disc.template_id) if disc and disc.template_id else None
-                printer = assigned_printer or (db.get(Printer, tmpl.printer_id) if tmpl else None)
-                if not (disc and tmpl and printer):
-                    raise PrintError("Template or printer is missing; check the discipline settings.")
+                tmpl = item_templates[item_id]
+                if not tmpl:
+                    raise PrintError("Template is missing; check the discipline settings.")
+                if item_id in routing_errors:
+                    raise routing_errors[item_id]
+                printer = destinations[item_id]
+                printer_result = results.setdefault(printer.id, PrinterResult(printer_name=printer.name))
                 log.template_name = tmpl.name
                 log.printer_ip = f"{printer.ip}:{printer.port}"
                 log.printer_name = printer.name
@@ -289,6 +325,8 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
                 error, uncertain = f"Unexpected print failure: {exc}", True
 
             if error:
+                if printer_result:
+                    printer_result.failed += 1
                 item.status = "uncertain" if uncertain else "queued"
                 item.error = error
                 log.status = item.status if uncertain else "error"
@@ -304,6 +342,7 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
                     item.status = "printed"
                     db.add(item)
                 ok += 1
+                printer_result.sent += 1
             db.add(log)
             db.commit()
             db.refresh(log)
@@ -331,4 +370,4 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
     db.execute(update(CartItem).where(CartItem.claim_token == token).values(claim_token="", claimed_at=None))
     db.commit()
     logger.info("print_all sid=%s: ok=%d, errors=%d", sid, ok, len(errors))
-    return PrintAllResult(ok=ok, errors=errors, log_ids=log_ids)
+    return PrintAllResult(ok=ok, errors=errors, log_ids=log_ids, printers=list(results.values()))

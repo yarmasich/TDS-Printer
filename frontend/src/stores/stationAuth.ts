@@ -1,10 +1,31 @@
 import { defineStore } from "pinia";
 import { api, ApiError, STATION_TOKEN_KEY } from "@/api/client";
 import { useCart } from "./cart";
+import type { Discipline } from "@/api/types";
+
 export interface Station {
-  id: number; username: string; display_name: string; printer_id: number;
-  printer_name: string | null; enabled: boolean;
+  id: number; username: string; display_name: string; enabled: boolean;
+  allowed_printers: { id: number; name: string }[];
+  default_printer_id: number | null;
 }
+
+export function eligiblePrinters(station: Station, printerIds: number[]) {
+  return station.allowed_printers.filter(printer => printerIds.includes(printer.id));
+}
+
+export function stationPrinter(station: Station | null, discipline: Discipline | null | undefined) {
+  if (!discipline?.printer_id) return;
+  if (!station) return discipline;
+  const eligible = eligiblePrinters(station, discipline.printer_ids?.length ? discipline.printer_ids : [discipline.printer_id]);
+  const target = eligible.length === 1 ? eligible[0] : eligible.find(printer => printer.id === station.default_printer_id);
+  if (target) return { printer_id: target.id, printer_name: target.name };
+}
+
+export function needsPrinterChoice(station: Station | null, discipline: Discipline) {
+  return !!station && eligiblePrinters(station, discipline.printer_ids ?? []).length > 1
+    && !stationPrinter(station, discipline);
+}
+
 export const useStationAuth = defineStore("station-auth", {
   state: () => ({ station: null as Station | null, required: true, error: "" }),
   actions: {

@@ -126,7 +126,7 @@ def test_protocol_bind_and_change_guards(setup):
         with pytest.raises(HTTPException):
             templates.create_template(TemplateCreate(name='T',printer_id=1,bytes_per_row=20,height=100),s)
         with pytest.raises(HTTPException):
-            stations.create_station(stations.StationCreate(username='test',display_name='S',password='password1',printer_id=1),s)
+            stations.create_station(stations.StationCreate(username='test',display_name='S',password='password1',printer_ids=[1]),s)
         s.rollback()
         t=Template(name='T',printer_id=2,bytes_per_row=20,height=100)
         s.add(t);s.commit();s.refresh(t)

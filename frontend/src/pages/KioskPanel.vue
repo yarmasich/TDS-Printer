@@ -10,7 +10,7 @@ import Select from "primevue/select";
 import Button from "primevue/button";
 import PingPill from "@/components/PingPill.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
-import { useStationAuth } from "@/stores/stationAuth";
+import { needsPrinterChoice, stationPrinter, useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
 import type { Discipline, PingResult, Project } from "@/api/types";
 
@@ -21,8 +21,9 @@ const projects = useProjects();
 const kiosk = useKiosk();
 const printers = usePrinters();
 const stationAuth = useStationAuth();
-const targetPrinterId = computed(() => stationAuth.station?.printer_id ?? currentDiscipline.value?.printer_id);
-const targetPrinterName = computed(() => stationAuth.station?.printer_name ?? currentDiscipline.value?.printer_name);
+const targetPrinter = computed(() => stationPrinter(stationAuth.station, currentDiscipline.value));
+const targetPrinterId = computed(() => targetPrinter.value?.printer_id);
+const targetPrinterName = computed(() => targetPrinter.value?.printer_name);
 
 const showSetup = ref(true);
 let pingRevision = 0;
@@ -142,7 +143,7 @@ async function refreshPrinterPing() {
   try { d = await resolveActiveDiscipline(); } catch (error) { if (revision === pingRevision) setupError.value = String(error); return; }
   if (revision !== pingRevision) return;
   printerPing.value = undefined;
-  const printerId = stationAuth.station?.printer_id ?? d?.printer_id;
+  const printerId = stationPrinter(stationAuth.station, d)?.printer_id;
   if (!printerId) return;
 
   try {
@@ -161,7 +162,7 @@ async function refreshPrinterPing() {
 }
 
 watch(
-  () => [kiosk.disciplineId, kiosk.projectId, stationAuth.station?.printer_id] as const,
+  () => [kiosk.disciplineId, kiosk.projectId, stationAuth.station] as const,
   () => {
     void refreshPrinterPing();
   },
@@ -261,7 +262,7 @@ async function tryFullscreen() {
           <PingPill :ping="printerPing" />
         </template>
         <span v-else-if="currentDiscipline" class="kiosk-warn">
-          No printer
+          {{ needsPrinterChoice(stationAuth.station, currentDiscipline) ? "Choose a printer when printing the cart" : currentDiscipline.printer_id ? "No template printer is allowed on this station" : "No template printer" }}
         </span>
         <span
           v-if="currentDiscipline && !currentDiscipline.template_id"
@@ -297,7 +298,7 @@ async function tryFullscreen() {
       <div class="kiosk-setup-card">
         <h1 class="kiosk-setup-title">Kiosk setup</h1>
         <div v-if="stationAuth.station" class="flex items-center gap-2 flex-wrap mb-3">
-          <span class="text-sm">{{ stationAuth.station.display_name }} · {{ stationAuth.station.printer_name }}</span>
+          <span class="text-sm">{{ stationAuth.station.display_name }}</span>
           <Button label="Sign out" severity="secondary" text @click="stationAuth.logout(); router.replace('/login')" />
         </div>
         <p class="kiosk-setup-lead">
