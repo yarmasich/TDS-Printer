@@ -42,6 +42,7 @@ class TemplateInput(InputModel):
     """Render configuration; a new draft can have no name/printer selected yet."""
     name: str = Field('', max_length=200)
     printer_id: int = Field(0, ge=0)
+    printer_ids: list[int] = []
     bytes_per_row: int = Field(..., ge=1, le=512)
     height: int = Field(..., ge=1, le=4096)
     left_top: Coordinate = 0

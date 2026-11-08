@@ -79,7 +79,7 @@ function logoutAdmin() {
           <ThemeToggle />
         </nav>
         <div v-if="stationAuth.station && !isAdminArea" class="station-badge flex items-center gap-3 flex-wrap text-sm">
-          <span><b>{{ stationAuth.station.display_name }}</b> · {{ stationAuth.station.printer_name }}</span>
+          <span><b>{{ stationAuth.station.display_name }}</b> · {{ stationAuth.station.allowed_printers.length }} allowed printers</span>
           <Button label="Station sign out" icon="pi pi-sign-out" severity="secondary" text class="!text-white" @click="stationAuth.logout(); router.replace('/login')" />
         </div>
       </div>

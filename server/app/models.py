@@ -69,9 +69,14 @@ class Station(SQLModel, table=True):
     username: str = Field(unique=True, index=True)
     display_name: str
     password_hash: str
-    printer_id: int = Field(foreign_key="printer.id")
     enabled: bool = True
     session_version: str
+    default_printer_id: int | None = Field(default=None, foreign_key="printer.id")
+
+
+class StationPrinter(SQLModel, table=True):
+    station_id: int = Field(foreign_key="station.id", primary_key=True, ondelete="CASCADE")
+    printer_id: int = Field(foreign_key="printer.id", primary_key=True, index=True)
 
 
 class Template(SQLModel, table=True):
@@ -85,6 +90,7 @@ class Template(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
     printer_id: int = Field(foreign_key="printer.id")
+    printer_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
 
     # Bitmap geometry
     bytes_per_row: int

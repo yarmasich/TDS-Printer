@@ -1,5 +1,6 @@
 export interface LabelPreview {
   image: string;
+  template_only?: boolean;
   width: number;
   height: number;
   material_sku: string;

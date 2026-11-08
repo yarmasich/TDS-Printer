@@ -9,13 +9,13 @@ from typing import Literal
 from .. import printer_device_status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 from sqlmodel import Session, select
 
 from ..auth_admin import require_admin
 from ..auth_station import require_reader
 from ..db import get_session
-from ..models import PrintLog, Printer, Template, Station, ProjectPrinterAssignment
+from ..models import PrintLog, Printer, Template, StationPrinter, ProjectPrinterAssignment
 from ..printer import PrintError, ping_printer, render_and_send
 from ..schemas import MaterialCalibration, PrinterInput, PrinterPatch
 
@@ -117,6 +117,12 @@ def create_printer(p: PrinterInput, session: Session = Depends(get_session)) -> 
     return public_printer(row)
 
 
+def _used_by_template(session: Session, printer_id: int) -> bool:
+    members = func.json_each(Template.printer_ids).table_valued("value")
+    contains = select(members.c.value).where(members.c.value == printer_id).exists()
+    return session.exec(select(Template.id).where(or_(Template.printer_id == printer_id, contains)).limit(1)).first() is not None
+
+
 @router.put("/{printer_id}", response_model=PrinterRead, dependencies=[Depends(require_admin)])
 def update_printer(
     printer_id: int, patch: PrinterPatch, session: Session = Depends(get_session)
@@ -129,8 +135,9 @@ def update_printer(
     except ValidationError as exc:
         raise HTTPException(422, "Invalid printer settings") from None
     if (existing.protocol == 'brother_ql') != (updated.protocol == 'brother_ql'):
-        if (session.exec(select(Template.id).where(Template.printer_id == printer_id)).first() is not None
-                or session.exec(select(Station.id).where(Station.printer_id == printer_id)).first() is not None):
+        session.execute(update(Printer).where(Printer.id == printer_id).values(id=Printer.id))
+        if (_used_by_template(session, printer_id)
+                or session.exec(select(StationPrinter).where(StationPrinter.printer_id == printer_id)).first() is not None):
             raise HTTPException(409, 'Reassign cable templates and stations before changing to or from Brother')
     # Calibration is edited through its dedicated pair endpoint, never through
     # a potentially stale full printer form. Changing hardware invalidates it.
@@ -162,12 +169,13 @@ def update_printer(
 
 @router.delete("/{printer_id}", dependencies=[Depends(require_admin)])
 def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> dict:
+    session.execute(update(Printer).where(Printer.id == printer_id).values(id=Printer.id))
     p = session.get(Printer, printer_id)
     if not p:
         raise HTTPException(404, "Printer not found")
-    if session.exec(select(Template.id).where(Template.printer_id == printer_id)).first() is not None:
+    if _used_by_template(session, printer_id):
         raise HTTPException(409, "Printer has templates assigned; reassign them before deleting")
-    if session.exec(select(Station.id).where(Station.printer_id == printer_id)).first() is not None:
+    if session.exec(select(StationPrinter).where(StationPrinter.printer_id == printer_id)).first() is not None:
         raise HTTPException(409, "Printer has stations assigned; reassign them before deleting")
     if session.exec(select(ProjectPrinterAssignment.id).where(ProjectPrinterAssignment.printer_id == printer_id)).first() is not None:
         raise HTTPException(409, "Printer is assigned to integration projects; remove assignments before deleting")

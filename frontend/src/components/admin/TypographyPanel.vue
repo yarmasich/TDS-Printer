@@ -47,38 +47,38 @@ function reset() { Object.assign(props.model, { font_name:'Microsoft Sans Serif'
 <template>
   <section class="type-panel" aria-label="Typography">
     <header><strong>Typography</strong><button type="button" @click="reset" title="Reset font, sizes, alignment, stretch and vertical shifts">Reset</button></header>
-    <label class="type-font">Font family<select v-model="model.font_name"><option v-for="family in fontFamilies" :key="family">{{ family }}</option></select></label>
+    <label class="type-font">Font family<select name="typography_font_name" v-model="model.font_name"><option v-for="family in fontFamilies" :key="family">{{ family }}</option></select></label>
     <div class="type-row" role="group" aria-label="Font style">
-      <label class="type-style">Style<select v-model="model.font_style"><option v-for="style in fontStyles" :key="style">{{ style }}</option></select></label>
-      <label class="type-link"><input type="checkbox" v-model="linked" @change="linked && (model.right_pt = model.left_pt)" /> Link sizes</label>
+      <label class="type-style">Style<select name="typography_font_style" v-model="model.font_style"><option v-for="style in fontStyles" :key="style">{{ style }}</option></select></label>
+      <label class="type-link"><input type="checkbox" name="typography_linked" v-model="linked" @change="linked && (model.right_pt = model.left_pt)" /> Link sizes</label>
     </div>
     <div class="type-grid type-sizes">
       <label v-for="side in (['left_pt','right_pt'] as const)" :key="side">{{ side === 'left_pt' ? 'Left size · pt' : 'Right size · pt' }}
-        <div class="type-stepper"><button type="button" :aria-label="`Decrease ${side}`" @click="size(side, model[side] - .5)">−</button><input type="number" min="1" max="72" step="0.5" :aria-label="side === 'left_pt' ? 'Left font size' : 'Right font size'" :value="model[side]" @change="sizeInput(side, $event)" /><button type="button" :aria-label="`Increase ${side}`" @click="size(side, model[side] + .5)">+</button></div>
+        <div class="type-stepper"><button type="button" :aria-label="`Decrease ${side}`" @click="size(side, model[side] - .5)">−</button><input type="number" :name="`typography_${side}`" min="1" max="72" step="0.5" :aria-label="side === 'left_pt' ? 'Left font size' : 'Right font size'" :value="model[side]" @change="sizeInput(side, $event)" /><button type="button" :aria-label="`Increase ${side}`" @click="size(side, model[side] + .5)">+</button></div>
       </label>
     </div>
     <div class="type-row type-presets" aria-label="Font size presets"><span>Both labels</span><button v-for="pt in [5,6,7,8,10,12]" :key="pt" type="button" @click="model.left_pt = model.right_pt = pt">{{ pt }}</button></div>
     <div class="type-grid">
-      <label class="type-link"><input type="checkbox" v-model="model.auto_fit" /> Auto Fit</label>
-      <label>Minimum size · pt<input type="number" :value="model.min_font_pt" @change="spacingInput('min_font_pt', $event)" min="1" :max="Math.min(model.left_pt, model.right_pt)" step="0.5" :disabled="!model.auto_fit" /></label>
+      <label class="type-link"><input type="checkbox" name="typography_auto_fit" v-model="model.auto_fit" /> Auto Fit</label>
+      <label>Minimum size · pt<input type="number" name="typography_min_font_pt" :value="model.min_font_pt" @change="spacingInput('min_font_pt', $event)" min="1" :max="Math.min(model.left_pt, model.right_pt)" step="0.5" :disabled="!model.auto_fit" /></label>
     </div>
     <p v-if="model.auto_fit" class="type-help">Sizes above are maximums. Each label shrinks independently, down to the minimum. Text that still cannot fit is rejected.</p>
     <details class="type-spacing"><summary>Line & character spacing</summary>
       <div class="type-grid">
-        <label>Character gap · px<input type="number" :value="model.letter_spacing_px" @change="spacingInput('letter_spacing_px', $event)" min="0" max="20" step="0.5" /></label>
-        <label>Line gap · px<input type="number" :value="model.line_spacing_px ?? ''" min="0" max="100" step="0.5" placeholder="Auto" @change="spacingInput('line_spacing_px', $event)" /></label>
+        <label>Character gap · px<input type="number" name="typography_letter_spacing_px" :value="model.letter_spacing_px" @change="spacingInput('letter_spacing_px', $event)" min="0" max="20" step="0.5" /></label>
+        <label>Line gap · px<input type="number" name="typography_line_spacing_px" :value="model.line_spacing_px ?? ''" min="0" max="100" step="0.5" placeholder="Auto" @change="spacingInput('line_spacing_px', $event)" /></label>
       </div>
       <p class="type-help">300 dpi design pixels. Blank line gap keeps automatic spacing; 0 adds no gap between line boxes. Character gap adds space without stretching glyphs.</p>
     </details>
     <div class="type-grid">
-      <label>Horizontal<select v-model="model.h_align"><option value="LEFT">Left</option><option value="CENTER">Center</option><option value="RIGHT">Right</option></select></label>
-      <label>Vertical<select v-model="model.v_align"><option value="TOP">Top</option><option value="CENTER">Middle</option><option value="BOTTOM">Bottom</option></select></label>
+      <label>Horizontal<select name="typography_h_align" v-model="model.h_align"><option value="LEFT">Left</option><option value="CENTER">Center</option><option value="RIGHT">Right</option></select></label>
+      <label>Vertical<select name="typography_v_align" v-model="model.v_align"><option value="TOP">Top</option><option value="CENTER">Middle</option><option value="BOTTOM">Bottom</option></select></label>
     </div>
-    <label>Character width · {{ Math.round(model.scale_x * 100) }}%<input type="range" v-model.number="model.scale_x" min="1" max="1.5" step="0.01" aria-label="Character width" /></label>
-    <details><summary>Position & spacing <select v-model="units" aria-label="Position units" @click.stop><option value="mm">mm</option><option value="px">px @ 300 dpi</option></select></summary>
-      <div class="type-grid"><label v-for="(key, i) in positionKeys" :key="key">{{ labels[i] }}<input type="number" :aria-label="`${labels[i]} in ${units}`" :step="step()" :value="display(key)" @change="position(key, $event)" /></label></div>
+    <label>Character width · {{ Math.round(model.scale_x * 100) }}%<input type="range" name="typography_scale_x" v-model.number="model.scale_x" min="1" max="1.5" step="0.01" aria-label="Character width" /></label>
+    <details><summary>Position & spacing <select name="typography_units" v-model="units" aria-label="Position units" @click.stop><option value="mm">mm</option><option value="px">px @ 300 dpi</option></select></summary>
+      <div class="type-grid"><label v-for="(key, i) in positionKeys" :key="key">{{ labels[i] }}<input type="number" :name="`typography_${key}`" :aria-label="`${labels[i]} in ${units}`" :step="step()" :value="display(key)" @change="position(key, $event)" /></label></div>
     </details>
-    <label class="type-link"><input type="checkbox" v-model="model.mirror_legend" /> Repeat text rotated 180° for wrap reading</label>
+    <label class="type-link"><input type="checkbox" name="typography_mirror_legend" v-model="model.mirror_legend" /> Repeat text rotated 180° for wrap reading</label>
   </section>
 </template>
 <style scoped>

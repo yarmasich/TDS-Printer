@@ -12,7 +12,7 @@ import type {
 } from "@/api/types";
 import { useProjects } from "@/stores/projects";
 import { useCart } from "@/stores/cart";
-import { useStationAuth } from "@/stores/stationAuth";
+import { needsPrinterChoice, stationPrinter, useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
 
 import Select from "primevue/select";
@@ -33,8 +33,9 @@ const kioskStore = useKiosk();
 const cart = useCart(props.kiosk ? "kiosk" : "print");
 const printers = usePrinters();
 const stationAuth = useStationAuth();
-const targetPrinterId = computed(() => stationAuth.station?.printer_id ?? currentDiscipline.value?.printer_id);
-const targetPrinterName = computed(() => stationAuth.station?.printer_name ?? currentDiscipline.value?.printer_name);
+const targetPrinter = computed(() => stationPrinter(stationAuth.station, currentDiscipline.value));
+const targetPrinterId = computed(() => targetPrinter.value?.printer_id);
+const targetPrinterName = computed(() => targetPrinter.value?.printer_name);
 const toast = useToast();
 
 const selectedProject = ref<number | null>(null);
@@ -330,6 +331,7 @@ async function onAddAllToCart() {
           <b>{{ targetPrinterName }}</b>
           <PingPill :ping="printerPing" />
         </template>
+        <span v-else class="text-danger">{{ needsPrinterChoice(stationAuth.station, currentDiscipline) ? "Choose a printer when printing the cart" : currentDiscipline.printer_id ? "No template printer is allowed on this station" : "No template printer" }}</span>
       </div>
     </header>
 

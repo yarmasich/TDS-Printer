@@ -39,14 +39,17 @@ export function isSharedReadRequest(path: string): boolean {
   );
 }
 
-export function requestAuthHeader(path: string): Record<string, string> {
-  if (isStationRequest(path)) return stationAuthHeader();
-  if (path.startsWith("/api/station-auth/")) return {};
-  if (isSharedReadRequest(path)) {
-    const station = stationAuthHeader();
-    return station.Authorization ? station : adminAuthHeader();
-  }
-  return adminAuthHeader();
+function requestTokenKey(path: string, method: string): string | null {
+  if (isStationRequest(path)) return STATION_TOKEN_KEY;
+  if (path.startsWith("/api/station-auth/")) return null;
+  if ((method === "GET" || method === "HEAD") && isSharedReadRequest(path)
+    && sessionStorage.getItem(STATION_TOKEN_KEY)) return STATION_TOKEN_KEY;
+  return TOKEN_KEY;
+}
+
+export function requestAuthHeader(path: string, method = "GET"): Record<string, string> {
+  const key = requestTokenKey(path, method);
+  return key === STATION_TOKEN_KEY ? stationAuthHeader() : key ? adminAuthHeader() : {};
 }
 
 /** Bearer token for admin-only routes (multipart / image fetch). */
@@ -74,7 +77,9 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const authHeader = requestAuthHeader(path);
+  const tokenKey = requestTokenKey(path, method);
+  const token = tokenKey ? sessionStorage.getItem(tokenKey) : null;
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const init: RequestInit = { method, headers: { ...authHeader } };
   if (body !== undefined) {
     if (body instanceof FormData) {
@@ -86,12 +91,12 @@ async function request<T>(
     }
   }
   const res = await fetch(API_BASE + path, init);
-  if (res.status === 401 && authHeader.Authorization === requestAuthHeader(path).Authorization && !path.startsWith("/api/auth/") && !["/api/station-auth/login", "/api/station-auth/status"].includes(path)) {
-    sessionStorage.removeItem(isStationRequest(path) ? STATION_TOKEN_KEY : TOKEN_KEY);
-    if (isStationRequest(path) && typeof window !== "undefined" && ["/", "/kiosk"].includes(window.location.pathname)) {
+  if (res.status === 401 && tokenKey && token && sessionStorage.getItem(tokenKey) === token && !path.startsWith("/api/auth/")) {
+    sessionStorage.removeItem(tokenKey);
+    if (tokenKey === STATION_TOKEN_KEY && typeof window !== "undefined" && ["/", "/kiosk"].includes(window.location.pathname)) {
       window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
     }
-    if (!isStationRequest(path) && (
+    if (tokenKey === TOKEN_KEY && (
       typeof window !== "undefined" &&
       window.location.pathname.startsWith("/admin") &&
       !window.location.pathname.includes("/admin/login")

@@ -44,14 +44,14 @@ async function save() {
       <p><strong>{{ printer?.name }} · {{ sku }}</strong><br>Shared by all templates using this printer and material. Saved separately from the template.</p>
       <ol><li>Load the matching roll and send one test label.</li><li>Compare the text position with the carrier preview; measure the displacement in mm.</li><li>Save the opposite correction and print again to verify.</li></ol>
       <div class="calibration-fields">
-        <label>X correction · mm<input v-model.number="x" type="number" min="-5" max="5" step="0.01" :disabled="busy || testing"></label>
-        <label>Y correction · mm<input v-model.number="y" type="number" min="-5" max="5" step="0.01" :disabled="busy || testing"></label>
+        <label>X correction · mm<input name="calibration_x" v-model.number="x" type="number" min="-5" max="5" step="0.01" :disabled="busy || testing"></label>
+        <label>Y correction · mm<input name="calibration_y" v-model.number="y" type="number" min="-5" max="5" step="0.01" :disabled="busy || testing"></label>
       </div>
       <p>Positive X moves right; positive Y moves down in the carrier view. Corrections are limited to ±5 mm.</p>
       <details><summary>Calculate from a measured displacement</summary>
         <div class="calibration-fields">
-          <label>Printed too far right · mm<input v-model.number="measuredX" type="number" step="0.01" :disabled="busy || testing"></label>
-          <label>Printed too far down · mm<input v-model.number="measuredY" type="number" step="0.01" :disabled="busy || testing"></label>
+          <label>Printed too far right · mm<input name="calibration_measuredX" v-model.number="measuredX" type="number" step="0.01" :disabled="busy || testing"></label>
+          <label>Printed too far down · mm<input name="calibration_measuredY" v-model.number="measuredY" type="number" step="0.01" :disabled="busy || testing"></label>
         </div>
         <p>Use negative values for left/up. Measure from the latest test with the saved correction.</p>
         <button type="button" :disabled="dirty || busy || testing" @click="correctMeasured">Calculate correction</button>

@@ -51,7 +51,7 @@ async function load() {
     if (!request.signal.aborted) loading.value = false;
   }
 }
-watch(() => [props.hit.label_id, stationAuth.station?.printer_id], () => {
+watch(() => [props.hit.label_id, stationAuth.station?.allowed_printers, stationAuth.station?.default_printer_id], () => {
   controller?.abort();
   preview.value = null;
   error.value = null;
@@ -95,6 +95,7 @@ onBeforeUnmount(() => { observer?.disconnect(); controller?.abort(); });
     </div>
     <p v-else-if="preview" class="material-note">
       <span>{{ preview.material_sku || 'Custom material' }} · {{ dimensions }}</span>
+      <span v-if="preview.template_only">Template preview. Printer calibration is applied when printing.</span>
       <span v-if="preview.material">Clear wrap placement is illustrative.</span>
     </p>
     <p v-else class="material-note" role="status">{{ loading ? 'Preparing sticker preview…' : 'Sticker preview loads when visible' }}</p>

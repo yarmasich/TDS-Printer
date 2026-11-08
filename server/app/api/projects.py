@@ -173,6 +173,7 @@ class DisciplineDTO(BaseModel):
     template_id: Optional[int]
     template_name: Optional[str] = None
     printer_id: Optional[int] = None
+    printer_ids: list[int] = []
     printer_name: Optional[str] = None
     color: str
     label_count: int
@@ -216,6 +217,7 @@ def list_disciplines(
             template_id=d.template_id,
             template_name=tmpl.name if tmpl else None,
             printer_id=printer.id if printer else None,
+            printer_ids=(tmpl.printer_ids or [tmpl.printer_id]) if tmpl else [],
             printer_name=printer.name if printer else None,
             color=d.color, label_count=n, bundle_mode=d.bundle_mode,
         ))

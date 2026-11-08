@@ -77,7 +77,7 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
       const sid = useSession().ensure(scope);
       return api.get<PrintPolicy>(`/api/cart/print-policy?sid=${encodeURIComponent(sid)}`);
     },
-    async printAll(operator?: string, reason?: string, rfidCode?: string) {
+    async printAll(operator?: string, reason?: string, rfidCode?: string, printerChoices: Record<number, number> = {}) {
       const account = identity();
       const sid = useSession().ensure(scope);
       if (this.hasPrinting) throw new Error("Printing is already active. Wait, then refresh the cart.");
@@ -87,6 +87,7 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
       try {
         return await api.post<PrintAllResult>("/api/cart/print", {
           sid, operator: operator ?? "", reason: reason ?? "",
+          ...(Object.keys(printerChoices).length ? { printer_choices: printerChoices } : {}),
           ...(rfidCode === undefined ? {} : { rfid_code: rfidCode }),
         });
       } finally {

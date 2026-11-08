@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRfidPrint } from "@/composables/useRfidPrint";
 import Dialog from "primevue/dialog";
 import type { CartItem } from "@/api/types";
-import { useStationAuth } from "@/stores/stationAuth";
+import { eligiblePrinters, useStationAuth } from "@/stores/stationAuth";
 import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
 import Drawer from "primevue/drawer";
@@ -27,6 +27,25 @@ const stationAuth = useStationAuth();
 const toast = useToast();
 const confirm = useConfirm();
 const drawerOpen = ref(false);
+const choosingPrinter = ref(false);
+const preparing = ref(false);
+const printerChoices = ref<Record<number, number>>({});
+const templatesToChoose = computed(() => {
+  const station = stationAuth.station;
+  if (!station) return [];
+  const templates = new Map<number, { id: number; name: string; printers: { id: number; name: string }[] }>();
+  for (const item of cart.items) {
+    if (item.status !== "queued" || !item.template_id || templates.has(item.template_id)) continue;
+    const eligible = eligiblePrinters(station, item.printer_ids ?? []);
+    if (eligible.length > 1 && !eligible.some(printer => printer.id === station.default_printer_id)) {
+      templates.set(item.template_id, { id: item.template_id, name: item.template_name ?? "Template", printers: eligible });
+    }
+  }
+  return [...templates.values()];
+});
+const choicesComplete = computed(() => templatesToChoose.value.every(template =>
+  template.printers.some(printer => printer.id === printerChoices.value[template.id]),
+));
 const scanInput = ref<HTMLInputElement | null>(null);
 const {
   open: scanOpen, code: scanCode, error: printError, checking,
@@ -44,7 +63,24 @@ async function focusScan() {
 watch(submitting, (active) => { if (!active && scanOpen.value) void focusScan(); });
 
 async function printAll() {
-  if (!cart.queuedCount || cart.hasPrinting || printing.value) return;
+  if (!cart.queuedCount || cart.hasPrinting || printing.value || preparing.value || choosingPrinter.value) return;
+  preparing.value = true;
+  try {
+    await stationAuth.restore();
+    if (stationAuth.error || (stationAuth.required && !stationAuth.station)) throw new Error(stationAuth.error || "Sign in to this station before printing.");
+    await cart.fetch();
+    printerChoices.value = {};
+    if (templatesToChoose.value.length) choosingPrinter.value = true;
+    else await startPrinting();
+  } catch (error) {
+    reportError(error);
+  } finally {
+    preparing.value = false;
+  }
+}
+
+async function startPrinting() {
+  choosingPrinter.value = false;
   await start();
   if (printError.value && !scanOpen.value) {
     toast.add({ severity: "error", summary: "Cannot print", detail: printError.value });
@@ -53,11 +89,15 @@ async function printAll() {
 
 async function executePrint(rfidCode?: string) {
   try {
-    const res = await cart.printAll(props.operator, props.reason, rfidCode);
+    const res = await cart.printAll(props.operator, props.reason, rfidCode, printerChoices.value);
+    const destinations = res.printers?.map(printer =>
+      `${printer.printer_name}: ${printer.sent} sent${printer.failed ? `, ${printer.failed} failed` : ""}`,
+    ).join("; ");
     if (res.errors.length === 0) {
       toast.add({
         severity: "success",
-        summary: `Printed ${res.ok} labels`,
+        summary: `Sent ${res.ok} labels`,
+        detail: destinations,
         life: 3000,
       });
       drawerOpen.value = false;
@@ -65,8 +105,8 @@ async function executePrint(rfidCode?: string) {
     } else {
       toast.add({
         severity: "warn",
-        summary: `Printed ${res.ok}, ${res.errors.length} failed`,
-        detail: res.errors.map((e) => e.error).join("; "),
+        summary: `Sent ${res.ok}, ${res.errors.length} failed`,
+        detail: [destinations, ...res.errors.map((e) => e.error)].filter(Boolean).join("; "),
         life: 6000,
       });
       // Still emit on partial success — the printed items left the cart
@@ -103,6 +143,22 @@ function clearCart() {
 </script>
 
 <template>
+  <Dialog v-model:visible="choosingPrinter" modal header="Choose printers" :style="{ width: '28rem', maxWidth: '95vw' }">
+    <div class="space-y-3">
+      <div v-for="template in templatesToChoose" :key="template.id" class="flex flex-col gap-1">
+        <label :for="`cart-${kiosk ? 'kiosk' : 'print'}-printer-${template.id}`">{{ template.name }}</label>
+        <select :id="`cart-${kiosk ? 'kiosk' : 'print'}-printer-${template.id}`" v-model="printerChoices[template.id]"
+          class="border border-edge rounded-lg bg-surface p-2">
+          <option :value="undefined" disabled>Select printer</option>
+          <option v-for="printer in template.printers" :key="printer.id" :value="printer.id">{{ printer.name }}</option>
+        </select>
+      </div>
+    </div>
+    <template #footer>
+      <Button label="Cancel" severity="secondary" @click="choosingPrinter = false" />
+      <Button label="Continue" :disabled="!choicesComplete" @click="startPrinting" />
+    </template>
+  </Dialog>
   <!-- Floating sticky bar that appears when cart has items -->
   <Transition name="slide-up">
     <div

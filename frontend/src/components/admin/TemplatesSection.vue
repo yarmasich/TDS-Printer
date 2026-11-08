@@ -18,7 +18,7 @@ import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Textarea from "primevue/textarea";
-import Select from "primevue/select";
+import MultiSelect from "primevue/multiselect";
 
 import CalibrationPanel from "@/components/admin/CalibrationPanel.vue";
 import MaterialPicker from "@/components/admin/MaterialPicker.vue";
@@ -94,6 +94,7 @@ const cablePrinters = computed(() =>
 const blank = (): Omit<Template, "id"> => ({
   name: "",
   printer_id: cablePrinters.value[0]?.id ?? 0,
+  printer_ids: cablePrinters.value.slice(0, 1).map(printer => printer.id),
   bytes_per_row: 156,
   height: 862,
   left_top: 480,
@@ -143,6 +144,12 @@ const printerById = computed(
   () => new Map(printers.printers.map((p) => [p.id, p])),
 );
 
+const templatePrinters = computed(() => cablePrinters.value.filter(printer => form.printer_ids?.includes(printer.id)));
+function setTemplatePrinters(ids: number[]) {
+  form.printer_ids = ids;
+  if (!ids.includes(form.printer_id)) form.printer_id = ids[0] ?? 0;
+}
+
 function openCreate() {
   editId.value = null;
   Object.assign(form, blank());
@@ -155,7 +162,7 @@ function openEdit(t: Template) {
   editId.value = t.id;
   const { id: _id, ...rest } = t;
   void _id;
-  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest);
+  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest, { printer_ids: rest.printer_ids?.length ? [...rest.printer_ids] : [rest.printer_id] });
   originalDraft.value = JSON.stringify(form);
   calibrationState.value = { dirty: false, busy: false };
   dialogOpen.value = true;
@@ -165,7 +172,7 @@ function openDuplicate(t: Template) {
   editId.value = null; // saving will POST a new row
   const { id: _id, ...rest } = t;
   void _id;
-  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest);
+  Object.assign(form, { material_sku: "", media_height_mm: 0, media_gap_mm: 3 }, rest, { printer_ids: rest.printer_ids?.length ? [...rest.printer_ids] : [rest.printer_id] });
   // Auto-suffix until the name is unique among existing templates.
   const taken = new Set(templates.value.map((x) => x.name));
   let candidate = `${t.name} copy`;
@@ -178,7 +185,7 @@ function openDuplicate(t: Template) {
 }
 
 async function save() {
-  if (saving.value || testing.value || calibrationBlocked.value) return;
+  if (saving.value || testing.value || calibrationBlocked.value || !form.printer_ids?.length) return;
   saving.value = true;
   try {
     if (editId.value) {
@@ -430,17 +437,10 @@ const presetSku = computed(() => {
       size="small"
     >
       <Column field="name" header="Name" />
-      <Column header="Printer">
+      <Column header="Printers">
         <template #body="{ data }">
-          <span v-if="printerById.get(data.printer_id)">
-            {{ printerById.get(data.printer_id)?.name }}
-            <span class="text-ink-4">
-              ({{ printerById.get(data.printer_id)?.ip }}:{{
-                printerById.get(data.printer_id)?.port
-              }})
-            </span>
-          </span>
-          <span v-else class="text-danger">⚠ missing</span>
+          {{ (data.printer_ids?.length ? data.printer_ids : [data.printer_id])
+            .map((id: number) => printerById.get(id)?.name ?? `Missing printer #${id}`).join(", ") }}
         </template>
       </Column>
       <Column header="Geometry">
@@ -518,14 +518,17 @@ const presetSku = computed(() => {
 
           </div>
           <div>
-            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-printer">Printer</label>
-            <Select
-              :disabled="calibrationBlocked" input-id="template-printer" v-model="form.printer_id"
-              :options="cablePrinters"
-              option-label="name"
-              option-value="id"
-              class="w-full"
-            />
+            <label class="block text-xs font-bold text-ink-2 mb-1" for="template-printers">Printers</label>
+            <MultiSelect input-id="template-printers" :model-value="form.printer_ids"
+              @update:model-value="setTemplatePrinters" :options="cablePrinters"
+              option-label="name" option-value="id" display="chip" class="w-full"
+              placeholder="Select compatible printers" :disabled="calibrationBlocked" />
+            <label class="block text-xs font-bold text-ink-2 mt-2 mb-1" for="template-preview-printer">Preview and test printer</label>
+            <select id="template-preview-printer" v-model="form.printer_id" class="w-full border border-edge rounded-lg bg-surface p-2"
+              :disabled="calibrationBlocked || !templatePrinters.length">
+              <option v-if="!templatePrinters.length" :value="0">Select compatible printers first</option>
+              <option v-for="printer in templatePrinters" :key="printer.id" :value="printer.id">{{ printer.name }}</option>
+            </select>
             <p v-if="printerById.get(form.printer_id)?.model && printerById.get(form.printer_id)?.model !== 'custom'" class="printer-ready">
               {{ printerById.get(form.printer_id)?.model }} · {{ printerById.get(form.printer_id)?.dpi }} dpi
             </p>
@@ -658,7 +661,7 @@ const presetSku = computed(() => {
           />
           <div class="flex gap-2">
             <Button label="Cancel" severity="secondary" :disabled="saving || testing || calibrationState.busy" @click="requestClose(false)" />
-            <Button :label="editId ? 'Save' : 'Create'" :loading="saving" :disabled="saving || testing || calibrationBlocked" @click="save" />
+            <Button :label="editId ? 'Save' : 'Create'" :loading="saving" :disabled="saving || testing || calibrationBlocked || !form.printer_ids?.length" @click="save" />
           </div>
         </div>
       </template>
@@ -688,8 +691,8 @@ const presetSku = computed(() => {
           <details class="zoom-card" open>
             <summary class="zoom-card-title">Label content</summary>
             <div class="grid grid-cols-2 gap-2">
-              <label class="zoom-field-label">Left<Textarea v-model="form.left_text" :rows="2" class="w-full" /></label>
-              <label class="zoom-field-label">Right<Textarea v-model="form.right_text" :rows="2" class="w-full" /></label>
+              <label class="zoom-field-label">Left<Textarea id="template-preview-left-text" v-model="form.left_text" :rows="2" class="w-full" /></label>
+              <label class="zoom-field-label">Right<Textarea id="template-preview-right-text" v-model="form.right_text" :rows="2" class="w-full" /></label>
             </div>
             <button type="button" class="copy-label-text" @click="form.right_text = form.left_text">Copy left text → right</button>
           </details>

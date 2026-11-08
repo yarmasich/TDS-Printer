@@ -11,6 +11,7 @@ from .. import rfid
 from ..auth_station import resolve_operator, station_audit
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
+from ..station_routing import allowed_printers, select_printer
 from ..printer import PrintError, render_and_send, render_label_png
 from ..schemas import TemplateInput
 from ..calibration import render_preview_png
@@ -141,6 +142,7 @@ class PrintRequest(BaseModel):
     rfid_code: Optional[str] = Field(default=None, max_length=256)
     """Either supply ``label_id`` (uses the discipline's bound template) OR
     ``template_id`` + ``left_text`` / ``right_text``."""
+    printer_id: int | None = None
     label_id: Optional[int] = None
     template_id: Optional[int] = None
     left_text: str = ""
@@ -192,9 +194,12 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session),
     else:
         raise HTTPException(400, "Provide either label_id or template_id")
 
-    printer = session.get(Printer, station.printer_id if station else template.printer_id)
-    if not printer:
-        raise HTTPException(500, "Template points at a missing printer")
+    allowed = allowed_printers(session, station.id) if station else None
+    default = station.default_printer_id if station else None
+    try:
+        printer = select_printer(session, allowed, template, default, req.printer_id)
+    except PrintError as exc:
+        raise HTTPException(409 if station else 500, str(exc)) from exc
 
     identity = rfid.identify([project] if project else [], req.rfid_code, req.operator)
     log = PrintLog(

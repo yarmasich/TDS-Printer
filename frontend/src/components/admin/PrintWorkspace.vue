@@ -31,9 +31,9 @@ const mm = (px: number) => (px * 25.4 / 300).toFixed(2);
     <div v-if="!compact" class="workspace-toolbar">
       <div><strong>{{ template.material_sku || 'Custom material' }}</strong><small>Operator view · 300 dpi design grid</small></div>
       <div class="workspace-tools">
-        <select v-if="spec" v-model="view" aria-label="Preview mode"><option value="labels">Labels</option><option value="raster">Carrier raster</option></select>
+        <select v-if="spec" name="preview_mode" v-model="view" aria-label="Preview mode"><option value="labels">Labels</option><option value="raster">Carrier raster</option></select>
         <button type="button" :aria-pressed="guides" @click="guides = !guides">{{ guides ? 'Hide guides' : 'Show guides' }}</button>
-        <select v-model.number="zoom" aria-label="Preview zoom"><option :value="1">Fit to view</option><option :value="1.5">150% of fit</option><option :value="2">200% of fit</option></select>
+        <select name="preview_zoom" v-model.number="zoom" aria-label="Preview zoom"><option :value="1">Fit to view</option><option :value="1.5">150% of fit</option><option :value="2">200% of fit</option></select>
       </div>
     </div>
     <div class="workspace-stage" :aria-busy="loading">

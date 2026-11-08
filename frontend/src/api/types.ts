@@ -73,6 +73,7 @@ export interface Template {
   id: number;
   name: string;
   printer_id: number;
+  printer_ids?: number[];
   bytes_per_row: number;
   height: number;
   left_top: number;
@@ -130,6 +131,7 @@ export interface Discipline {
   template_id: number | null;
   template_name: string | null;
   printer_id: number | null;
+  printer_ids?: number[];
   printer_name: string | null;
   color: string;
   label_count: number;
@@ -178,6 +180,8 @@ export interface CartItem {
   left_text: string;
   right_text: string;
   template_name: string | null;
+  template_id?: number | null;
+  printer_ids?: number[];
   added_at: string;
 }
 
@@ -190,6 +194,7 @@ export interface PrintAllResult {
   ok: number;
   errors: { item_id: number; error: string }[];
   log_ids: number[];
+  printers?: { printer_name: string; sent: number; failed: number }[];
 }
 
 export interface Reason {

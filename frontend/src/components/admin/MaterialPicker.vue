@@ -45,7 +45,7 @@ onUnmounted(() => { results.clear(); selected.clear(); });
     <legend class="text-xs font-bold text-ink-3 uppercase px-1">Material catalog</legend>
     <p class="text-sm text-ink-2">Enter the full part number from the roll.</p>
     <div class="material-search">
-      <InputText v-model="query" aria-label="Material part number" placeholder="e.g. R200X150V1T" class="min-w-0 flex-1" @keydown.enter.prevent="search" />
+      <InputText name="material_part_number" v-model="query" aria-label="Material part number" placeholder="e.g. R200X150V1T" class="min-w-0 flex-1" @keydown.enter.prevent="search" />
       <Button label="Find material" icon="pi pi-search" :loading="results.loading.value" @click="search" />
     </div>
     <p v-if="results.error.value || selected.error.value" role="alert" class="text-sm text-danger">{{ results.error.value || selected.error.value }}</p>
