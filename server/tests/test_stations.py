@@ -414,3 +414,41 @@ def test_ambiguous_preview_shows_template_but_print_requires_choice(client, db):
     with patch.object(direct, "render_and_send") as send:
         assert client.post("/api/print", headers=headers, json={"label_id": 1}).status_code == 409
         send.assert_not_called()
+
+
+@pytest.mark.parametrize('configured,days', [(None, 30), ('7', 7)])
+def test_operator_session_lifetime_and_expiration(client, monkeypatch, configured, days):
+    from datetime import datetime, timedelta, timezone
+    import jwt
+
+    if configured is None:
+        monkeypatch.delenv('STATION_TOKEN_DAYS', raising=False)
+    else:
+        monkeypatch.setenv('STATION_TOKEN_DAYS', configured)
+    create(client)
+    started = datetime.now(timezone.utc)
+    headers = login(client)
+    token = headers['Authorization'].removeprefix('Bearer ')
+    payload = jwt.decode(token, 'test-secret-with-enough-entropy-123456789', algorithms=['HS256'])
+    assert abs(payload['exp'] - (started + timedelta(days=days)).timestamp()) < 3
+
+    class Clock(datetime):
+        current = started + timedelta(hours=13)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz)
+
+    monkeypatch.setattr(jwt.api_jwt, 'datetime', Clock)
+    assert client.get('/api/station-auth/me', headers=headers).status_code == 200
+    Clock.current = started + timedelta(days=days, seconds=5)
+    assert client.get('/api/station-auth/me', headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize('configured', ['0', '-1', '366', 'forever', '1.5'])
+def test_invalid_station_lifetime_rejects_login(client, monkeypatch, configured):
+    create(client)
+    monkeypatch.setenv('STATION_TOKEN_DAYS', configured)
+    response = client.post('/api/station-auth/login', json={'username': 'first', 'password': 'password123'})
+    assert response.status_code == 503
+    assert 'access_token' not in response.json()
