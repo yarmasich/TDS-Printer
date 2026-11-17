@@ -1,37 +1,31 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { PingResult } from "@/api/types";
+import { pillFor, type PillTone } from "@/data/printerPill";
 
-defineProps<{
+const props = defineProps<{
   /** null = checking, undefined = no info yet */
   ping?: PingResult | null;
 }>();
+
+const TONES: Record<PillTone, string> = {
+  muted: "bg-edge text-ink-3",
+  checking: "bg-accent-soft-hover text-accent-ink",
+  ok: "bg-ok-soft text-ok",
+  warn: "bg-warn-soft text-warn",
+  danger: "bg-danger-soft text-danger",
+};
+
+const pill = computed(() => pillFor(props.ping));
 </script>
 
 <template>
   <span
-    v-if="ping === undefined"
-    class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-edge text-ink-3"
+    class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold"
+    :class="[TONES[pill.tone], { 'cursor-help': pill.title }]"
+    :title="pill.title"
+    role="status"
   >
-    unknown
-  </span>
-  <span
-    v-else-if="ping === null"
-    class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-accent-soft-hover text-accent-ink"
-  >
-    checking…
-  </span>
-  <span
-    v-else-if="ping.ok"
-    class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-ok-soft text-ok"
-  >
-    online · {{ ping.ms }} ms
-  </span>
-  <span v-else-if="ping.error.toLowerCase().includes('busy')" class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-warn-soft text-warn" :title="ping.error">busy</span>
-  <span
-    v-else
-    :title="ping.error"
-    class="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold bg-danger-soft text-danger cursor-help"
-  >
-    offline
+    {{ pill.label }}
   </span>
 </template>

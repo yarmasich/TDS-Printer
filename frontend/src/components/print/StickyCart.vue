@@ -4,6 +4,7 @@ import { useRfidPrint } from "@/composables/useRfidPrint";
 import Dialog from "primevue/dialog";
 import type { CartItem } from "@/api/types";
 import { eligiblePrinters, useStationAuth } from "@/stores/stationAuth";
+import { printFailureDetail } from "@/data/printResult";
 import { useCart } from "@/stores/cart";
 import Button from "primevue/button";
 import Drawer from "primevue/drawer";
@@ -106,7 +107,7 @@ async function executePrint(rfidCode?: string) {
       toast.add({
         severity: "warn",
         summary: `Sent ${res.ok}, ${res.errors.length} failed`,
-        detail: [destinations, ...res.errors.map((e) => e.error)].filter(Boolean).join("; "),
+        detail: printFailureDetail(destinations ?? "", res.errors),
         life: 6000,
       });
       // Still emit on partial success — the printed items left the cart

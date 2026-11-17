@@ -14,9 +14,11 @@ def isolate(monkeypatch):
 
 
 def reply(status=3, flags=b'\0', *, model=b'Panduit DP4300H label printer',
-          device_type=device._HR_DEVICE_PRINTER, flags_tag=4, request_id=123):
+          device_type=device._HR_DEVICE_PRINTER, flags_tag=4, request_id=123, cover=6):
+    # cover=None answers noSuchInstance, as a model without a prtCoverTable row does.
+    cover_field = bytes([0x81, 0]) if cover is None else device._integer(cover)
     fields = (device._tlv(4, model), device._tlv(6, device_type),
-              device._integer(status), device._tlv(flags_tag, flags))
+              device._integer(status), device._tlv(flags_tag, flags), cover_field)
     items = b''.join(device._tlv(0x30, device._tlv(6, oid) + field)
                      for oid, field in zip(device._PANDUIT_OIDS, fields))
     body = device._integer(request_id) + device._integer(0) * 2 + device._tlv(0x30, items)
@@ -106,3 +108,32 @@ def test_4600h_unexpected_device_index_and_malformed_fields(monkeypatch):
                       reply(model=b'Panduit DP4600H label printer', flags=b'\x04'*3)):
         monkeypatch.setattr(device, '_exchange', lambda *args: malformed)
         assert device.device_status(9, '192.0.2.4', 'DP4600H', community_override='sample', fresh=True)['state'] == 'unknown'
+
+
+# Captured live from a DP4600H (cab firmware) on 2026-11-17. With the printhead
+# open it kept reporting idle, no error flags and "Ready" on its own display —
+# prtCoverStatus (5 interlockOpen / 6 interlockClosed) was the only signal.
+@pytest.mark.parametrize('status, flags, cover, expected', [
+    (3, b'\x00', 5, 'cover_open'),   # head open, panel "Ready"
+    (3, b'\x00', 6, 'ready'),        # head closed, panel "Ready"
+    (4, b'\x00', 6, 'busy'),         # panel "Printing"
+    (1, b'B', 6, 'no_media'),         # panel "Error - Out of paper" (0x42)
+    (1, b'B', 5, 'cover_open'),       # out of paper, head opened to reload
+])
+def test_dp4600h_live_captures(monkeypatch, status, flags, cover, expected):
+    monkeypatch.setattr(device, '_exchange', lambda *args: reply(
+        status, flags, cover=cover, model=b'Panduit DP4600H label printer'))
+    assert device.device_status(9, '192.0.2.4', 'DP4600H', community_override='sample',
+                                fresh=True)['state'] == expected
+
+
+@pytest.mark.parametrize('cover', [3, 5])  # coverOpen, interlockOpen
+def test_open_cover_outranks_a_supply_warning(monkeypatch, cover):
+    monkeypatch.setattr(device, '_exchange', lambda *args: reply(3, b'\x80', cover=cover))
+    assert read(fresh=True)['state'] == 'cover_open'
+
+
+@pytest.mark.parametrize('flags, expected', [(b'\x00', 'ready'), (b'\x40', 'no_media')])
+def test_a_model_without_a_cover_row_keeps_its_flag_reading(monkeypatch, flags, expected):
+    monkeypatch.setattr(device, '_exchange', lambda *args: reply(3, flags, cover=None))
+    assert read(fresh=True)['state'] == expected

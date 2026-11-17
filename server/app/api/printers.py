@@ -16,7 +16,7 @@ from ..auth_admin import require_admin
 from ..auth_station import require_reader
 from ..db import get_session
 from ..models import PrintLog, Printer, Template, StationPrinter, ProjectPrinterAssignment
-from ..printer import PrintError, ping_printer, render_and_send
+from ..printer import PING_BUSY, PrintError, ping_printer, render_and_send
 from ..schemas import MaterialCalibration, PrinterInput, PrinterPatch
 
 class RedactedPrinterRoute(APIRoute):
@@ -74,6 +74,8 @@ class PingResult(BaseModel):
     ok: bool
     ms: Optional[float] = None
     error: str = ""
+    # The printer's own state where SNMP reports it; null when it does not.
+    device_status: Optional[dict] = None
 
 
 class TestPrintResult(BaseModel):
@@ -186,12 +188,23 @@ def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> 
 
 @router.get("/{printer_id}/ping", response_model=PingResult, dependencies=[Depends(require_reader)])
 def ping(printer_id: int, session: Session = Depends(get_session)) -> PingResult:
-    """TCP-connect check. Fast (~2s timeout) and does not send any bytes."""
+    """TCP-connect check plus the printer's SNMP state. Sends no print bytes.
+
+    A DP4600H with its head open still accepts TCP, so reachability alone reads
+    "online" while the next job is held. SNMP never touches the 9100 socket, so
+    it is read even while this server holds that socket for a job; it is
+    skipped only when the printer is unreachable, where it would just time out.
+    The 5 s display cache lets every tablet poll one printer for one read.
+    """
     p = session.get(Printer, printer_id)
     if not p:
         raise HTTPException(404, "Printer not found")
     ok, ms, err = ping_printer(p.ip, p.port)
-    return PingResult(printer_id=printer_id, ok=ok, ms=ms, error=err)
+    status = None
+    if ok or err == PING_BUSY:
+        status = printer_device_status.device_status(p.id, p.ip, p.model, enabled=p.snmp_enabled,
+                                                      port=p.snmp_port, community_override=p.snmp_community)
+    return PingResult(printer_id=printer_id, ok=ok, ms=ms, error=err, device_status=status)
 
 
 @router.post(
@@ -291,7 +304,7 @@ def printer_status(printer_id: int, session: Session = Depends(get_session)):
     ip, port = printer.ip, printer.port
     metadata = public_printer(printer)
     online, _, error = ping_printer(ip, port)
-    connection_state = 'reachable' if online else ('busy' if error == 'Printer busy; status check skipped' else 'unreachable')
+    connection_state = 'reachable' if online else ('busy' if error == PING_BUSY else 'unreachable')
     status = printer_device_status.device_status(config.printer_id, config.ip, config.model,
         enabled=config.enabled, port=config.port, community_override=config.community)
     return dict(printer_id=printer_id, online=online, connection_state=connection_state, device_status=status,

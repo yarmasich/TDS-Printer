@@ -18,17 +18,22 @@ from time import monotonic
 _STATUS_OID = bytes.fromhex('2b06010401930303030901060100')
 # Fixed Printer-MIB prtMarkerLifeCount. A global counter, not a job receipt.
 _COUNTER_OID = bytes.fromhex('2b060102012b0a0201040101')
-# SNMPv2-MIB sysDescr.0 and HOST-RESOURCES-MIB hrDeviceType.1,
-# hrPrinterStatus.1 and hrPrinterDetectedErrorState.1 (RFC 2790).
+# SNMPv2-MIB sysDescr.0, HOST-RESOURCES-MIB hrDeviceType.1, hrPrinterStatus.1
+# and hrPrinterDetectedErrorState.1 (RFC 2790), and Printer-MIB
+# prtCoverStatus.1.1. The cab-built DP4600H reports an open printhead ONLY in
+# prtCoverStatus: idle, no error flags and "Ready" on its own display.
 _PANDUIT_OIDS = tuple(bytes.fromhex(oid) for oid in (
     '2b06010201010100', '2b06010201190302010201',
     '2b06010201190305010101', '2b06010201190305010201',
+    '2b060102012b060101030101',
 ))
+_COVER_OPEN = {3, 5}  # coverOpen, interlockOpen
+_NO_SUCH = {0x80, 0x81}  # noSuchObject, noSuchInstance
 PANDUIT_SNMP_DESCRIPTIONS = {
     'DP4300M': b'Panduit DP4300M label printer',
     'DP4300H': b'Panduit DP4300H label printer',
-    # Expected description and device index 1 are unverified for this firmware.
-    # The live GET timed out. A different identity or index yields unknown.
+    # Verified live 2026-11-17: this description, device index 1 and a
+    # prtCoverTable row 1.1. A different identity or index yields unknown.
     'DP4600H': b'Panduit DP4600H label printer',
 }
 _HR_DEVICE_PRINTER = bytes.fromhex('2b0601020119030105')
@@ -207,12 +212,12 @@ def _probe_value(ip, community, port=161, oid=_STATUS_OID):
     return _response(packet, request_id, community, oid)
 
 
-def _panduit_state(status, flags):
+def _panduit_state(status, flags, cover=None):
     if status not in range(1, 6) or len(flags) not in (1, 2):
         return 'unknown'
     # RFC 2790 numbers bits MSB first. Recognized faults outrank warnings.
     primary = flags[0]
-    if primary & 0x08:
+    if primary & 0x08 or cover in _COVER_OPEN:
         return 'cover_open'
     if primary & 0x40:
         return 'no_media'
@@ -229,17 +234,23 @@ def _panduit_probe(ip, community, port, model):
     packet = _exchange(ip, port, request)
     bindings = _response_bindings(packet, request_id, community, 1)
     values = []
-    for oid, tag in zip(_PANDUIT_OIDS, (4, 6, 2, 4)):
+    for oid, tag in zip(_PANDUIT_OIDS, (4, 6, 2, 4, 2)):
         binding = _Reader(bindings.value(0x30))
         if binding.value(6) != oid:
             raise ValueError('Unexpected Panduit OID')
-        values.append(binding.integer() if tag == 2 else binding.value(tag))
+        if oid == _PANDUIT_OIDS[-1] and binding.pos < len(binding.data) and binding.data[binding.pos] in _NO_SUCH:
+            # A model without the cover row must keep its flag reading.
+            if binding.value(binding.data[binding.pos]):
+                raise ValueError('Invalid SNMP exception value')
+            values.append(None)
+        else:
+            values.append(binding.integer() if tag == 2 else binding.value(tag))
         binding.done()
     bindings.done()
-    description, device_type, printer_status, flags = values
+    description, device_type, printer_status, flags, cover = values
     result = _unknown()
     if description == PANDUIT_SNMP_DESCRIPTIONS[model] and device_type == _HR_DEVICE_PRINTER:
-        result['state'] = _panduit_state(printer_status, flags)
+        result['state'] = _panduit_state(printer_status, flags, cover)
     return result
 
 
@@ -312,6 +323,26 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
             while len(_cache) > _CACHE_LIMIT:
                 _cache.popitem(last=False)
     return dict(result)
+
+
+# A printer that buffers a job behind an open cover reports the send as a
+# success, so these hold the job instead. Anything unrecognised — SNMP off or
+# silent, a low-supply warning, an unverified model — must never block a print.
+_FAULTS = {
+    'cover_open': 'cover is open. Close it, then print again.',
+    'no_media': 'has no labels loaded. Load labels, then print again.',
+    'error': 'reports a fault (ribbon, jam, offline or service). Check it, then print again.',
+}
+
+
+def print_fault(printer):
+    """Fresh, uncached pre-send check; the operator-facing reason, or None."""
+    if printer.model not in PANDUIT_SNMP_DESCRIPTIONS or not printer.snmp_enabled:
+        return None
+    status = device_status(printer.id, printer.ip, printer.model, port=printer.snmp_port,
+                           community_override=printer.snmp_community, fresh=True)
+    reason = _FAULTS.get(status['state']) if status else None
+    return f'Printer {printer.name} {reason}' if reason else None
 
 
 from dataclasses import dataclass, field

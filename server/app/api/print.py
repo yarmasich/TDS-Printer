@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from ..auth_admin import require_admin, decode_admin_token
-from .. import rfid
+from .. import printer_device_status, rfid
 from ..auth_station import resolve_operator, station_audit
 from ..db import get_session
 from ..models import Discipline, Label, PrintLog, Printer, Template
@@ -213,6 +213,10 @@ def submit_print(req: PrintRequest, session: Session = Depends(get_session),
         right_text=right,
     )
     try:
+        # Refused before sending, so the history records an error, not a print.
+        fault = printer_device_status.print_fault(printer)
+        if fault:
+            raise PrintError(fault)
         render_and_send(template, printer, left, right, identity.name, req.reason)
     except PrintError as e:
         log.status = "uncertain" if e.uncertain else "error"
