@@ -335,14 +335,24 @@ _FAULTS = {
 }
 
 
-def print_fault(printer):
-    """Fresh, uncached pre-send check; the operator-facing reason, or None."""
+def print_fault_state(printer):
+    """Fresh, uncached pre-send check: ``(state, operator sentence)`` or None.
+
+    The state is for machines (API callers branch on it), the sentence for
+    whoever stands at the printer.
+    """
     if printer.model not in PANDUIT_SNMP_DESCRIPTIONS or not printer.snmp_enabled:
         return None
-    status = device_status(printer.id, printer.ip, printer.model, port=printer.snmp_port,
+    status = device_status(printer.id, printer.ip, printer.model, enabled=True, port=printer.snmp_port,
                            community_override=printer.snmp_community, fresh=True)
     reason = _FAULTS.get(status['state']) if status else None
-    return f'Printer {printer.name} {reason}' if reason else None
+    return (status['state'], f'Printer {printer.name} {reason}') if reason else None
+
+
+def print_fault(printer):
+    """The operator-facing reason a pre-send check holds a job, or None."""
+    fault = print_fault_state(printer)
+    return fault[1] if fault else None
 
 
 from dataclasses import dataclass, field

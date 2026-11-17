@@ -89,7 +89,7 @@ curl -X POST http://10.0.0.5:8000/api/v1/print \
 | `400` | No scope given (neither `discipline_id` nor `discipline`) or malformed `cable` | `{"detail": "..."}` |
 | `404` | Discipline / cable not found, or unknown `printer_id` code | `{"detail": "No label matching '1.1' in discipline '...'"}` · `{"detail": "Unknown printer 'WS9'"}` |
 | `409` | Ambiguous match | see below |
-| `502` | Printer unreachable / send error | `{"detail": {"message": "...", "log_ids": [...], "printed": N}}` |
+| `502` | Printer unreachable / send error, or the printer reported a fault before sending | `{"detail": {"message": "...", "log_ids": [...], "printed": N, "printer_state": null}}` |
 
 ### `409` — multiple labels for one cable
 
@@ -106,6 +106,38 @@ curl -X POST http://10.0.0.5:8000/api/v1/print \
 
 `409` is also returned when the discipline name is ambiguous — in that case add
 `project` and/or `data_hall`.
+
+### `502` — printer not ready
+
+Before sending, the server asks a Panduit printer (with SNMP enabled in its
+admin card) for its own state. If the printer reports a fault, **nothing is
+sent** and the job is refused:
+
+```json
+{
+  "detail": {
+    "message": "Print failed: Printer WS1 cover is open. Close it, then print again.",
+    "log_ids": [412],
+    "printed": 0,
+    "printer_state": "cover_open"
+  }
+}
+```
+
+| `printer_state` | Meaning |
+|-----------------|---------|
+| `cover_open`    | Printhead / cover is open |
+| `no_media`      | No labels loaded |
+| `error`         | Ribbon, jam, offline or service fault |
+| `null`          | Not a printer fault — a transport/send error (see below) |
+
+The check is one SNMP read per request, not per copy or label. A printer that
+does not answer SNMP, or reports only a warning such as low ribbon, never
+blocks a print. `log_ids` holds the history entry recording the refusal.
+
+With an `Idempotency-Key`, the refusal is the request's completed outcome and
+**replays for that key**. Once the printer is fixed, send the job with a new
+key.
 
 ### `502` — partial print
 
@@ -194,6 +226,11 @@ curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
 ```
 
 - `ok` is `true` only if **every** requested cable printed.
+- `printer_state` is `null` unless the printer reported a fault before the
+  batch was sent (`cover_open` · `no_media` · `error`, see
+  [`502` — printer not ready](#502--printer-not-ready)). Then nothing is sent
+  and every printable cable is `error` with the reason, or `skipped` after the
+  first one when `stop_on_error` is set.
 - Per-cable `status`: `printed` · `not_found` · `ambiguous` · `invalid` ·
   `error` (printer/send failed) · `skipped` (only when `stop_on_error` aborted
   the rest).

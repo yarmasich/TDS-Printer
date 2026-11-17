@@ -247,15 +247,11 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
         integration_id = key.integration_id
         identity = rfid.OperatorIdentity(f'api:{key.name}', 'api')
         results, printed = [], 0
-        if (frozen_printer.model in printer_device_status.PANDUIT_SNMP_DESCRIPTIONS and frozen_printer.snmp_enabled
-                and any(label is not None for _, label in frozen_plan)):
-            status = printer_device_status.device_status(
-                frozen_printer.id, frozen_printer.ip, frozen_printer.model,
-                enabled=True, port=frozen_printer.snmp_port,
-                community_override=frozen_printer.snmp_community, fresh=True,
-            )
-            if status and status['state'] in {'cover_open', 'no_media', 'error'}:
-                fail(400, 'printer_fault')
+        fault = (printer_device_status.print_fault_state(frozen_printer)
+                 if any(label is not None for _, label in frozen_plan) else None)
+        if fault:
+            # `code` stays for existing callers; the state and sentence say which fault.
+            raise HTTPException(400, {'code': 'printer_fault', 'printer_state': fault[0], 'message': fault[1]})
         for result, label in frozen_plan:
             if label is not None:
                 log_id, error = _print_label(label, frozen_template, frozen_printer,
