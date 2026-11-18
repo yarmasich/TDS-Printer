@@ -5,10 +5,18 @@ Does not execute EasyMark or deserialize its binary .pemex files.
 """
 import hashlib
 import json
+import re
 import sys
 from decimal import Decimal
 from pathlib import Path
 import xml.etree.ElementTree as ET
+
+# The die-cut label's own size and print-on height live only in prose, e.g.
+# '2.000" x 4.000" (50.8mm x 101.6mm) Self-Laminating Label - 1.000" (25.4mm) Print On Height'.
+# Unmatched prose leaves the shape unknown rather than guessed from the SKU.
+_SIZE = re.compile(r'([\d.]+)"\s*x\s*([\d.]+)"')
+_PRINT_ON = re.compile(r'([\d.]+)"\s*\([\d.]+\s*mm\)\s*Print[- ]On Height', re.I)
+_KIND = re.compile(r'\)\s*(.+?)\s+Label\b')
 
 
 def convert(path):
@@ -25,6 +33,10 @@ def convert(path):
             d = Decimal(v) * Decimal('25.4')
             if not d.is_finite() or d < 0: raise ValueError('Invalid dimension')
             return float(d)
+        description = f.findtext('description') or ''
+        size, print_on, kind = _SIZE.search(description), _PRINT_ON.search(description), _KIND.search(description)
+        # EasyMark spells the attribute "corner-widt".
+        corner = label.get('corner-width', label.get('corner-widt', '0'))
         rows.append(dict(
             sku=f.attrib['key'], printer_type=f.findtext('printertype'), cut_type=f.findtext('cuttype'),
             rows=int(f.findtext('rows')), columns=int(f.findtext('columns')),
@@ -33,6 +45,11 @@ def convert(path):
             print_width_mm=mm(label.get('width')), print_height_mm=mm(label.get('height')),
             column_pitch_mm=mm(label.get('repeat-with')), pitch_mm=mm(label.get('repeat-height')),
             gap_mm=mm(f.get('gap-value','0')),
+            label_width_mm=mm(size.group(1)) if size else None,
+            label_length_mm=mm(size.group(2)) if size else None,
+            print_on_height_mm=mm(print_on.group(1)) if print_on else None,
+            label_kind=kind.group(1).strip() if kind else None,
+            corner_radius_mm=mm(corner),
         ))
     if len({r['sku'].upper() for r in rows}) != len(rows):raise ValueError('Duplicate SKU')
     return dict(source='EasyMark 2.0.0.229 / database/easymark.xml', sha256=hashlib.sha256(source).hexdigest(), items=rows)

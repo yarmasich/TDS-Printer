@@ -96,7 +96,7 @@ onBeforeUnmount(() => { observer?.disconnect(); controller?.abort(); });
     <p v-else-if="preview" class="material-note">
       <span>{{ preview.material_sku || 'Custom material' }} · {{ dimensions }}</span>
       <span v-if="preview.template_only">Template preview. Printer calibration is applied when printing.</span>
-      <span v-if="preview.material">Clear wrap placement is illustrative.</span>
+      <span v-if="preview.stock">Ink is shown where it will print on the label.</span>
     </p>
     <p v-else class="material-note" role="status">{{ loading ? 'Preparing sticker preview…' : 'Sticker preview loads when visible' }}</p>
     <details v-if="preview" class="label-details">

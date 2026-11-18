@@ -1,3 +1,5 @@
+import type { StockMaterial } from './labelStock';
+
 export interface LabelPreview {
   image: string;
   template_only?: boolean;
@@ -6,16 +8,8 @@ export interface LabelPreview {
   material_sku: string;
   areas: { label: 'Left' | 'Right'; x: number; y: number; width: number; height: number }[];
   material: null | { width_mm: number; height_mm: number; print_height_mm: number; color: string };
-}
-
-export function stickerGeometry(preview: LabelPreview, area: LabelPreview['areas'][number]) {
-  const material = preview.material;
-  if (!material) return { width: area.width, height: area.height, band: area.height, top: 0 };
-  const dots = 300 / 25.4;
-  const width = material.width_mm * dots;
-  const height = material.height_mm * dots;
-  const band = material.print_height_mm * dots;
-  return { width, height, band, top: (height - band) / 3 };
+  /** Catalog stock for the physical label view; null without a known material. */
+  stock?: StockMaterial | null;
 }
 
 /** Keep expensive raster rendering bounded across every visible result card. */

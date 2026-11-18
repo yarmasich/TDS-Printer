@@ -238,19 +238,25 @@ def label_preview(label_id: int, printer_id: int | None = None, session: Session
         y0, y1 = getattr(template, side+'_top'), getattr(template, side+'_bottom')
         areas.append(dict(label=name, x=width-x1 if turn else x0, y=y0,
                           width=max(1,x1-x0), height=max(1,y1-y0)))
-    material = None
+    # The die-cut label comes from the Panduit catalog for any series, never
+    # from the SKU name (which made R200X150 38.1 mm instead of 57.2 mm). `stock`
+    # lets the card place ink where it prints, exactly like the template editor.
+    material = stock = None
     sku = template.material_sku.strip().upper()
-    match = re.fullmatch(r'R(\d{3})X(\d{3})V(\d+)T', sku)
-    colors = {'1':'#ffffff', '2':'#0072c6', '3':'#2e8b57', '7':'#c8102e', '8':'#ffd400'}
-    if match and match[3] in colors:
-        try:
-            stock = get_material(sku)
-            if stock.supported:
-                material = dict(width_mm=round(int(match[1])*0.254,3),
-                                height_mm=round(int(match[2])*0.254,3),
-                                print_height_mm=stock.print_height_mm, color=colors[match[3]])
-        except KeyError:
-            pass
+    try:
+        catalog = get_material(sku) if sku else None
+    except KeyError:
+        catalog = None
+    if catalog and catalog.supported and catalog.label_width_mm and catalog.label_length_mm:
+        colors = {'1':'#ffffff', '2':'#0072c6', '3':'#2e8b57', '7':'#c8102e', '8':'#ffd400'}
+        code = re.fullmatch(r'R\d{3}X\d{3}V(\d+)T', sku)
+        material = dict(width_mm=catalog.label_width_mm, height_mm=catalog.label_length_mm,
+                        print_height_mm=catalog.print_height_mm,
+                        color=colors.get(code[1], '#ffffff') if code else '#ffffff')
+        stock = catalog.model_dump(include={
+            'rows', 'columns', 'page_height_mm', 'left_margin_mm', 'top_margin_mm', 'column_pitch_mm',
+            'print_width_mm', 'print_height_mm', 'label_width_mm', 'label_length_mm',
+            'print_on_height_mm', 'label_kind', 'corner_radius_mm'})
     return dict(image='data:image/png;base64,'+base64.b64encode(png).decode('ascii'),
                 width=width, height=template.height, material_sku=sku,
-                areas=areas, material=material, template_only=template_only)
+                areas=areas, material=material, stock=stock, template_only=template_only)

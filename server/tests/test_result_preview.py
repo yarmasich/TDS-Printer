@@ -26,7 +26,8 @@ def test_preview_uses_label_text_and_bound_printer_without_sending(scene):
         result=label_preview(l.id,session=s)
     assert result['image']=='data:image/png;base64,cG5n'
     assert result['material']['width_mm']==50.8
-    assert result['material']['height_mm']==38.1
+    # Panduit's Turn-Tell R200X150 is 2.000" x 2.250"; 38.1 mm came from the SKU name.
+    assert result['material']['height_mm']==pytest.approx(57.15)
     assert result['width']==1280
     assert result['areas'][0]['x']==pytest.approx(1280-t.right_right)
     assert result['areas'][0]['y']==pytest.approx(t.right_top)
@@ -49,7 +50,8 @@ def test_preview_reports_render_error_and_custom_material(scene):
     assert e.value.status_code==400
     t.material_sku='';s.add(t);s.commit()
     with patch('app.calibration.render_preview_png',return_value=b'png'):
-        assert label_preview(l.id,session=s)['material'] is None
+        result=label_preview(l.id,session=s)
+    assert result['material'] is None and result['stock'] is None
 
 def test_preview_contains_actual_png_and_no_printer_connection_data(scene):
     import base64
@@ -61,3 +63,17 @@ def test_preview_contains_actual_png_and_no_printer_connection_data(scene):
     assert image.format=='PNG'
     assert image.size==(result['width'],result['height'])
     assert 'printer' not in result and 'ip' not in result and 'template' not in result
+
+
+def test_self_laminating_material_is_described_from_the_catalog(scene):
+    # S-series used to fall back to a bare text-area crop on the operator card.
+    s,l,t,p=scene
+    for key,value in template_geometry(get_material('S200X400VATY')).items(): setattr(t,key,value)
+    s.add(t);s.commit()
+    with patch('app.calibration.render_preview_png',return_value=b'png'):
+        result=label_preview(l.id,session=s)
+    assert result['material']==dict(width_mm=pytest.approx(50.8),height_mm=pytest.approx(101.6),
+                                    print_height_mm=pytest.approx(25.4),color='#ffffff')
+    stock=result['stock']
+    assert stock['top_margin_mm']==pytest.approx(1.6002) and stock['label_kind']=='Self-Laminating'
+    assert (stock['rows'],stock['columns'])==(1,2)
