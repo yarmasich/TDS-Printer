@@ -81,3 +81,65 @@ def test_deleting_the_trunk_discipline_unlinks_its_legs(s):
     delete_discipline(trunks.id, s)
     s.expire_all()
     assert s.get(Discipline, legs.id).trunk_discipline_id is None
+
+
+def test_linked_legs_report_labels_without_a_trunk_number(s):
+    from app.models import Label
+    legs, trunks = by_name(s, '16K-EW-LS'), by_name(s, '16K-EW-LS-Trunk')
+    s.add_all([Label(discipline_id=legs.id, left_text='a', trunk_no='1', leg_no='1'),
+               Label(discipline_id=legs.id, left_text='b'), Label(discipline_id=legs.id, left_text='c'),
+               Label(discipline_id=trunks.id, left_text='TRUNK 1', trunk_no='1')])
+    s.commit()
+    counts = lambda: {d.name: d.missing_trunk_count for d in list_disciplines(session=s)}
+    assert counts()['16K-EW-LS'] == 0  # not linked: nothing to warn about
+    link(s, legs, trunks.id)
+    assert counts() == {'16K-EW-LS': 2, '16K-EW-LS-Trunk': 0, 'AS-T1': 0}
+
+
+def test_a_new_discipline_is_created_with_its_role(s):
+    from app.api.projects import DisciplineIn, create_discipline
+    legs, trunks = by_name(s, '16K-EW-LS'), by_name(s, '16K-EW-LS-Trunk')
+    hall = legs.data_hall_id
+    # Trunk labels for existing legs: the legs point at the new discipline.
+    new_trunks = create_discipline(DisciplineIn(data_hall_id=hall, name='GPU-MS-Trunk', trunks_for_id=legs.id), s)
+    assert by_name(s, '16K-EW-LS').trunk_discipline_id == new_trunks.id
+    # Leg labels whose trunks an existing discipline holds.
+    new_legs = create_discipline(DisciplineIn(data_hall_id=hall, name='GPU-MS', trunk_discipline_id=trunks.id), s)
+    assert new_legs.trunk_discipline_id == trunks.id
+
+
+@pytest.mark.parametrize('body,message', [
+    ({'trunks_for_id': 'AS-T1'}, 'same project'),             # another project's legs
+    ({'trunk_discipline_id': 'self-legs'}, 'already links'),  # legs cannot hold trunks
+    ({'trunks_for_id': 'linked-legs'}, 'unlink it first'),    # never moves an existing link
+])
+def test_an_invalid_role_creates_nothing(s, body, message):
+    from app.api.projects import DisciplineIn, create_discipline
+    legs, trunks = by_name(s, '16K-EW-LS'), by_name(s, '16K-EW-LS-Trunk')
+    link(s, legs, trunks.id)
+    ids = {'AS-T1': by_name(s, 'AS-T1').id, 'self-legs': legs.id, 'linked-legs': legs.id}
+    field, target = next(iter(body.items()))
+    before = len(s.exec(select(Discipline)).all())
+    with pytest.raises(HTTPException) as exc:
+        create_discipline(DisciplineIn(data_hall_id=legs.data_hall_id, name='New', **{field: ids[target]}), s)
+    assert message in exc.value.detail
+    assert len(s.exec(select(Discipline)).all()) == before
+    assert by_name(s, '16K-EW-LS').trunk_discipline_id == trunks.id
+
+
+def test_one_discipline_cannot_take_both_roles():
+    from pydantic import ValidationError
+    from app.api.projects import DisciplineIn
+    with pytest.raises(ValidationError):
+        DisciplineIn(data_hall_id=1, name='X', trunk_discipline_id=1, trunks_for_id=2)
+
+
+def test_renaming_keeps_the_trunk_link_and_refuses_a_taken_name(s):
+    legs, trunks = by_name(s, '16K-EW-LS'), by_name(s, '16K-EW-LS-Trunk')
+    link(s, legs, trunks.id)
+    renamed = update_discipline(trunks.id, DisciplinePatch(name='  16K-EW-LS-T  '), s)
+    assert renamed.name == '16K-EW-LS-T'
+    assert by_name(s, '16K-EW-LS').trunk_discipline_id == trunks.id
+    with pytest.raises(HTTPException) as exc:
+        update_discipline(trunks.id, DisciplinePatch(name='16K-EW-LS'), s)
+    assert exc.value.status_code == 409

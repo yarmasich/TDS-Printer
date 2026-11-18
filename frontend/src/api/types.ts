@@ -150,6 +150,8 @@ export interface Discipline {
   /** The discipline holding this discipline's trunk labels, if linked. */
   trunk_discipline_id?: number | null;
   trunk_discipline_name?: string | null;
+  /** Leg labels without a Trunk# (linked legs only): their trunk cannot print. */
+  missing_trunk_count?: number;
 }
 
 /** One bundle within a discipline (GET /api/labels/bundles). */

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, delete, func, select, update
 
@@ -149,6 +149,16 @@ class DisciplineIn(NamedInput):
     template_id: Optional[int] = None
     color: str = "FFFFFF"
     bundle_mode: bool = False
+    # Its role, set with it: leg labels whose trunks another discipline holds, or the trunk
+    # labels of an existing leg discipline. At most one; both link in the same commit.
+    trunk_discipline_id: Optional[int] = None
+    trunks_for_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def one_role(self):
+        if self.trunk_discipline_id is not None and self.trunks_for_id is not None:
+            raise ValueError("A discipline holds leg labels or trunk labels, not both")
+        return self
 
 
 class DisciplinePatch(NamedInput):
@@ -182,6 +192,8 @@ class DisciplineDTO(BaseModel):
     bundle_mode: bool = False
     trunk_discipline_id: Optional[int] = None
     trunk_discipline_name: Optional[str] = None
+    # Leg labels with no Trunk#: their trunk cannot print. Counted only for linked legs.
+    missing_trunk_count: int = 0
 
 
 @router.get("/disciplines", response_model=List[DisciplineDTO], dependencies=[Depends(require_reader)])
@@ -213,6 +225,9 @@ def list_disciplines(
         n = session.exec(
             select(func.count()).select_from(Label).where(Label.discipline_id == d.id)
         ).one()
+        missing = session.exec(
+            select(func.count()).select_from(Label).where(Label.discipline_id == d.id, Label.trunk_no.is_(None))
+        ).one() if d.trunk_discipline_id else 0
         tmpl = session.get(Template, d.template_id) if d.template_id else None
         printer = session.get(Printer, tmpl.printer_id) if tmpl else None
         out.append(DisciplineDTO(
@@ -227,6 +242,7 @@ def list_disciplines(
             trunk_discipline_id=d.trunk_discipline_id,
             trunk_discipline_name=trunk.name if (trunk := session.get(Discipline, d.trunk_discipline_id)
                                                  if d.trunk_discipline_id else None) else None,
+            missing_trunk_count=missing,
         ))
     # Group by hall, then by discipline name — keeps the two halls' identical
     # names apart in the dropdown instead of interleaving them.
@@ -250,7 +266,29 @@ def create_discipline(
         bundle_mode=body.bundle_mode,
     )
     session.add(d)
-    _commit(session)
+    try:
+        if body.trunk_discipline_id is not None or body.trunks_for_id is not None:
+            session.flush()  # the new id, so the link is checked by the same rules as an edit
+            if body.trunk_discipline_id is not None:
+                _check_trunk_link(session, d, body.trunk_discipline_id)
+                d.trunk_discipline_id = body.trunk_discipline_id
+            else:
+                legs = session.get(Discipline, body.trunks_for_id)
+                if legs is None:
+                    raise HTTPException(400, "Leg discipline not found")
+                if legs.trunk_discipline_id is not None:
+                    # Creating must not silently move an existing link.
+                    raise HTTPException(400, f"'{legs.name}' already links its trunk labels; unlink it first")
+                _check_trunk_link(session, legs, d.id)
+                legs.trunk_discipline_id = d.id
+                session.add(legs)
+        _commit(session)
+    except IntegrityError as exc:  # a duplicate name surfaces at the flush
+        session.rollback()
+        raise HTTPException(409, "Name already exists or referenced record is in use") from exc
+    except Exception:
+        session.rollback()
+        raise
     session.refresh(d)
     return d
 
