@@ -111,6 +111,8 @@ const savingRfid = ref(new Set<number>());
 const rfidErrors = ref<Record<number, string>>({});
 
 const projectDialog = ref(false);
+const renameDialog = ref(false);
+const renaming = ref({ id: 0, from: "", name: "", nameMatched: false });
 const hallDialog = ref(false);
 const discDialog = ref(false);
 
@@ -121,6 +123,10 @@ const newDisc = ref({
   name: "",
   template_id: null as number | null,
   color: "FFFFFF",
+  // Leg labels (optionally linked to the discipline holding their trunks) or the
+  // trunk labels of an existing leg discipline.
+  role: "legs" as "legs" | "trunks",
+  linkId: null as number | null,
 });
 
 async function refresh() {
@@ -166,7 +172,7 @@ function openHall(projectId: number) {
 }
 
 function openDisc(hallId: number) {
-  newDisc.value = { hallId, name: "", template_id: null, color: "FFFFFF" };
+  newDisc.value = { hallId, name: "", template_id: null, color: "FFFFFF", role: "legs", linkId: null };
   discDialog.value = true;
 }
 
@@ -197,11 +203,13 @@ async function createDisc() {
   await requests.run("createDisc", () => createDiscRequest());
 }
 async function createDiscRequest() {
+  const { role, linkId } = newDisc.value;
   await api.post("/api/disciplines", {
     data_hall_id: newDisc.value.hallId,
     name: newDisc.value.name,
     template_id: newDisc.value.template_id,
     color: newDisc.value.color,
+    ...(linkId == null ? {} : role === "trunks" ? { trunks_for_id: linkId } : { trunk_discipline_id: linkId }),
   });
   discDialog.value = false;
   expandedHalls.value.add(newDisc.value.hallId);
@@ -244,6 +252,46 @@ async function toggleRfid(project: Project, event: Event) {
   } finally {
     savingRfid.value.delete(project.id);
   }
+}
+
+// What the new discipline can link to, by the same rules as the row picker: the same
+// project, one level deep, and creating never moves an existing link.
+const newDiscLinkOptions = computed(() => {
+  const project = halls.value.find((h) => h.id === newDisc.value.hallId)?.project_id;
+  const holders = new Set(disciplines.value.map((d) => d.trunk_discipline_id).filter((id) => id != null));
+  const inProject = disciplines.value.filter((d) =>
+    halls.value.find((h) => h.id === d.data_hall_id)?.project_id === project && d.trunk_discipline_id == null);
+  return newDisc.value.role === "trunks" ? inProject.filter((d) => !holders.has(d.id)) : inProject;
+});
+const newDiscReady = computed(() =>
+  !!newDisc.value.name.trim() && (newDisc.value.role === "legs" || newDisc.value.linkId != null));
+function setNewDiscRole(role: "legs" | "trunks") {
+  newDisc.value.role = role;
+  newDisc.value.linkId = null;
+}
+
+// FloorHub finds a discipline by its exact name (and hall); a trunk discipline is reached
+// through its legs' link instead, so only its rename is safe on this side alone.
+function openRename(d: Discipline) {
+  renaming.value = { id: d.id, from: d.name, name: d.name, nameMatched: !trunksFor(d) };
+  requestError.value = "";  // an earlier action's error is not about this rename
+  renameDialog.value = true;
+}
+const renameReady = computed(() => {
+  const name = renaming.value.name.trim();
+  return !!name && name !== renaming.value.from;
+});
+async function renameDisc() {
+  await requests.run("renameDisc", async () => {
+    try {
+      await api.put(`/api/disciplines/${renaming.value.id}`, { name: renaming.value.name.trim() });
+      renameDialog.value = false;
+      await refresh();
+      toast.add({ severity: "success", summary: `Renamed to ${renaming.value.name.trim()}`, life: 2500 });
+    } catch (e: unknown) {
+      requestError.value = e instanceof Error ? e.message : String(e);
+    }
+  });
 }
 
 // The discipline holding this one's trunk labels; a leg and its trunk share
@@ -475,10 +523,22 @@ function del(url: string, label: string) {
               @update:model-value="(v) => updateColor(d, String(v))"
             />
             <span class="font-semibold">{{ d.name }}</span>
+            <Button :disabled="requests.pending.value.size > 0"
+              icon="pi pi-pencil" size="small" text severity="secondary"
+              :aria-label="`Rename ${d.name}`" title="Rename"
+              @click="openRename(d)"
+            />
+            <!-- Role: a linked leg discipline, or the trunk labels another discipline prints. -->
+            <span v-if="d.trunk_discipline_id" class="rounded px-1.5 py-0.5 text-xs font-semibold bg-accent-soft text-accent-ink">Legs</span>
+            <span v-else-if="trunksFor(d)" class="rounded px-1.5 py-0.5 text-xs font-semibold bg-ok-soft text-ok">Trunks</span>
             <span class="text-xs text-ink-4">
               {{ d.label_count }} labels
             </span>
-            <span v-if="trunksFor(d)" class="text-xs text-ink-3">· trunk labels for {{ trunksFor(d) }}</span>
+            <span v-if="trunksFor(d)" class="text-xs text-ink-3">· for {{ trunksFor(d) }}</span>
+            <span v-if="d.missing_trunk_count" class="text-xs text-warn"
+              title="These leg labels have no Trunk#, so their trunk label cannot print. Re-import the workbook with the Trunk# column.">
+              · {{ d.missing_trunk_count === d.label_count ? 'No label has a Trunk#' : `${d.missing_trunk_count} labels have no Trunk#` }}. Re-import with the Trunk# column.
+            </span>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <label
@@ -494,6 +554,7 @@ function del(url: string, label: string) {
               />
               <span>Bundle</span>
             </label>
+            <span v-if="trunkOptions(d).length || d.trunk_discipline_id" class="text-xs text-ink-3">Trunk labels</span>
             <Select
               v-if="trunkOptions(d).length || d.trunk_discipline_id"
               :model-value="d.trunk_discipline_id ?? null"
@@ -572,6 +633,43 @@ function del(url: string, label: string) {
           <label for="projectstree-field-1" class="block text-xs font-bold text-ink-2 mb-1">Name</label>
           <InputText id="projectstree-field-1" aria-label="Name" v-model="newDisc.name" class="w-full" placeholder="GPU-MS" />
         </div>
+        <fieldset>
+          <legend class="block text-xs font-bold text-ink-2 mb-1">Labels</legend>
+          <div class="grid grid-cols-2 gap-2">
+            <label v-for="option in [
+                { value: 'legs', title: 'Leg labels', hint: 'One label per leg' },
+                { value: 'trunks', title: 'Trunk labels', hint: 'One label per trunk' },
+              ] as const" :key="option.value"
+              class="flex min-h-11 cursor-pointer items-start gap-2 rounded-lg border px-3 py-2"
+              :class="newDisc.role === option.value ? 'border-selected bg-accent-soft' : 'border-edge'">
+              <input type="radio" name="new-discipline-role" class="mt-1 h-4 w-4 accent-selected"
+                :value="option.value" :checked="newDisc.role === option.value" @change="setNewDiscRole(option.value)" />
+              <span>
+                <span class="block text-sm font-semibold">{{ option.title }}</span>
+                <span class="block text-xs text-ink-3">{{ option.hint }}</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+        <div>
+          <label for="projectstree-field-link" class="block text-xs font-bold text-ink-2 mb-1">
+            {{ newDisc.role === 'trunks' ? 'Trunk labels for' : 'Trunk labels' }}
+            <span v-if="newDisc.role === 'legs'" class="font-normal text-ink-4">(optional)</span>
+          </label>
+          <Select input-id="projectstree-field-link"
+            :aria-label="newDisc.role === 'trunks' ? 'Trunk labels for' : 'Trunk labels'"
+            v-model="newDisc.linkId"
+            :options="newDiscLinkOptions"
+            option-label="name"
+            option-value="id"
+            show-clear
+            :placeholder="newDisc.role === 'trunks' ? '— choose the leg discipline —' : '— link later —'"
+            class="w-full"
+          />
+          <p v-if="newDisc.role === 'trunks' && !newDiscLinkOptions.length" class="text-xs text-warn mt-1">
+            No leg discipline in this project is free to link. Unlink one first.
+          </p>
+        </div>
         <div>
           <label for="projectstree-field-2" class="block text-xs font-bold text-ink-2 mb-1">Template</label>
           <Select input-id="projectstree-field-2"
@@ -596,7 +694,33 @@ function del(url: string, label: string) {
       <p v-if="requestError" role="alert" class="text-danger mt-3">{{ requestError }} — Please try again.</p>
       <template #footer>
         <Button :disabled="requests.pending.value.size > 0" label="Cancel" severity="secondary" @click="discDialog = false" />
-        <Button :disabled="requests.pending.value.size > 0 || !newDisc.name.trim()" label="Create" @click="createDisc" />
+        <Button :disabled="requests.pending.value.size > 0 || !newDiscReady" label="Create" @click="createDisc" />
+      </template>
+    </Dialog>
+    <Dialog
+      v-model:visible="renameDialog"
+      modal class="admin-touch"
+      header="Rename discipline"
+      :style="{ width: 'min(32rem, 94vw)' }"
+    >
+      <div class="space-y-3">
+        <div>
+          <label for="projectstree-rename" class="block text-xs font-bold text-ink-2 mb-1">Name</label>
+          <InputText id="projectstree-rename" v-model="renaming.name" class="w-full" autofocus
+            @keydown.enter="renameReady && renameDisc()" />
+        </div>
+        <p v-if="renaming.nameMatched" class="rounded-lg border border-warn-edge bg-warn-soft px-3 py-2 text-sm text-warn" role="note">
+          FloorHub prints this discipline by its name. Rename it in FloorHub to the same name too,
+          or its cable labels stop printing.
+        </p>
+        <p v-else class="text-xs text-ink-3">
+          Trunk labels are found through their leg discipline, so FloorHub keeps printing them.
+        </p>
+      </div>
+      <p v-if="requestError" role="alert" class="text-danger mt-3">{{ requestError }} — Please try again.</p>
+      <template #footer>
+        <Button :disabled="requests.pending.value.size > 0" label="Cancel" severity="secondary" @click="renameDialog = false" />
+        <Button :disabled="requests.pending.value.size > 0 || !renameReady" label="Rename" @click="renameDisc" />
       </template>
     </Dialog>
   </section>
