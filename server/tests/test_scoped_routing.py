@@ -329,3 +329,110 @@ def test_printer_fault_says_which_fault(scope, fault, wording):
     transport.assert_not_called()
     assert detail['code'] == 'printer_fault' and detail['printer_state'] == fault
     assert wording in detail['message']
+
+
+from unittest.mock import MagicMock
+from app.printer import PrintError
+from tests.test_panduit_status import counter_reply, is_counter, reply as panduit_reply, status_reads
+
+
+def fake_panduit_snmp(scope, monkeypatch, counters, *, flags=b'\0'):
+    """DP4600H answering the status GET, and successive counter GETs from `counters`."""
+    _, engine, _, _, _ = scope
+    configure_panduit(scope, 'DP4600H')
+    with Session(engine) as session:
+        printer = session.get(Printer, 1); printer.snmp_community = 'sample'; session.commit()
+    device = scoped_integrations.printer_device_status
+    device._cache.clear()
+    monkeypatch.setattr(device.secrets, 'randbelow', lambda _: 122)
+    answers = iter(counters)
+    def answer(ip, port, request):
+        assert (ip, port) == ('192.0.2.1', 1161)
+        value = next(answers) if is_counter(request) else panduit_reply(
+            3, flags, model=b'Panduit DP4600H label printer')
+        if isinstance(value, BaseException):
+            raise value
+        return value
+    exchange = MagicMock(side_effect=answer)
+    monkeypatch.setattr(device, '_exchange', exchange)
+    return exchange
+
+
+def test_scoped_success_reports_printer_counter(scope, monkeypatch):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    exchange = fake_panduit_snmp(scope, monkeypatch, [counter_reply(500), counter_reply(502)], flags=b'\x20')
+    with patch.object(integrations, 'render_and_send') as transport:
+        response = send(client, headers, project)
+    body = response.json()
+    assert response.status_code == 200 and body['ok'] is True and body['printed'] == 2
+    assert body['printer_counter'] == {'before': 500, 'after': 502}
+    assert transport.call_count == 2
+    # A ribbon-low warning never holds the job; one status read, two counter reads.
+    assert status_reads(exchange) == 1 and exchange.call_count == 3
+    replay = send(client, headers, project)
+    assert replay.json() == body and exchange.call_count == 3
+
+
+def test_scoped_partial_failure_reports_printer_counter(scope, monkeypatch):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    fake_panduit_snmp(scope, monkeypatch, [counter_reply(500), counter_reply(501)])
+    with patch.object(integrations, 'render_and_send', side_effect=[None, PrintError('dropped')]):
+        response = send(client, headers, project)
+    body = response.json()
+    # Same status code and fields as before; the counter is only added beside them.
+    assert response.status_code == 200 and body['ok'] is False and body['printed'] == 1
+    assert [r['status'] for r in body['results']] == ['printed', 'error']
+    assert body['printer_counter'] == {'before': 500, 'after': 501}
+
+
+def test_scoped_counter_failures_never_change_the_outcome(scope, monkeypatch):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    fake_panduit_snmp(scope, monkeypatch, [counter_reply(500), TimeoutError('dropped')])
+    with patch.object(integrations, 'render_and_send') as transport:
+        body = send(client, headers, project).json()
+    assert body['ok'] is True and body['printed'] == 2 and transport.call_count == 2
+    assert body['printer_counter'] == {'before': 500, 'after': None}
+
+
+def test_scoped_fault_is_unchanged_by_the_counter(scope, monkeypatch):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    exchange = fake_panduit_snmp(scope, monkeypatch, [counter_reply(500)], flags=b'\x08')
+    with patch.object(integrations, 'render_and_send') as transport:
+        response = send(client, headers, project)
+    transport.assert_not_called()
+    assert response.status_code == 400
+    assert response.json()['detail'] == {'code': 'printer_fault', 'printer_state': 'cover_open',
+                                         'message': 'Printer Cable cover is open. Close it, then print again.'}
+    assert exchange.call_count == 2  # no after read: nothing was sent
+
+
+@pytest.mark.parametrize('model', ['DP4300H', 'DP4600H'])
+def test_scoped_snmp_off_reads_no_counter(scope, monkeypatch, model):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    configure_panduit(scope, model)
+    with Session(engine) as session:
+        printer = session.get(Printer, 1); printer.snmp_enabled = False; session.commit()
+    exchange = MagicMock(side_effect=AssertionError('No SNMP when it is switched off'))
+    monkeypatch.setattr(scoped_integrations.printer_device_status, '_exchange', exchange)
+    with patch.object(integrations, 'render_and_send') as transport:
+        body = send(client, headers, project).json()
+    assert body['printed'] == 2 and transport.call_count == 2
+    assert body['printer_counter'] is None
+    exchange.assert_not_called()
+
+
+def test_scoped_non_panduit_has_no_counter(scope, monkeypatch):
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    client.put(f'/api/v1/integrations/projects/{project}/policy', headers=headers, json=policy(project))
+    exchange = MagicMock(side_effect=AssertionError('No SNMP for an unverified model'))
+    monkeypatch.setattr(scoped_integrations.printer_device_status, '_exchange', exchange)
+    with patch.object(integrations, 'render_and_send'):
+        body = send(client, headers, project).json()
+    assert body['printed'] == 2 and body['printer_counter'] is None
+    exchange.assert_not_called()

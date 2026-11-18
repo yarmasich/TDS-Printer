@@ -14,7 +14,7 @@ from app import printer_device_status as device
 from app.api import cart, print as print_api
 from app.models import CartItem, DataHall, Discipline, Label, Printer, PrintLog, Template
 from tests.test_cart_jobs import db  # noqa: F401  (shared cart fixture)
-from tests.test_panduit_status import reply
+from tests.test_panduit_status import reply, status_reads
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def test_cart_holds_every_label_while_the_printer_reports_a_fault(db, monkeypatc
 @pytest.mark.parametrize('kwargs', [
     dict(status=3, flags=b'\0'),          # ready
     dict(status=4, flags=b'\0'),          # busy with another job
-    dict(status=3, flags=b'\x80'),        # low-paper warning reads as unknown
+    dict(status=3, flags=b'\x80'),        # low-paper warning: ready, never held
     dict(error=TimeoutError('silent')),   # SNMP blocked or switched off on the device
 ])
 def test_cart_prints_unless_a_fault_is_recognised(db, monkeypatch, kwargs):
@@ -80,7 +80,8 @@ def test_cart_asks_each_printer_once_per_job(db, monkeypatch):
     exchange = snmp(monkeypatch)
     with patch.object(cart, 'render_and_send'):
         cart.print_all(cart.PrintAllRequest(sid='sid'), s)
-    assert exchange.call_count == 1
+    # One status GET per job (plus its separate counter GET), not one per label.
+    assert status_reads(exchange) == 1
 
 
 @pytest.mark.parametrize('fields', [dict(snmp_enabled=False), dict(model='custom')])

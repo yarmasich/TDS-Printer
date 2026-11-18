@@ -38,7 +38,9 @@ def test_hardware_packet(changes,state):
     result=device.parse_status(status(**changes))
     assert result['state']==state
     assert result['checked_at'].endswith('+00:00')
-    assert set(result)=={'state','media_type','media_width_mm','checked_at'}
+    assert set(result)=={'state','media_type','media_width_mm','checked_at','warnings','counter'}
+    # Warnings and the counter are Panduit-only; Brother always reports none.
+    assert result['warnings']==[] and result['counter'] is None
 
 
 def test_unknown_frame_and_media():
@@ -64,7 +66,7 @@ def test_get_only_socket_and_no_print_channel(monkeypatch):
     monkeypatch.setattr(device.socket,'socket',factory)
     monkeypatch.setattr(device.secrets,'randbelow',lambda _:122)
     result=device.device_status(1,'192.0.2.1','QL-1110NWBc')
-    assert result['state']=='ready'
+    assert result['state']=='ready' and result['warnings']==[] and result['counter'] is None
     sock.connect.assert_called_once_with(('192.0.2.1',161))
     assert len(sock.settimeout.call_args_list) == 3
     assert all(0 < call.args[0] <= .5 for call in sock.settimeout.call_args_list)

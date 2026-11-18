@@ -19,7 +19,7 @@ from ..models import (ApiKey, Integration, ProjectPrintPolicy, ProjectPrinterAss
 from ..print_idempotency import run_print_request
 from .. import rfid, printer_reachability, printer_device_status
 from .integrations import (_catalog_entry, ApiBatchPrintRequest, ApiBatchPrintResponse,
-                          _plan_batch, _print_label)
+                          _plan_batch, _print_label, _printer_counter)
 
 PURPOSES = ('cable_labels', 'qr_labels')
 SCOPES = {'policy.read', 'policy.write', 'print'}
@@ -173,8 +173,9 @@ def allowed_printers(external_project_id: UUID, purpose: Purpose, ping: bool = F
                 if purpose == 'qr_labels' or p.model in printer_device_status.PANDUIT_SNMP_DESCRIPTIONS:
                     device_addresses.append(printer_device_status.DeviceStatusConfig.from_printer(p))
     if addresses:
-        # Independent read-only probes run concurrently: <=8s TCP and <=4s SNMP
-        # socket budgets for 32 profiles, inside the upstream 15s request timeout.
+        # Independent read-only probes run concurrently: <=8s TCP and <=8s SNMP
+        # (status + counter GET) socket budgets for 32 profiles, so the slower
+        # of the two still fits inside the upstream 15s request timeout.
         device_statuses = {}
         if device_addresses:
             with ThreadPoolExecutor(max_workers=2) as executor:
@@ -247,8 +248,10 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
         integration_id = key.integration_id
         identity = rfid.OperatorIdentity(f'api:{key.name}', 'api')
         results, printed = [], 0
-        fault = (printer_device_status.print_fault_state(frozen_printer)
-                 if any(label is not None for _, label in frozen_plan) else None)
+        printable = any(label is not None for _, label in frozen_plan)
+        # The same fresh read gives the fault check and the counter before.
+        fault, counter_before = (printer_device_status.print_preflight(frozen_printer)
+                                 if printable else (None, None))
         if fault:
             # `code` stays for existing callers; the state and sentence say which fault.
             raise HTTPException(400, {'code': 'printer_fault', 'printer_state': fault[0], 'message': fault[1]})
@@ -262,8 +265,11 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
                 result.error = 'Print outcome requires operator inspection' if error else ''
                 printed += int(error is None)
             results.append(result)
+        # Informational only: the counter changes no status, field or decision.
+        counter = _printer_counter(frozen_printer, counter_before, sent=True) if printable else None
         return ApiBatchPrintResponse(ok=all(r.status == 'printed' for r in results), requested=len(results),
-                                     printed=printed, discipline=name, printer=frozen_printer.name, results=results)
+                                     printed=printed, discipline=name, printer=frozen_printer.name, results=results,
+                                     printer_counter=counter)
 
     def audited_operation():
         try:

@@ -58,6 +58,15 @@ class ApiPrintRequest(BaseModel):
     )
 
 
+class PrinterCounter(BaseModel):
+    """Panduit lifetime marker count read before and after the sends.
+
+    Informational only: never a print receipt, and either side may be null.
+    """
+    before: Optional[int] = None
+    after: Optional[int] = None
+
+
 class ApiPrintResponse(BaseModel):
     ok: bool
     log_ids: List[int]
@@ -67,6 +76,7 @@ class ApiPrintResponse(BaseModel):
     template_name: str
     printer: str
     copies: int
+    printer_counter: Optional[PrinterCounter] = None
 
 
 class CandidateDTO(BaseModel):
@@ -256,6 +266,19 @@ def _cable_token(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _printer_counter(printer: Printer, before: Optional[int], sent: bool) -> Optional[PrinterCounter]:
+    """Before/after marker counts, or None when the printer has no SNMP counter.
+
+    The after read happens only once something was sent and the pre-send read
+    returned a counter; it is best effort and changes no status code, field or
+    decision.
+    """
+    if not printer_device_status.counter_supported(printer):
+        return None
+    after = printer_device_status.print_counter(printer) if sent and before is not None else None
+    return PrinterCounter(before=before, after=after)
+
+
 def _print_label(
     label: Label, template: Template, printer: Printer,
     operator: str, reason: str, session: Session, identity: rfid.OperatorIdentity,
@@ -361,12 +384,13 @@ def _api_print(
     reason = req.reason or "API"
 
     # One fresh read for all copies; a held job stops at its first copy.
-    fault = printer_device_status.print_fault_state(printer)
+    fault, counter_before = printer_device_status.print_preflight(printer)
     log_ids: List[int] = []
     for _ in range(req.copies):
         log_id, err = _print_label(label, template, printer, operator, reason, session, identity,
                                    held=fault[1] if fault else None)
         if err:
+            counter = _printer_counter(printer, counter_before, sent=fault is None)
             raise HTTPException(
                 502,
                 {
@@ -374,6 +398,7 @@ def _api_print(
                     "log_ids": log_ids + ([log_id] if log_id else []),
                     "printed": len(log_ids),
                     "printer_state": fault[0] if fault else None,
+                    "printer_counter": counter.model_dump() if counter else None,
                 },
             )
         log_ids.append(log_id)
@@ -387,6 +412,7 @@ def _api_print(
         template_name=template.name,
         printer=f"{printer.ip}:{printer.port}",
         copies=req.copies,
+        printer_counter=_printer_counter(printer, counter_before, sent=True),
     )
 
 
@@ -446,6 +472,8 @@ class ApiBatchPrintResponse(BaseModel):
     results: List[BatchItemResult]
     # The printer's own fault when it held the whole batch; null otherwise.
     printer_state: Optional[str] = None
+    # Panduit with SNMP only, and only when a label was due to print.
+    printer_counter: Optional[PrinterCounter] = None
 
 
 def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
@@ -532,8 +560,8 @@ def _api_print_batch(
     operator = identity.name
     reason = req.reason or ("API bundle" if req.bundle else "API batch")
     # One fresh read for the batch, skipped when nothing in it can print.
-    fault = (printer_device_status.print_fault_state(printer)
-             if any(label is not None for _, label in plan) else None)
+    printable = any(label is not None for _, label in plan)
+    fault, counter_before = printer_device_status.print_preflight(printer) if printable else (None, None)
     results, printed, aborted = [], 0, False
     for result, label in plan:
         if aborted:
@@ -554,6 +582,7 @@ def _api_print_batch(
         requested=len(results), printed=printed, discipline=disc.name,
         printer=f"{printer.ip}:{printer.port}", results=results,
         printer_state=fault[0] if fault else None,
+        printer_counter=_printer_counter(printer, counter_before, sent=fault is None) if printable else None,
     )
 
 

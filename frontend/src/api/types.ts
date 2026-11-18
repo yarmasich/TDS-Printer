@@ -13,11 +13,18 @@
  *  - "jscript" — cab JScript (Panduit DP4300H/DP4600H, OEM cab Produkttechnik). */
 export type PrinterProtocol = "epl2" | "ezpl" | "jscript" | "brother_ql";
 
+/** Non-blocking conditions a Panduit reports; Brother always reports none. */
+export type PrinterWarning = "media_low" | "ribbon_low" | "maintenance_due";
+
 export interface PrinterDeviceStatus {
   state: string;
   media_width_mm: number | null;
   media_type: string | null;
   checked_at: string;
+  /** Never block a print. Optional: older servers do not send it. */
+  warnings?: PrinterWarning[];
+  /** Panduit lifetime marker count (Printer-MIB prtMarkerLifeCount); null when unknown. */
+  counter?: number | null;
 }
 export interface PrinterStatus {
   connection_state?: 'reachable' | 'busy' | 'unreachable';
@@ -58,7 +65,7 @@ export interface PingResult {
   ms: number | null;
   error: string;
   /** The printer's own SNMP state; null when it reports none. */
-  device_status?: { state: string; checked_at?: string } | null;
+  device_status?: { state: string; checked_at?: string; warnings?: string[]; counter?: number | null } | null;
 }
 
 export interface TestPrintResult {

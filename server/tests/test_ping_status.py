@@ -14,7 +14,7 @@ from app.api import printers
 from app.models import Printer
 from app.printer import PING_BUSY as BUSY
 from tests.test_cart_jobs import db  # noqa: F401  (shared fixture with one printer)
-from tests.test_panduit_status import reply
+from tests.test_panduit_status import counter_reply, panduit_exchange, reply, status_reads
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,16 @@ def test_tablets_polling_one_printer_share_a_status_read(db, monkeypatch):
     monkeypatch.setattr(device, '_exchange', exchange)
     for _ in range(3):
         ping(s, printer, (True, 4.0, ''))
-    assert exchange.call_count == 1
+    assert status_reads(exchange) == 1
+
+
+def test_ping_carries_warnings_and_counter(db, monkeypatch):
+    s, _ = db
+    printer = panduit(s)
+    monkeypatch.setattr(device, '_exchange', panduit_exchange(
+        reply(3, b'\x20', model=b'Panduit DP4600H label printer'), counter_reply(981)))
+    status = ping(s, printer, (True, 4.0, '')).device_status
+    assert (status['state'], status['warnings'], status['counter']) == ('ready', ['ribbon_low'], 981)
 
 
 def test_a_printer_without_snmp_status_keeps_the_plain_ping(db):
