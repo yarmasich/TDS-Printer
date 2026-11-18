@@ -8,6 +8,7 @@ import type { Printer, PrinterProtocol, PrinterStatus, TestPrintResult } from "@
 import { brandForModel, modelsForBrand, settingsForModel, isValidPrinterSelection, changePrinterBrand, type PrinterBrand } from "@/data/printerModels";
 import { communityUpdate, printerMediaMismatch, type CommunityMode } from "@/data/printerSettings";
 import { groupPrinters } from "@/data/printerGroups";
+import { withWarnings } from "@/data/printerPill";
 import { usePrinters } from "@/stores/printers";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
@@ -57,7 +58,8 @@ const statusLabel = computed(() => {
   if (checkedStatus.value.connection_state === 'busy') return 'Printer busy · status check deferred';
   if (!checkedStatus.value.online) return 'Printer unreachable';
   const state = checkedStatus.value.device_status?.state;
-  return ({ready: 'Ready', printing: 'Printing', busy: 'Busy', error: 'Printer error', no_media: 'No media', cover_open: 'Cover open'} as Record<string, string>)[state ?? ''] ?? 'Reachable · device status unknown';
+  const label = ({ready: 'Ready', printing: 'Printing', busy: 'Busy', error: 'Printer error', no_media: 'No media', cover_open: 'Cover open'} as Record<string, string>)[state ?? ''];
+  return label ? withWarnings(label, checkedStatus.value.device_status?.warnings) : 'Reachable · device status unknown';
 });
 const mediaMismatch = computed(() => {
   const width = checkedStatus.value?.device_status?.media_width_mm;
@@ -488,6 +490,7 @@ async function remove(p: Printer) {
             <template v-else-if="checkedStatus">
               <strong role="status">{{ statusLabel }}</strong>
               <span v-if="checkedStatus.device_status?.media_width_mm" class="settings-note">Detected: {{ checkedStatus.device_status.media_width_mm }} mm {{ checkedStatus.device_status.media_type }}</span>
+              <span v-if="checkedStatus.device_status?.counter != null" class="settings-note" title="Lifetime media length reported by the printer (DP4600H reports whole meters); informational only">Printed so far: {{ checkedStatus.device_status.counter }} m</span>
               <span v-if="checkedStatus.device_status?.checked_at" class="settings-note">Checked {{ new Date(checkedStatus.device_status.checked_at).toLocaleTimeString() }}</span>
               <span v-if="selectedBrand === 'brother' && mediaMismatch" role="status" class="settings-warning">Loaded media differs from the configured default.</span>
             </template>

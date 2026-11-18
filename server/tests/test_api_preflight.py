@@ -16,7 +16,7 @@ from app.api import integrations
 from app.auth_apikey import require_api_key
 from app.db import get_session
 from app.models import ApiKey, DataHall, Discipline, Label, Printer, PrintLog, Project, Template
-from tests.test_panduit_status import reply
+from tests.test_panduit_status import counter_reply, is_counter, panduit_exchange, reply, status_reads
 
 
 @pytest.fixture(autouse=True)
@@ -56,9 +56,21 @@ def api(tmp_path):
     engine.dispose()
 
 
-def snmp(monkeypatch, *, status=3, flags=b'\0', cover=6, error=None):
+def snmp(monkeypatch, *, status=3, flags=b'\0', cover=6, error=None, counters=None):
+    """Fake SNMP. `counters` answers successive counter GETs (before, after)."""
     answer = reply(status, flags, cover=cover, model=b'Panduit DP4600H label printer')
-    exchange = MagicMock(side_effect=error) if error else MagicMock(return_value=answer)
+    if error:
+        exchange = MagicMock(side_effect=error)
+    elif counters is None:
+        exchange = panduit_exchange(answer)
+    else:
+        counter_answers = iter(counters)
+        def answer_for(ip, port, request):
+            value = next(counter_answers) if is_counter(request) else answer
+            if isinstance(value, BaseException):
+                raise value
+            return value
+        exchange = MagicMock(side_effect=answer_for)
     monkeypatch.setattr(device, '_exchange', exchange)
     return exchange
 
@@ -88,7 +100,7 @@ def test_single_print_asks_the_printer_once_for_all_copies(api, monkeypatch):
     with patch.object(integrations, 'render_and_send') as send:
         response = client.post('/api/v1/print', json={'discipline_id': disc, 'cable': '1.1', 'copies': 3})
     assert response.status_code == 200 and send.call_count == 3
-    assert exchange.call_count == 1
+    assert status_reads(exchange) == 1
 
 
 def test_single_print_proceeds_when_the_state_is_unknown(api, monkeypatch):
@@ -111,7 +123,7 @@ def test_batch_holds_every_label_without_sending(api, monkeypatch):
     assert body['printer_state'] == 'no_media'
     assert [r['status'] for r in body['results']] == ['error', 'error']
     assert all('no labels' in r['error'] for r in body['results'])
-    assert exchange.call_count == 1
+    assert status_reads(exchange) == 1
     assert logs(engine) == ['error', 'error']
 
 
@@ -130,3 +142,65 @@ def test_a_healthy_batch_carries_no_printer_state(api, monkeypatch):
     with patch.object(integrations, 'render_and_send'):
         body = client.post('/api/v1/print-batch', json={'discipline_id': disc, 'cables': ['1.1', '1.2']}).json()
     assert body['ok'] is True and body['printed'] == 2 and body['printer_state'] is None
+
+
+def test_print_reports_the_counter_before_and_after(api, monkeypatch):
+    client, disc, _ = api
+    exchange = snmp(monkeypatch, counters=[counter_reply(100), counter_reply(103)])
+    with patch.object(integrations, 'render_and_send'):
+        body = client.post('/api/v1/print', json={'discipline_id': disc, 'cable': '1.1', 'copies': 3}).json()
+    assert body['ok'] is True and body['printer_counter'] == {'before': 100, 'after': 103}
+    # One status read before; after the sends only the counter is read again.
+    assert status_reads(exchange) == 1 and exchange.call_count == 3
+
+
+def test_partial_print_carries_the_counter_in_its_502(api, monkeypatch):
+    from app.printer import PrintError
+    client, disc, _ = api
+    snmp(monkeypatch, counters=[counter_reply(100), counter_reply(101)])
+    with patch.object(integrations, 'render_and_send', side_effect=[None, PrintError('dropped')]):
+        response = client.post('/api/v1/print', json={'discipline_id': disc, 'cable': '1.1', 'copies': 3})
+    assert response.status_code == 502
+    detail = response.json()['detail']
+    assert detail['printed'] == 1 and detail['printer_state'] is None
+    assert detail['printer_counter'] == {'before': 100, 'after': 101}
+
+
+def test_held_print_reads_no_after_counter(api, monkeypatch):
+    client, disc, _ = api
+    exchange = snmp(monkeypatch, cover=5, counters=[counter_reply(100)])
+    with patch.object(integrations, 'render_and_send') as send:
+        detail = client.post('/api/v1/print', json={'discipline_id': disc, 'cable': '1.1'}).json()['detail']
+    send.assert_not_called()
+    assert detail['printer_counter'] == {'before': 100, 'after': None}
+    assert exchange.call_count == 2
+
+
+def test_batch_counter_and_a_failed_counter_change_nothing(api, monkeypatch):
+    client, disc, _ = api
+    snmp(monkeypatch, counters=[counter_reply(7), TimeoutError('dropped')])
+    with patch.object(integrations, 'render_and_send'):
+        body = client.post('/api/v1/print-batch', json={'discipline_id': disc, 'cables': ['1.1', '1.2']}).json()
+    assert body['ok'] is True and body['printed'] == 2 and body['printer_state'] is None
+    assert body['printer_counter'] == {'before': 7, 'after': None}
+
+
+def test_no_counter_before_means_no_after_read(api, monkeypatch):
+    client, disc, _ = api
+    exchange = snmp(monkeypatch)  # the model answers noSuchObject for the counter
+    with patch.object(integrations, 'render_and_send'):
+        body = client.post('/api/v1/print-batch', json={'discipline_id': disc, 'cables': ['1.1', '1.2']}).json()
+    assert body['ok'] is True and body['printer_counter'] == {'before': None, 'after': None}
+    assert exchange.call_count == 2  # status + counter before; nothing after
+
+
+def test_snmp_off_has_no_counter_and_no_snmp(api, monkeypatch):
+    client, disc, engine = api
+    with Session(engine) as s:
+        printer = s.exec(select(Printer)).one(); printer.snmp_enabled = False; s.add(printer); s.commit()
+    exchange = snmp(monkeypatch, counters=[])
+    with patch.object(integrations, 'render_and_send'):
+        single = client.post('/api/v1/print', json={'discipline_id': disc, 'cable': '1.1'}).json()
+        batch = client.post('/api/v1/print-batch', json={'discipline_id': disc, 'cables': ['1.1']}).json()
+    assert single['printer_counter'] is None and batch['printer_counter'] is None
+    exchange.assert_not_called()

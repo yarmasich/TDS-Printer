@@ -73,11 +73,13 @@ curl -X POST http://10.0.0.5:8000/api/v1/print \
   "right_text": "CH1C1-U18-P1/1\n...\n144S SMF | CBL#1.1 | 78m",
   "template_name": "R150x150",
   "printer": "192.168.0.178:9100",
-  "copies": 1
+  "copies": 1,
+  "printer_counter": {"before": 18234, "after": 18235}
 }
 ```
 
-`log_ids` — the history entries (one per copy).
+`log_ids` — the history entries (one per copy). `printer_counter` is
+informational and often `null` — see [Printer counter](#printer-counter-printer_counter).
 
 ---
 
@@ -89,7 +91,7 @@ curl -X POST http://10.0.0.5:8000/api/v1/print \
 | `400` | No scope given (neither `discipline_id` nor `discipline`) or malformed `cable` | `{"detail": "..."}` |
 | `404` | Discipline / cable not found, or unknown `printer_id` code | `{"detail": "No label matching '1.1' in discipline '...'"}` · `{"detail": "Unknown printer 'WS9'"}` |
 | `409` | Ambiguous match | see below |
-| `502` | Printer unreachable / send error, or the printer reported a fault before sending | `{"detail": {"message": "...", "log_ids": [...], "printed": N, "printer_state": null}}` |
+| `502` | Printer unreachable / send error, or the printer reported a fault before sending | `{"detail": {"message": "...", "log_ids": [...], "printed": N, "printer_state": null, "printer_counter": null}}` |
 
 ### `409` — multiple labels for one cable
 
@@ -119,20 +121,22 @@ sent** and the job is refused:
     "message": "Print failed: Printer WS1 cover is open. Close it, then print again.",
     "log_ids": [412],
     "printed": 0,
-    "printer_state": "cover_open"
+    "printer_state": "cover_open",
+    "printer_counter": {"before": 18234, "after": null}
   }
 }
 ```
 
-| `printer_state` | Meaning |
-|-----------------|---------|
-| `cover_open`    | Printhead / cover is open |
-| `no_media`      | No labels loaded |
-| `error`         | Ribbon, jam, offline or service fault |
-| `null`          | Not a printer fault — a transport/send error (see below) |
+| `printer_state` | Meaning | Holds the job? |
+|-----------------|---------|----------------|
+| `cover_open`    | Printhead / cover is open | yes |
+| `no_media`      | No labels loaded | yes |
+| `error`         | Ribbon out, jam, offline or service requested | yes |
+| `null`          | Not a printer fault — a transport/send error (see below) | — |
 
-The check is one SNMP read per request, not per copy or label. A printer that
-does not answer SNMP, or reports only a warning such as low ribbon, never
+The check is one SNMP status read per request, not per copy or label. A
+printer that does not answer SNMP, or reports only a warning (labels low,
+ribbon low, maintenance due — see [`device_status`](#device_status)), never
 blocks a print. `log_ids` holds the history entry recording the refusal.
 
 With an `Idempotency-Key`, the refusal is the request's completed outcome and
@@ -143,6 +147,8 @@ key.
 
 With `copies > 1`, if the printer drops mid-way, `detail.printed` holds the
 number of copies already printed and `detail.log_ids` their history entries.
+`detail.printer_counter` carries the counter read before and after the sends
+when the printer has one.
 Retry is the caller's decision — there is no server-side idempotency, so a
 repeated request prints again.
 
@@ -221,7 +227,9 @@ curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
     { "cable": "1.1", "status": "printed", "label_id": 1, "log_id": 311 },
     { "cable": "1.7", "status": "not_found" },
     { "cable": "1.9", "status": "ambiguous", "candidates": [ ... ] }
-  ]
+  ],
+  "printer_state": null,
+  "printer_counter": {"before": 18234, "after": 18284}
 }
 ```
 
@@ -231,6 +239,8 @@ curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
   [`502` — printer not ready](#502--printer-not-ready)). Then nothing is sent
   and every printable cable is `error` with the reason, or `skipped` after the
   first one when `stop_on_error` is set.
+- `printer_counter` — see [Printer counter](#printer-counter-printer_counter);
+  `null` when no label in the batch could print.
 - Per-cable `status`: `printed` · `not_found` · `ambiguous` · `invalid` ·
   `error` (printer/send failed) · `skipped` (only when `stop_on_error` aborted
   the rest).
@@ -384,6 +394,94 @@ settings that matches the printer names configured in the admin.
 - **CORS.** The server currently allows all origins (LAN deployment). CORS does
   not matter when printing from an external backend; keep it in mind if you
   print from a browser and later tighten the settings.
+
+## Printer status and counter (Panduit SNMP)
+
+Panduit DP4300M / DP4300H / DP4600H printers with **SNMP enabled** in their
+admin card are read over SNMPv2c (read-only GETs on UDP, never the 9100 print
+socket). Brother QL printers use their own SNMP status and never report
+warnings or a counter here.
+
+### `device_status`
+
+Returned by the project-scoped printer listing
+(`GET /api/v1/integrations/projects/{id}/printers?purpose=…&ping=true`) for
+supported printers, and by the admin ping/status endpoints:
+
+```json
+{
+  "state": "ready",
+  "media_width_mm": null,
+  "media_type": "unknown",
+  "checked_at": "2026-11-17T10:42:03.512345+00:00",
+  "warnings": ["ribbon_low"],
+  "counter": 18234
+}
+```
+
+| `state`      | Meaning |
+|--------------|---------|
+| `ready`      | Idle, no fault (warnings may be listed) |
+| `busy`       | Printing or warming up (warnings may be listed) |
+| `cover_open` | Printhead / cover open — a print is held |
+| `no_media`   | No labels — a print is held |
+| `error`      | Ribbon out, jam, offline or service requested — a print is held |
+| `unknown`    | SNMP off, silent or unverified model, or a flag the server does not recognise. Never blocks a print. |
+
+`warnings` (always present, `[]` when none) lists conditions that **never**
+block a print. They come from `hrPrinterDetectedErrorState` (RFC 2790):
+
+| Warning           | RFC 2790 flag         |
+|-------------------|-----------------------|
+| `media_low`       | `lowPaper`            |
+| `ribbon_low`      | `lowToner`            |
+| `maintenance_due` | `overduePreventMaint` |
+
+If only these flags are set, `state` comes from the printer status as if no
+flag were set (`ready` / `busy`). A fault keeps its priority and may carry
+warnings too (e.g. `no_media` with `media_low`). Any other unrecognised flag
+makes the state `unknown` — the server never guesses `ready`.
+
+`counter` is the Printer-MIB `prtMarkerLifeCount.1.1`: the printer's lifetime
+marker count, in the unit the printer reports in `prtMarkerCounterUnit.1.1`.
+Verified live on a DP4600H (2026-11-17): the unit is `meters(17)`, so the value
+is the media length printed in whole meters, not a label count. It is
+read in a separate GET after the status, only from a printer whose identity
+matched, so a model without the counter cannot affect the status. It is `null`
+when unsupported, silent or malformed, and always `null` for Brother. Status
+and counter are cached together for 5 s for display; the pre-send check reads
+both fresh.
+
+### Printer counter (`printer_counter`)
+
+Print responses for a Panduit with SNMP enabled carry:
+
+```json
+"printer_counter": {"before": 18234, "after": 18236}
+```
+
+- `before` comes from the same fresh pre-send read as the fault check.
+- `after` is one best-effort counter read once the sends finish. It is `null`
+  when nothing was sent (a held job), when `before` was `null`, or when the
+  read failed.
+- `printer_counter` itself is `null` (or absent) when SNMP is off, the printer
+  is not a Panduit, or nothing in the request could print.
+
+The counter is **informational only**. It is a global lifetime count, not a job
+receipt: another job may be counted too, and a job still buffered in the
+printer may not have finished when `after` is read. No status code, field or
+decision depends on it. On the DP4600H the counter counts meters, so a job of
+a few labels usually leaves it unchanged: `after - before` cannot be used to
+count labels, only as a coarse sign that media moved on a long job.
+
+### Project-scoped cable labels
+
+`POST /api/v1/integrations/projects/{id}/cable-labels` returns the batch shape
+above (`ok`, `requested`, `printed`, `discipline`, `printer`, `results`) plus
+`printer_counter`, both on full success and when some cables failed
+(`ok: false`, per-cable `error`) — the same `200` as before. When the
+pre-send check finds a fault, nothing is sent and the response is still
+`400 {"detail": {"code": "printer_fault", "printer_state": "cover_open" | "no_media" | "error", "message": "..."}}`.
 
 ## Safe HTTP retries with `Idempotency-Key`
 

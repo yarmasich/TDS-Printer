@@ -129,6 +129,17 @@ def _response_bindings(data, request_id, community, version):
     return bindings
 
 
+def _counter32(raw):
+    if not raw or len(raw) > 5 or raw[0] & 0x80:
+        raise ValueError('Invalid Counter32')
+    if len(raw) > 1 and raw[0] == 0 and not raw[1] & 0x80:
+        raise ValueError('Noncanonical Counter32')
+    counter = int.from_bytes(raw, 'big')
+    if counter > 0xffffffff:
+        raise ValueError('Counter32 overflow')
+    return counter
+
+
 def _response(data, request_id, community, oid=_STATUS_OID):
     if oid not in (_STATUS_OID, _COUNTER_OID):
         raise ValueError("Unsupported OID")
@@ -138,14 +149,7 @@ def _response(data, request_id, community, oid=_STATUS_OID):
         raise ValueError('Unexpected OID')
     if oid == _COUNTER_OID:
         raw = binding.value(0x41); binding.done()
-        if not raw or len(raw) > 5 or raw[0] & 0x80:
-            raise ValueError('Invalid Counter32')
-        if len(raw) > 1 and raw[0] == 0 and not raw[1] & 0x80:
-            raise ValueError('Noncanonical Counter32')
-        counter = int.from_bytes(raw, 'big')
-        if counter > 0xffffffff:
-            raise ValueError('Counter32 overflow')
-        return counter
+        return _counter32(raw)
     status = binding.value(4); binding.done()
     if len(status) != 32:
         raise ValueError('Invalid status size')
@@ -153,8 +157,14 @@ def _response(data, request_id, community, oid=_STATUS_OID):
 
 
 def _unknown():
+    # `warnings` and `counter` are filled only by the verified Panduit read.
     return dict(state='unknown', media_width_mm=None, media_type='unknown',
-                checked_at=datetime.now(timezone.utc).isoformat())
+                checked_at=datetime.now(timezone.utc).isoformat(), warnings=[], counter=None)
+
+
+def _copy(result):
+    # Callers get their own warnings list, so no caller can edit the cache.
+    return {**result, 'warnings': list(result.get('warnings', ()))}
 
 
 def parse_status(data):
@@ -212,20 +222,51 @@ def _probe_value(ip, community, port=161, oid=_STATUS_OID):
     return _response(packet, request_id, community, oid)
 
 
+# hrPrinterDetectedErrorState bits that never stop a print: (octet, mask, name).
+_WARNINGS = ((0, 0x80, 'media_low'), (0, 0x20, 'ribbon_low'), (1, 0x02, 'maintenance_due'))
+_WARNING_MASKS = (0x80 | 0x20, 0x02)
+
+
 def _panduit_state(status, flags, cover=None):
+    """``(state, warnings)`` from hrPrinterStatus, the error flags and the cover."""
     if status not in range(1, 6) or len(flags) not in (1, 2):
-        return 'unknown'
+        return 'unknown', []
     # RFC 2790 numbers bits MSB first. Recognized faults outrank warnings.
+    warnings = [name for octet, mask, name in _WARNINGS if octet < len(flags) and flags[octet] & mask]
     primary = flags[0]
     if primary & 0x08 or cover in _COVER_OPEN:
-        return 'cover_open'
+        return 'cover_open', warnings
     if primary & 0x40:
-        return 'no_media'
+        return 'no_media', warnings
     if primary & 0x17:  # No toner/ribbon, jam, offline or service requested.
-        return 'error'
-    if any(flags):
-        return 'unknown'
-    return {3: 'ready', 4: 'busy', 5: 'busy'}.get(status, 'unknown')
+        return 'error', warnings
+    if any(flag & ~mask for flag, mask in zip(flags, _WARNING_MASKS)):
+        return 'unknown', warnings  # An unrecognised bit is never read as ready.
+    return {3: 'ready', 4: 'busy', 5: 'busy'}.get(status, 'unknown'), warnings
+
+
+def _panduit_counter(ip, community, port):
+    """Printer-MIB prtMarkerLifeCount.1.1 in its own GET, or None.
+
+    Separate from the status GET so a model without the counter can never
+    spoil the status reading. Unsupported, silent or malformed reads as None.
+    """
+    request_id = secrets.randbelow(0x7ffffffe) + 1
+    try:
+        packet = _exchange(ip, port, _get_request(request_id, community, 1, (_COUNTER_OID,)))
+        bindings = _response_bindings(packet, request_id, community, 1)
+        binding = _Reader(bindings.value(0x30)); bindings.done()
+        if binding.value(6) != _COUNTER_OID:
+            raise ValueError('Unexpected counter OID')
+        if binding.pos < len(binding.data) and binding.data[binding.pos] in _NO_SUCH:
+            if binding.value(binding.data[binding.pos]):
+                raise ValueError('Invalid SNMP exception value')
+            binding.done()
+            return None
+        raw = binding.value(0x41); binding.done()
+        return _counter32(raw)
+    except (OSError, ValueError, OverflowError):
+        return None
 
 
 def _panduit_probe(ip, community, port, model):
@@ -250,7 +291,9 @@ def _panduit_probe(ip, community, port, model):
     description, device_type, printer_status, flags, cover = values
     result = _unknown()
     if description == PANDUIT_SNMP_DESCRIPTIONS[model] and device_type == _HR_DEVICE_PRINTER:
-        result['state'] = _panduit_state(printer_status, flags, cover)
+        result['state'], result['warnings'] = _panduit_state(printer_status, flags, cover)
+        # Only a verified identity is asked for its counter; the state is final here.
+        result['counter'] = _panduit_counter(ip, community, port)
     return result
 
 
@@ -303,7 +346,7 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
         cached = _cache.get(key)
         if cached is not None and monotonic() - cached[0] < _CACHE_TTL:
             _cache.move_to_end(key)
-            return dict(cached[1])
+            return _copy(cached[1])
         if key in _inflight:
             return _unknown()
         _inflight.add(key)
@@ -322,7 +365,7 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
             _cache.move_to_end(key)
             while len(_cache) > _CACHE_LIMIT:
                 _cache.popitem(last=False)
-    return dict(result)
+    return _copy(result)
 
 
 # A printer that buffers a job behind an open cover reports the send as a
@@ -335,18 +378,54 @@ _FAULTS = {
 }
 
 
+def counter_supported(printer):
+    """Whether a print to this printer reads its Panduit marker counter."""
+    return printer.model in PANDUIT_SNMP_DESCRIPTIONS and bool(printer.snmp_enabled)
+
+
+def _fresh(printer):
+    return device_status(printer.id, printer.ip, printer.model, enabled=True, port=printer.snmp_port,
+                         community_override=printer.snmp_community, fresh=True)
+
+
+def print_preflight(printer):
+    """One fresh, uncached pre-send read: ``(fault, counter)``.
+
+    ``fault`` is ``(state, operator sentence)`` or None, exactly as
+    :func:`print_fault_state`. ``counter`` is the printer's lifetime marker
+    count from the same read, or None. Warnings never hold a job.
+    """
+    if not counter_supported(printer):
+        return None, None
+    status = _fresh(printer)
+    reason = _FAULTS.get(status['state']) if status else None
+    fault = (status['state'], f'Printer {printer.name} {reason}') if reason else None
+    return fault, status.get('counter') if status else None
+
+
+def print_counter(printer):
+    """Best-effort fresh counter GET after the sends: an int, or None.
+
+    Callers ask only after :func:`print_preflight` returned a counter, so the
+    device identity was verified moments earlier by that read. Informational
+    only: a job still buffered in the printer may not have reached the counter
+    yet, so this is never a print receipt.
+    """
+    if not counter_supported(printer):
+        return None
+    community = (printer.snmp_community if printer.snmp_community is not None else 'public').encode('utf-8')
+    if not community or len(community) > 128:
+        return None
+    return _panduit_counter(printer.ip, community, printer.snmp_port)
+
+
 def print_fault_state(printer):
     """Fresh, uncached pre-send check: ``(state, operator sentence)`` or None.
 
     The state is for machines (API callers branch on it), the sentence for
     whoever stands at the printer.
     """
-    if printer.model not in PANDUIT_SNMP_DESCRIPTIONS or not printer.snmp_enabled:
-        return None
-    status = device_status(printer.id, printer.ip, printer.model, enabled=True, port=printer.snmp_port,
-                           community_override=printer.snmp_community, fresh=True)
-    reason = _FAULTS.get(status['state']) if status else None
-    return (status['state'], f'Printer {printer.name} {reason}') if reason else None
+    return print_preflight(printer)[0]
 
 
 def print_fault(printer):
@@ -374,7 +453,11 @@ class DeviceStatusConfig:
 
 
 def device_statuses(printers):
-    """Detached authorized profiles only; <=4s socket budget (32 / 4 * .5s)."""
+    """Detached authorized profiles only; <=8s socket budget.
+
+    32 profiles / 4 workers * 1s: a verified Panduit costs its .5s status GET
+    plus a separate .5s counter GET; Brother costs one .5s GET.
+    """
     profiles = [p if isinstance(p, DeviceStatusConfig) else DeviceStatusConfig(*p) for p in printers]
     statuses = {p.printer_id: None for p in profiles}
     candidates = sorted(profiles, key=lambda p: p.printer_id)[:_REQUEST_LIMIT]

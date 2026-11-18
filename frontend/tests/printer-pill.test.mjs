@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pillFor } from '../src/data/printerPill.ts';
+import { pillFor, warningSuffix, withWarnings } from '../src/data/printerPill.ts';
 
-const reachable = (state) => ({ printer_id: 1, ok: true, ms: 4, error: '', device_status: state ? { state } : null });
+const reachable = (state, warnings) => ({ printer_id: 1, ok: true, ms: 4, error: '', device_status: state ? { state, ...(warnings ? { warnings } : {}) } : null });
 
 test('a printer that accepts TCP but reports a fault is not shown as online', () => {
   // A DP4600H with its head open still answers on 9100; only SNMP knows.
@@ -37,4 +37,42 @@ test('the existing loading, unknown and offline pills are unchanged', () => {
   assert.deepEqual(pillFor(null), { label: 'checking…', tone: 'checking' });
   assert.deepEqual(pillFor({ printer_id: 1, ok: false, ms: null, error: 'refused' }),
     { label: 'offline', tone: 'danger', title: 'refused' });
+});
+
+test('a ready printer with a warning shows the state, then the warning', () => {
+  assert.equal(pillFor(reachable('ready', ['ribbon_low'])).label, 'Ready · ribbon low');
+  assert.equal(pillFor(reachable('ready', ['media_low'])).label, 'Ready · labels low');
+  assert.equal(pillFor(reachable('ready', ['maintenance_due'])).label, 'Ready · maintenance due');
+  assert.equal(pillFor(reachable('ready', ['media_low', 'ribbon_low'])).label, 'Ready · labels low · ribbon low');
+  const pill = pillFor(reachable('ready', ['ribbon_low']));
+  // Not a fault: a warning tone, and the title says printing still works.
+  assert.equal(pill.tone, 'warn');
+  assert.match(pill.title, /^Printing works\. Ribbon is running low\.$/);
+});
+
+test('a printing printer keeps its warnings next to the state', () => {
+  assert.deepEqual(pillFor(reachable('busy', ['ribbon_low'])),
+    { label: 'Printing · ribbon low', tone: 'warn', title: 'Printing works. Ribbon is running low.' });
+});
+
+test('a fault keeps its label and adds the warning to its advice', () => {
+  const pill = pillFor(reachable('no_media', ['media_low']));
+  assert.equal(pill.label, 'no labels');
+  assert.equal(pill.tone, 'danger');
+  assert.equal(pill.title, 'Load labels, then print. Labels are running low.');
+});
+
+test('no, empty or unrecognised warnings leave every pill unchanged', () => {
+  for (const warnings of [undefined, [], ['tray_missing'], ['toString']]) {
+    assert.deepEqual(pillFor(reachable('ready', warnings)), { label: 'online · 4 ms', tone: 'ok' });
+    assert.deepEqual(pillFor(reachable('busy', warnings)), { label: 'printing', tone: 'warn' });
+  }
+  // An unknown state never turns into "Ready", even beside a warning.
+  assert.deepEqual(pillFor(reachable('unknown', ['ribbon_low'])), { label: 'online · 4 ms', tone: 'ok' });
+});
+
+test('warning text is sentence case without capitals', () => {
+  assert.equal(warningSuffix(['media_low', 'ribbon_low', 'maintenance_due']), ' · labels low · ribbon low · maintenance due');
+  assert.equal(warningSuffix(null), '');
+  assert.equal(withWarnings('Cover open', ['ribbon_low']), 'Cover open · ribbon low');
 });
