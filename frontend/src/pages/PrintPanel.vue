@@ -24,6 +24,8 @@ import ResultCard from "@/components/print/ResultCard.vue";
 import StickyCart from "@/components/print/StickyCart.vue";
 import QuickPickChip from "@/components/print/QuickPickChip.vue";
 import PingPill from "@/components/PingPill.vue";
+import { PILL_REFRESH_MS } from "@/data/printerPill";
+import { startVisibleInterval } from "@/data/visibleInterval";
 import { useKiosk } from "@/stores/kiosk";
 
 const props = defineProps<{ kiosk?: boolean }>();
@@ -161,6 +163,18 @@ watch(targetPrinterId, () => {
   }
 }, { immediate: true });
 
+// Keeps the last state on screen while re-reading, instead of flashing
+// "checking…" every few seconds; a printer change goes through the watcher.
+async function refreshPingQuietly() {
+  const printerId = targetPrinterId.value;
+  if (!printerId || ping.loading.value) return;
+  try {
+    const result = await printers.pingOne(printerId);
+    if (mounted && targetPrinterId.value === printerId && !ping.loading.value) ping.data.value = result;
+  } catch { /* the next tick retries */ }
+}
+const stopPingPolling = startVisibleInterval(() => void refreshPingQuietly(), PILL_REFRESH_MS);
+
 async function loadBundle(bundle: string | null) {
   resetResults();
   query.value = "";
@@ -189,7 +203,7 @@ function clearQuery() {
   resetResults();
   focusSearch();
 }
-onUnmounted(() => { mounted = false; results.clear(); ping.clear(); bundleResource.clear(); });
+onUnmounted(() => { mounted = false; stopPingPolling(); results.clear(); ping.clear(); bundleResource.clear(); });
 
 // Re-run the search for the whole group (e.g. "2" → "2.*").
 function searchGroup() {

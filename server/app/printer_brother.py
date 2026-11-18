@@ -11,6 +11,7 @@ from .models import Printer
 from .printer import PrintError
 from .printer_dispatch import PrinterBusy, printer_slot
 from .qr_labels import MEDIA, QrLabelRequest, render_bitmap
+from .packing_bitmap import PackingBitmapRequest
 
 
 def require_brother(printer: Printer) -> None:
@@ -36,9 +37,11 @@ class _WriteOnlyRaster(BrotherQLRaster):
             self._notification_pending = False
 
 
-def build_qr_job(req: QrLabelRequest, printer: Printer, *, image: Image.Image | None = None) -> bytes:
+def build_qr_job(req: QrLabelRequest | PackingBitmapRequest, printer: Printer, *, image: Image.Image | None = None) -> bytes:
     require_brother(printer)
     if image is None:
+        if isinstance(req, PackingBitmapRequest):
+            raise PrintError('Packing labels require a supplied bitmap')
         image = render_bitmap(req)
     elif image.height != round(req.length_mm * 300 / 25.4):
         raise PrintError('Invalid packing bitmap height')

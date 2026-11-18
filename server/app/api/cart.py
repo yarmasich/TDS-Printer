@@ -23,7 +23,7 @@ from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..station_routing import allowed_printers, select_printer
 from ..printer import PrintError, render_and_send
-from .. import rfid
+from .. import printer_device_status, rfid
 
 logger = logging.getLogger("tds.cart")
 router = APIRouter(prefix="/api/cart", tags=["cart"])
@@ -274,6 +274,15 @@ def print_all(req: PrintAllRequest, db: Session = Depends(get_session), credenti
             groups.setdefault(target, []).append(item_id)
         identity = rfid.identify([project for project in projects.values() if project],
                                  req.rfid_code, req.operator)
+        # One fresh status read per destination, after RFID so a refused
+        # operator never reaches the network. A fault holds only that printer's
+        # rows; nothing was sent, so they return to the queue below.
+        faults = {}
+        for item_id, printer in destinations.items():
+            if printer.id not in faults:
+                faults[printer.id] = printer_device_status.print_fault(printer)
+            if faults[printer.id]:
+                routing_errors[item_id] = PrintError(faults[printer.id])
     except Exception:
         db.rollback()
         db.execute(update(CartItem).where(CartItem.claim_token == token,

@@ -178,12 +178,17 @@ def test_packing_rejects_invalid_images_and_oversized_preview(ready):
     body = packing_data(noisy)
     enc = body['bitmap_1bpp_base64']
     assert len(enc) == 472400
-    for changes in [{}, {'media': 'DK-2205'}, {'reference': 'preparation:test'},
-                    {'description': 'caption'}, {'bitmap_1bpp_base64': enc[:-1] + '!'},
-                    {'length_mm': 60}, {'bitmap_1bpp_base64': enc[:-4]}]:
+    for changes, status in [({}, 400), ({'media': 'DK-2205'}, 422),
+                            ({'reference': 'preparation:test'}, 422), ({'description': 'caption'}, 422),
+                            ({'bitmap_1bpp_base64': enc[:-1] + '!'}, 400),
+                            ({'length_mm': 60}, 400), ({'bitmap_1bpp_base64': enc[:-4]}, 400)]:
         res = c.post(path + '/preview', headers=h, json={**body, **changes})
-        assert res.status_code == 400
+        assert res.status_code == status
+    # Short-label input still has an exact byte count despite the higher cap.
     res = c.post(path + '/preview', headers=h, json={**body, 'bitmap_1bpp_base64': enc + 'A'})
+    assert res.status_code == 400
+    res = c.post(path + '/preview', headers=h,
+                 json={**body, 'bitmap_1bpp_base64': 'A' * (qr.MAX_BITMAP_BASE64 + 1)})
     assert res.status_code == 422
 
 

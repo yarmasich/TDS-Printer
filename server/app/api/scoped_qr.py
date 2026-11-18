@@ -1,37 +1,56 @@
 """Project-authorized QR labels; renderer and physical output share one bitmap."""
 import base64
-import binascii
 import hashlib
 import io
-import json
-import re
 from typing import Annotated, Literal
 from uuid import UUID
 from fastapi import Depends, Header, HTTPException, Security
-from PIL import Image
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from .scoped_integrations import router, find_policy, policy_dto, check_scope, require_integration, require_api_key, get_session, fail
 from ..preparation_qr_layout import PreparationLayout, LayoutError, render_preparation_layout
 from ..models import ApiKey, Printer, PrintLog
-from ..qr_labels import MEDIA, QrLabelRequest, render_bitmap
+from ..qr_labels import QrLabelRequest, render_bitmap
+from ..packing_bitmap import (
+    MAX_BITMAP_BASE64, MAX_PACKING_LENGTH_MM, MAX_PACKING_SCAN_BYTES,
+    PackingBitmapRequest, packing_bitmap,
+)
 from ..printer import PrintError
 from ..printer_brother import require_brother, build_qr_job, send_brother_job, PrinterNotReady
 from ..print_idempotency import run_print_request
 
 RENDERER_VERSION = 'preparation-qr-1'
-PACKING_WIDTH = MEDIA['DK-2246'][1]
-PACKING_ROW_BYTES = PACKING_WIDTH // 8
-MAX_BITMAP_BASE64 = 4 * ((PACKING_ROW_BYTES * round(200 * 300 / 25.4) + 2) // 3)
 MAX_PREVIEW_JSON = 256 * 1024
 
-class ScopedQrPreview(QrLabelRequest):
-    media: str = Field(..., pattern=r'^DK-(2205|2246)$')
-    length_mm: float = Field(..., ge=30, le=200, allow_inf_nan=False)
+class ScopedQrPreview(BaseModel):
+    # This bounded transport envelope validates a dedicated packing contract or
+    # the unchanged general contract below. Preserve historical field order.
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)
+    printer_id: int = Field(gt=0)
+    media: Literal['DK-2246', 'DK-2205']
+    length_mm: float = Field(ge=30, le=MAX_PACKING_LENGTH_MM, allow_inf_nan=False)
+    scan: str = Field(min_length=1, max_length=MAX_PACKING_SCAN_BYTES)
+    code: str = Field(default='', max_length=80)
+    description: str = Field(default='', max_length=240)
+    reference: str = Field(default='', max_length=200)
 
     layout: PreparationLayout | None = None
     bitmap_1bpp_base64: str | None = Field(default=None, max_length=MAX_BITMAP_BASE64, repr=False)
+
+    @model_validator(mode='after')
+    def validate_contract(self):
+        self.label_request()
+        return self
+
+    def label_request(self) -> QrLabelRequest | PackingBitmapRequest:
+        fields = self.model_dump(exclude={'expected_fingerprint', 'layout'})
+        if self.bitmap_1bpp_base64 is not None and self.layout is None:
+            return PackingBitmapRequest.model_validate(fields)
+        # Keep the existing actionable layout/bitmap-conflict error in bitmap().
+        # These requests still obey the stricter general limits.
+        fields.pop('bitmap_1bpp_base64', None)
+        return QrLabelRequest.model_validate(fields)
 
     @model_serializer(mode='wrap')
     def serialize_request(self, handler):
@@ -63,37 +82,15 @@ class PackingQrResult(ScopedQrResult):
     bitmap_fingerprint: str
 
 
-def packing_bitmap(req, encoded):
-    if (req.media != 'DK-2246' or req.description or
-            not re.fullmatch(r'inventory-packing:(box|pallet):[^:]+', req.reference)):
-        raise PrintError('Bitmap is only available for 103 mm Inventory packing labels')
-    height = round(req.length_mm * 300 / 25.4)
-    expected_bytes = height * PACKING_ROW_BYTES
-    if len(encoded) != 4 * ((expected_bytes + 2) // 3):
-        raise PrintError('Bitmap length does not match the label')
-    try:
-        pixels = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise PrintError('Invalid packing bitmap encoding') from exc
-    if len(pixels) != expected_bytes:
-        raise PrintError('Bitmap length does not match the label')
-    image = Image.frombytes('1', (PACKING_WIDTH, height), pixels)
-    context = ['inventory-packing-bitmap-1', req.printer_id, req.media, req.reference,
-               req.scan, image.width, image.height]
-    header = json.dumps(context, ensure_ascii=True, separators=(',', ':')).encode('ascii')
-    digest = hashlib.sha256(header + b'\n' + pixels).hexdigest()
-    return image, digest
-
-
 def bitmap(req):
-    plain=QrLabelRequest.model_validate(req.model_dump(exclude={'expected_fingerprint', 'bitmap_1bpp_base64', 'layout'}))
+    plain = req.label_request()
     if req.layout is not None:
         if req.bitmap_1bpp_base64 is not None:
             raise LayoutError('Supply a Preparation layout without a packing bitmap.')
         image, digest = render_preparation_layout(plain, req.layout)
         return plain, image, digest
     if req.bitmap_1bpp_base64 is not None:
-        image, digest = packing_bitmap(plain, req.bitmap_1bpp_base64)
+        image, digest = packing_bitmap(plain)
         return plain, image, digest
     image=render_bitmap(plain)
     digest=hashlib.sha256(f'{RENDERER_VERSION}:{image.mode}:{image.width}:{image.height}:'.encode()+image.tobytes()).hexdigest()

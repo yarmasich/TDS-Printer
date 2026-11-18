@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_legacy_print, require_legacy_catalog
-from .. import rfid
+from .. import printer_device_status, rfid
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..print_idempotency import run_print_request
@@ -260,8 +260,13 @@ def _print_label(
     label: Label, template: Template, printer: Printer,
     operator: str, reason: str, session: Session, identity: rfid.OperatorIdentity,
     *, integration_id: str = "", external_project_id: str = "", audit_project: Project | None = None,
+    held: Optional[str] = None,
 ) -> tuple[Optional[int], Optional[str]]:
-    """Render+send one label, log it, return ``(log_id, error)``."""
+    """Render+send one label, log it, return ``(log_id, error)``.
+
+    ``held`` is a pre-send printer fault: the label is logged as an error and
+    nothing is sent.
+    """
     project = audit_project if audit_project is not None else rfid.project_for_label(session, label)
     log = PrintLog(
         **identity.audit(project),
@@ -275,6 +280,8 @@ def _print_label(
         right_text=label.right_text,
     )
     try:
+        if held:
+            raise PrintError(held)
         render_and_send(template, printer, label.left_text, label.right_text, operator, reason)
     except PrintError as e:
         log.status = "uncertain" if e.uncertain else "error"
@@ -353,9 +360,12 @@ def _api_print(
     operator = identity.name
     reason = req.reason or "API"
 
+    # One fresh read for all copies; a held job stops at its first copy.
+    fault = printer_device_status.print_fault_state(printer)
     log_ids: List[int] = []
     for _ in range(req.copies):
-        log_id, err = _print_label(label, template, printer, operator, reason, session, identity)
+        log_id, err = _print_label(label, template, printer, operator, reason, session, identity,
+                                   held=fault[1] if fault else None)
         if err:
             raise HTTPException(
                 502,
@@ -363,6 +373,7 @@ def _api_print(
                     "message": f"Print failed: {err}",
                     "log_ids": log_ids + ([log_id] if log_id else []),
                     "printed": len(log_ids),
+                    "printer_state": fault[0] if fault else None,
                 },
             )
         log_ids.append(log_id)
@@ -433,6 +444,8 @@ class ApiBatchPrintResponse(BaseModel):
     discipline: str
     printer: str
     results: List[BatchItemResult]
+    # The printer's own fault when it held the whole batch; null otherwise.
+    printer_state: Optional[str] = None
 
 
 def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
@@ -518,12 +531,16 @@ def _api_print_batch(
     identity = rfid.OperatorIdentity(f"api:{key.name}", "api")
     operator = identity.name
     reason = req.reason or ("API bundle" if req.bundle else "API batch")
+    # One fresh read for the batch, skipped when nothing in it can print.
+    fault = (printer_device_status.print_fault_state(printer)
+             if any(label is not None for _, label in plan) else None)
     results, printed, aborted = [], 0, False
     for result, label in plan:
         if aborted:
             result.status = "skipped"
         elif label is not None:
-            log_id, err = _print_label(label, template, printer, operator, reason, session, identity)
+            log_id, err = _print_label(label, template, printer, operator, reason, session, identity,
+                                       held=fault[1] if fault else None)
             result.log_id = log_id
             if err:
                 result.status, result.error = "error", err
@@ -536,6 +553,7 @@ def _api_print_batch(
         ok=all(r.status == "printed" for r in results),
         requested=len(results), printed=printed, discipline=disc.name,
         printer=f"{printer.ip}:{printer.port}", results=results,
+        printer_state=fault[0] if fault else None,
     )
 
 

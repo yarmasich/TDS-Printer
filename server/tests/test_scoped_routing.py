@@ -312,3 +312,20 @@ def test_switch_to_unsupported_profile_retains_settings_and_skips_probes(scope):
         assert send(client, headers, project).json()['printed'] == 2
         polling.assert_not_called()
         preflight.assert_not_called()
+
+
+@pytest.mark.parametrize('fault, wording', [
+    ('cover_open', 'cover is open'), ('no_media', 'no labels'), ('error', 'reports a fault'),
+])
+def test_printer_fault_says_which_fault(scope, fault, wording):
+    # `code` stays `printer_fault` for existing callers; the state and an
+    # operator-facing sentence let them show the reason instead of guessing.
+    client, engine, headers, project, _ = scope
+    prepare_labels(engine)
+    configure_panduit(scope, 'DP4600H')
+    with patch.object(scoped_integrations.printer_device_status, 'device_status',
+                      return_value={'state': fault}), patch.object(integrations, 'render_and_send') as transport:
+        detail = send(client, headers, project).json()['detail']
+    transport.assert_not_called()
+    assert detail['code'] == 'printer_fault' and detail['printer_state'] == fault
+    assert wording in detail['message']

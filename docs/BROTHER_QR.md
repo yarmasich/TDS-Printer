@@ -91,12 +91,27 @@ Authenticated admin `GET /api/printers/{id}/status` reports the saved printer's 
 The project-scoped QR preview and send endpoints accept an optional
 `bitmap_1bpp_base64` for Inventory box and pallet labels. Use DK-2246,
 a reference of `inventory-packing:box:<id>` or `inventory-packing:pallet:<id>`,
-and an empty description. Supply the stored QR value in `scan`. The printable
-image is 1200 dots wide at 300 dpi. Encode 150 bytes per row, top to bottom,
-most significant bit first, with one for white. Base64-encode the packed
-pixels without compression. Set `length_mm` to the row count times 25.4 / 300,
-within the existing 30–200 mm limit. The largest input is 472400 base64
-characters. The serialized preview response must fit in 256 KiB.
+and an empty description, without a Preparation `layout`. Supply the exact
+readable QR text in `scan`, up to 2000 UTF-8 bytes. These limits apply only to
+this dedicated packing bitmap contract. General labels, Preparation layouts,
+62 mm media and requests without a packing bitmap retain the 512-byte scan
+and 30–200 mm length limits.
+
+The printable image is 1200 dots wide at 300 dpi. Encode 150 bytes per row,
+top to bottom, most significant bit first, with one for white. Base64-encode
+the packed pixels without compression. Set `length_mm` within 30–1000 mm;
+the row count must equal `round(length_mm * 300 / 25.4)`. The largest input is
+2362200 base64 characters (11811 rows at exactly 1000 mm). The serialized
+preview response must fit in 256 KiB; arbitrary noisy images can exceed
+that response cap and are rejected.
+
+Every reverse proxy on the scoped preview/send routes must allow request
+bodies of at least 4 MiB, including JSON overhead. Nginx's default 1 MiB
+limit is insufficient. The checked-in shared `tds-printer-app.conf` already
+uses `client_max_body_size 50M` for XLSX imports, which also covers these
+packing requests. Check any additional ingress proxy separately; this change
+does not deploy proxy configuration. An HTTP 413 means the proxy body limit
+must be raised; a 422 for extended packing limits can mean TDS needs updating.
 
 The service hashes the canonical ASCII JSON array
 `["inventory-packing-bitmap-1",printer_id,media,reference,scan,width,height]`
@@ -104,3 +119,9 @@ The service hashes the canonical ASCII JSON array
 Send the preview fingerprint as `expected_fingerprint`. A successful bitmap
 send echoes the digest in `bitmap_fingerprint`. Project assignment, printer
 readiness and send idempotency checks apply to bitmap jobs.
+
+Long packing labels are covered by automated maximum-size QR decoding and
+pixel-identical Brother raster checks. Physical output at 1000 mm and
+phone/handheld scanning have not been verified on real devices and remain
+release acceptance checks. The service does not truncate scan text, rescale
+supplied bitmaps or retry physical sends.

@@ -648,6 +648,10 @@ def _send_locked(ip: str, port: int, payload: bytes, *, timeout: float) -> None:
         raise PrintError(f"send to {ip}:{port} failed: {exc}. Outcome unknown; check physical labels before retrying.", uncertain=True) from exc
 
 
+# Callers branch on this exact text, so it lives in one place.
+PING_BUSY = 'Printer busy; status check skipped'
+
+
 def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Optional[float], str]:
     import time
 
@@ -658,7 +662,7 @@ def ping_printer(ip: str, port: int, *, timeout: float = 2.0) -> tuple[bool, Opt
             with socket.create_connection((ip, port), timeout=timeout):
                 pass
     except PrinterBusy:
-        return False, None, 'Printer busy; status check skipped'
+        return False, None, PING_BUSY
     except (OSError, OverflowError, ImportError) as e:
         return False, None, str(e)
     return True, round((time.perf_counter() - start) * 1000, 1), ""

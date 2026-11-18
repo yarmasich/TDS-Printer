@@ -57,6 +57,8 @@ export interface PingResult {
   ok: boolean;
   ms: number | null;
   error: string;
+  /** The printer's own SNMP state; null when it reports none. */
+  device_status?: { state: string; checked_at?: string } | null;
 }
 
 export interface TestPrintResult {

@@ -9,6 +9,8 @@ import PrintPanel from "@/pages/PrintPanel.vue";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import PingPill from "@/components/PingPill.vue";
+import { PILL_REFRESH_MS } from "@/data/printerPill";
+import { startVisibleInterval } from "@/data/visibleInterval";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import { needsPrinterChoice, stationPrinter, useStationAuth } from "@/stores/stationAuth";
 import { usePrinters } from "@/stores/printers";
@@ -31,7 +33,8 @@ let mounted = true;
 const isMounted = () => mounted;
 const setupError = ref("");
 const setupLoading = ref(false);
-onUnmounted(() => { mounted = false; pingRevision++; });
+const stopPingPolling = startVisibleInterval(() => void refreshPrinterPing(true), PILL_REFRESH_MS);
+onUnmounted(() => { mounted = false; pingRevision++; stopPingPolling(); });
 /** PrimeVue Select binds full option objects, not raw ids. */
 const setupProject = ref<Project | null>(null);
 const setupDiscipline = ref<Discipline | null>(null);
@@ -135,19 +138,21 @@ async function resolveActiveDiscipline(): Promise<Discipline | null> {
   return d;
 }
 
-async function refreshPrinterPing() {
+// `quiet` keeps the last state on screen while re-reading, so the periodic
+// refresh does not flash "checking…" on the wall tablet every few seconds.
+async function refreshPrinterPing(quiet = false) {
   const revision = ++pingRevision;
   if (!mounted || showSetup.value) return;
 
   let d;
   try { d = await resolveActiveDiscipline(); } catch (error) { if (revision === pingRevision) setupError.value = String(error); return; }
   if (revision !== pingRevision) return;
-  printerPing.value = undefined;
   const printerId = stationPrinter(stationAuth.station, d)?.printer_id;
+  if (!quiet || !printerId) printerPing.value = undefined;
   if (!printerId) return;
 
   try {
-    printerPing.value = null;
+    if (!quiet) printerPing.value = null;
     const result = await printers.pingOne(printerId);
     if (revision === pingRevision) printerPing.value = result;
   } catch {
