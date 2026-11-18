@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
-from sqlalchemy import Column, JSON, CheckConstraint
+from sqlalchemy import Column, JSON, CheckConstraint, Index
 
 
 def _utcnow() -> datetime:
@@ -174,6 +174,9 @@ class Discipline(SQLModel, table=True):
     # rows: the header itself is skipped (not a label) and every label below it
     # is tagged with that bundle number (Label.bundle), enabling print-by-bundle.
     bundle_mode: bool = False
+    # Leg disciplines point at the discipline holding their trunk labels; a
+    # leg and its trunk share Label.trunk_no.
+    trunk_discipline_id: Optional[int] = Field(default=None, foreign_key="discipline.id")
 
 
 class Import(SQLModel, table=True):
@@ -193,6 +196,8 @@ class Import(SQLModel, table=True):
 
 class Label(SQLModel, table=True):
     """One label row from an imported workbook."""
+    # Every "with trunk" print looks up one discipline's trunk by number.
+    __table_args__ = (Index("ix_label_discipline_trunk", "discipline_id", "trunk_no"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     discipline_id: int = Field(foreign_key="discipline.id", index=True)
     import_id: Optional[int] = Field(
@@ -206,6 +211,11 @@ class Label(SQLModel, table=True):
     # Bundle this label belongs to (from a "BUNDLE #N" header during import when
     # the discipline has bundle_mode on). None for normal / non-bundle imports.
     bundle: Optional[str] = Field(default=None, index=True)
+    # From the workbook's `Trunk#` / `Leg #` columns. Leg label text may carry
+    # no cable number at all, so these are the only link between a leg and
+    # its trunk. None for workbooks without those columns.
+    trunk_no: Optional[str] = Field(default=None)
+    leg_no: Optional[str] = Field(default=None)
 
 
 # ──────────────────────────── shared lists / logs ────────────────────────────

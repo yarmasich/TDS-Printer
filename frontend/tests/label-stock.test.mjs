@@ -14,7 +14,7 @@ const S200X400VATY = {
 const R200X150V1T = {
   sku: 'R200X150V1T', rows: 1, columns: 2, page_width_mm: 107.95, page_height_mm: 53.975,
   left_margin_mm: 3.175, top_margin_mm: 14.3002, print_width_mm: 50.8, print_height_mm: 12.7,
-  column_pitch_mm: 50.8, label_width_mm: 50.8, label_length_mm: 57.15, print_on_height_mm: 12.7,
+  column_pitch_mm: 50.8, label_width_mm: 50.8, label_length_mm: 38.1, print_on_height_mm: 12.7,
   label_kind: 'Turn-Tell', corner_radius_mm: 0,
 };
 
@@ -59,10 +59,10 @@ test('a small calibration nudge is not reported', () => {
   assert.deepEqual(stock.warnings, []);
 });
 
-test('Turn-Tell uses Panduit\'s 57.2 mm length and the preview\'s mirrored columns', () => {
+test('Turn-Tell keeps its 2" × 1.5" shape and the preview\'s mirrored columns', () => {
   const t = fullLayout(R200X150V1T);
   const [left] = labelStock(R200X150V1T, t).labels;
-  close(left.outline.h, px(57.15));  // not 38.1 mm from the "150" in the SKU
+  close(left.outline.h, px(38.1));  // EasyMark's prose says 2.250", which cannot fit its 2.125" row
   // The preview is rotated 180°: the operator-left label is the right column, mirrored.
   close(left.printOn.x, t.bytes_per_row * 8 - t.right_right);
   assert.deepEqual(labelStock(R200X150V1T, t).warnings, []);
@@ -113,7 +113,7 @@ test('the operator card mirrors Turn-Tell columns like its preview image', () =>
   const t = fullLayout(R200X150V1T);
   const [left] = labelStockForPreview(operatorPreview(R200X150V1T, t)).labels;
   close(left.printOn.x, t.bytes_per_row * 8 - t.right_right);
-  close(left.outline.h, px(57.15));
+  close(left.outline.h, px(38.1));
 });
 
 test('a card without catalog stock has no label view', () => {

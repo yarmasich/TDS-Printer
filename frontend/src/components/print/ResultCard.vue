@@ -5,12 +5,15 @@ import { stationAuthHeader, apiUrl } from '@/api/client';
 import { useStationAuth } from "@/stores/stationAuth";
 import { readApiError } from '@/api/errors';
 import { enqueuePreview, type LabelPreview } from '@/data/labelPreview';
+import { trunkCaption, type TrunkMode } from '@/data/trunks';
 import Button from 'primevue/button';
 import StickerPreview from './StickerPreview.vue';
 
 const stationAuth = useStationAuth();
-const props = defineProps<{ hit: SearchHit; kiosk?: boolean }>();
-defineEmits<{ cart: [labelId: number] }>();
+// `trunks`: the hit's discipline links trunk labels and this row has a trunk.
+const props = defineProps<{ hit: SearchHit; kiosk?: boolean; trunks?: boolean }>();
+defineEmits<{ cart: [labelId: number, trunk: TrunkMode] }>();
+const caption = computed(() => trunkCaption(props.hit));
 const element = ref<HTMLElement>();
 const preview = ref<LabelPreview | null>(null);
 const error = ref<string | null>(null);
@@ -86,7 +89,12 @@ onBeforeUnmount(() => { observer?.disconnect(); controller?.abort(); });
         </div>
       </div>
       <div class="result-actions">
-        <Button label="Add" icon="pi pi-plus" class="result-add-btn" @click="$emit('cart', hit.label_id)" />
+        <Button label="Add" icon="pi pi-plus" class="result-add-btn" @click="$emit('cart', hit.label_id, 'none')" />
+        <!-- Legs and trunks print on different printers; the cart routes each. -->
+        <template v-if="trunks">
+          <Button label="Add + trunk" icon="pi pi-plus" severity="secondary" class="result-add-btn" @click="$emit('cart', hit.label_id, 'with')" />
+          <Button label="Trunk only" icon="pi pi-plus" severity="secondary" text class="result-add-btn" @click="$emit('cart', hit.label_id, 'only')" />
+        </template>
       </div>
     </div>
     <div v-if="error" class="preview-error" role="status">
@@ -104,6 +112,7 @@ onBeforeUnmount(() => { observer?.disconnect(); controller?.abort(); });
       <div class="label-transcript"><div v-for="side in sides" :key="side.name"><strong>{{ side.name }}</strong><p>{{ side.text || '—' }}</p></div></div>
     </details>
     <div class="result-source">
+      <strong v-if="caption" class="trunk-caption">{{ caption }} · </strong>
       {{ hit.project_name }} / {{ hit.data_hall_name }} / {{ hit.discipline_name }}
       <span>· {{ hit.sheet_name }}:{{ hit.row_idx }}</span>
     </div>
@@ -122,6 +131,8 @@ onBeforeUnmount(() => { observer?.disconnect(); controller?.abort(); });
 .sticker-stage--matched { border-color:var(--tds-stage-accent-edge); background:var(--tds-stage-accent-soft); }
 .label-fallback { width:100%; min-height:90px; display:flex; align-items:center; justify-content:center; white-space:pre-wrap; overflow-wrap:anywhere; text-align:center; line-height:1.5; font-size:15px; color:var(--tds-stage-ink); }
 .result-add-btn { min-height:48px; min-width:96px; touch-action:manipulation; }
+.result-actions { display:flex; flex-direction:column; gap:8px; }
+.trunk-caption { color:var(--tds-ink-2); font-weight:700; }
 .result-card--kiosk .result-add-btn { min-height:56px; }
 .material-note { display:flex; flex-wrap:wrap; column-gap:12px; row-gap:3px; margin:10px 0 0; font-size:11px; line-height:1.5; color:var(--tds-ink-3); }
 .material-note span:first-child { font-variant-numeric:tabular-nums; }

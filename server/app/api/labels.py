@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlmodel import Session, func, select
 
 from ..auth_station import OperatorCredentials, require_reader, resolve_operator
@@ -22,6 +22,8 @@ from ..search import (
     cable_query_pattern,
     like_prefilter,
     parse_batch_query,
+    structured_hit,
+    trunk_leg_key,
     validate_query,
 )
 
@@ -40,6 +42,9 @@ class SearchHit(BaseModel):
     right_text: str
     matched_left: bool
     matched_right: bool
+    # From the workbook's Trunk# / Leg # columns; None for files without them.
+    trunk_no: Optional[str] = None
+    leg_no: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -128,7 +133,11 @@ def search(
         Project, DataHall.project_id == Project.id
     )
     if discipline_id is not None:
-        stmt = stmt.where(Discipline.id == discipline_id)
+        # A leg discipline carries its linked trunk labels: operators reach the
+        # trunks through the legs instead of picking a second discipline.
+        chosen = session.get(Discipline, discipline_id)
+        linked = [chosen.trunk_discipline_id] if chosen and chosen.trunk_discipline_id else []
+        stmt = stmt.where(Discipline.id.in_([discipline_id, *linked]))
     if data_hall_id is not None:
         stmt = stmt.where(DataHall.id == data_hall_id)
     if project_id is not None:
@@ -138,11 +147,12 @@ def search(
     # out of the process entirely. The LIKE terms are a superset of the
     # patterns, which still decide every hit below.
     terms = list(dict.fromkeys(like_prefilter(single) for single, _ in patterns))
+    keys = [trunk_leg_key(single) for single, _ in patterns]
     if len(terms) <= MAX_PREFILTER_TERMS:
         stmt = stmt.where(or_(*(
             column.ilike(term, escape="\\")
             for term in terms for column in (Label.left_text, Label.right_text)
-        )))
+        ), *_structured_prefilter(keys)))
 
     candidates = session.exec(stmt.order_by(Label.id)).all()
 
@@ -151,7 +161,7 @@ def search(
     # single hit per cable row that already contains several of the matches.
     matches: dict[int, dict] = {}  # ordered by first appearance
 
-    for _, pat in patterns:
+    for (_, pat), key in zip(patterns, keys):
         for label, disc, hall, proj in candidates:
             existing = matches.get(label.id)
             ml = existing["matched_left"] if existing else False
@@ -161,6 +171,9 @@ def search(
                 ml = True
             if not mr and label.right_text and pat.search(label.right_text):
                 mr = True
+            # A column match names the whole row, both sides of the label.
+            if not (ml and mr) and _structured_hit(key, label):
+                ml = mr = True
 
             if not (ml or mr):
                 continue
@@ -195,7 +208,30 @@ def _hit(
         right_text=label.right_text,
         matched_left=matched_left,
         matched_right=matched_right,
+        trunk_no=label.trunk_no,
+        leg_no=label.leg_no,
     )
+
+
+def _structured_hit(key, label: Label) -> bool:
+    return structured_hit(key, label.trunk_no, label.leg_no)
+
+
+def _structured_prefilter(keys) -> list:
+    """At most three clauses however long the batch, so a 256-cable range
+    stays well inside SQLite's expression depth limit."""
+    whole = sorted({k[0] for k in keys if k and k[1] == "*"})
+    trunk_only = sorted({k[0] for k in keys if k and k[1] is None})
+    pairs = sorted({f"{k[0]}.{k[1]}" for k in keys if k and k[1] not in (None, "*")})
+    clauses = []
+    if whole:
+        clauses.append(Label.trunk_no.in_(whole))
+    if trunk_only:
+        clauses.append(and_(Label.trunk_no.in_(trunk_only), Label.leg_no.is_(None)))
+    if pairs:
+        clauses.append(and_(Label.trunk_no.in_({p.split(".")[0] for p in pairs}),
+                            (Label.trunk_no + "." + Label.leg_no).in_(pairs)))
+    return clauses
 
 
 @router.get('/{label_id}/preview')

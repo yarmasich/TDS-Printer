@@ -17,8 +17,8 @@ from ..db import get_session
 from ..models import (ApiKey, Integration, ProjectPrintPolicy, ProjectPrinterAssignment,
                       PolicyAudit, Printer, Project, DataHall, Discipline, Template, PrintLog)
 from ..print_idempotency import run_print_request
-from .. import rfid, printer_reachability, printer_device_status
-from .integrations import (_catalog_entry, ApiBatchPrintRequest, ApiBatchPrintResponse,
+from .. import rfid, printer_reachability, printer_device_status, trunks
+from .integrations import (_catalog_entry, ApiBatchPrintRequest, ApiBatchPrintResponse, BatchItemResult,
                           _plan_batch, _print_label, _printer_counter)
 
 PURPOSES = ('cable_labels', 'qr_labels')
@@ -202,6 +202,49 @@ class CableRequest(StrictBody):
     cables: list[str] = Field(min_length=1, max_length=500)
     discipline: str = Field(min_length=1, max_length=256)
     data_hall: str = Field(min_length=1, max_length=256)
+    # 'with' also prints each leg's trunk label (once per trunk), 'only' just the trunks. Trunks
+    # print on the trunk discipline's template printer, which the policy must allow. Left out
+    # of the idempotency hash at 'none', so intents sent before this field replay unchanged.
+    trunk: trunks.TrunkMode = Field('none', exclude_if=lambda mode: mode == 'none')
+
+
+def _frozen(printer: Printer, template: Template):
+    """Detached snapshots: an admin edit between sends cannot reroute the rest of a batch."""
+    frozen_printer = Printer(**deepcopy(printer.model_dump()))
+    canonical = _catalog_entry(printer)
+    frozen_printer.protocol, frozen_printer.dpi = canonical.protocol, canonical.dpi
+    return frozen_printer, Template(**deepcopy(template.model_dump()))
+
+
+def _trunk_route(session, disc: Discipline, allowed_ids):
+    """The trunk discipline's template and printer, checked against the project policy."""
+    linked = session.get(Discipline, disc.trunk_discipline_id) if disc.trunk_discipline_id else None
+    if linked is None:
+        fail(409, 'trunk_not_linked')
+    template = session.get(Template, linked.template_id) if linked.template_id else None
+    if template is None:
+        fail(404, 'trunk_template_not_found')
+    printer = session.get(Printer, template.printer_id) if template.printer_id else None
+    if printer is None or printer.id not in allowed_ids or 'cable_labels' not in capability(printer):
+        fail(403, 'trunk_printer_not_allowed')
+    return template, printer
+
+
+def _trunk_plan(session, plan):
+    """Each trunk once, in the order its first leg appears; resolved before any send."""
+    seen, out = set(), []
+    for _, label in plan:
+        if label is None:
+            continue
+        try:
+            trunk = trunks.trunk_label(session, label)
+        except trunks.TrunkLookupError as exc:
+            fail(exc.status, exc.code)
+        if trunk.id not in seen:
+            seen.add(trunk.id)
+            out.append((BatchItemResult(cable=f'trunk {trunk.trunk_no}', status='pending', label_id=trunk.id,
+                                        role='trunk', trunk_no=trunk.trunk_no), trunk))
+    return out
 
 
 @router.post('/projects/{external_project_id}/cable-labels')
@@ -236,28 +279,44 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
             fail(404, 'template_not_found')
         batch = ApiBatchPrintRequest(cables=req.cables)
         plan = _plan_batch(batch, disc, session)
-        # SQLModel expires rows on each log commit: detached value snapshots
-        # ensure an admin edit between sends cannot reroute the rest of a batch.
-        frozen_printer = Printer(**deepcopy(printer.model_dump()))
-        canonical = _catalog_entry(printer)
-        frozen_printer.protocol, frozen_printer.dpi = canonical.protocol, canonical.dpi
-        frozen_template = Template(**deepcopy(template.model_dump()))
-        frozen_plan = [(result, type(label)(**deepcopy(label.model_dump())) if label else None) for result, label in plan]
+        for result, label in plan:
+            result.trunk_no = label.trunk_no if label is not None else None
+        # Legs and trunks are different stock: trunks go to their own template's printer.
+        # Every trunk resolves before anything is sent, or nothing prints.
+        trunk_jobs, trunk_route = [], None
+        if req.trunk != 'none':
+            trunk_route = _trunk_route(session, disc, set(policy['cable_labels']['printer_ids']))
+            trunk_jobs = _trunk_plan(session, plan)
+        # SQLModel expires rows on each log commit, so every send works from snapshots.
+        leg_route = _frozen(printer, template)
+        trunk_route = _frozen(trunk_route[1], trunk_route[0]) if trunk_route else None
+        snapshot = lambda label: type(label)(**deepcopy(label.model_dump())) if label else None
+        jobs = [(result, snapshot(label), leg_route) for result, label in plan
+                if req.trunk != 'only' or label is None]
+        jobs += [(result, snapshot(label), trunk_route) for result, label in trunk_jobs]
         name = disc.name
         frozen_project = Project(**deepcopy(session.get(Project, row.tds_project_id).model_dump()))
         integration_id = key.integration_id
         identity = rfid.OperatorIdentity(f'api:{key.name}', 'api')
         results, printed = [], 0
-        printable = any(label is not None for _, label in frozen_plan)
-        # The same fresh read gives the fault check and the counter before.
-        fault, counter_before = (printer_device_status.print_preflight(frozen_printer)
-                                 if printable else (None, None))
+        legs_print = any(label is not None for _, label, route in jobs if route is leg_route)
+        # One fresh read per printer with labels due, all before the first send. The leg
+        # read also gives the counter before.
+        fault, counter_before = (printer_device_status.print_preflight(leg_route[0])
+                                 if legs_print else (None, None))
+        role = 'leg'
+        if not fault and trunk_jobs:
+            role = 'trunk'
+            fault = (printer_device_status.print_preflight(trunk_route[0])[0]
+                     if trunk_route[0].id != leg_route[0].id or not legs_print else None)
         if fault:
             # `code` stays for existing callers; the state and sentence say which fault.
-            raise HTTPException(400, {'code': 'printer_fault', 'printer_state': fault[0], 'message': fault[1]})
-        for result, label in frozen_plan:
+            # Only a trunk printer fault says so, leaving the leg reply unchanged.
+            detail = {'code': 'printer_fault', 'printer_state': fault[0], 'message': fault[1]}
+            raise HTTPException(400, {**detail, 'printer_role': 'trunk'} if role == 'trunk' else detail)
+        for result, label, (target_printer, target_template) in jobs:
             if label is not None:
-                log_id, error = _print_label(label, frozen_template, frozen_printer,
+                log_id, error = _print_label(label, target_template, target_printer,
                                             identity.name, 'API scoped cable labels', session, identity,
                                             integration_id=integration_id, external_project_id=str(external_project_id), audit_project=frozen_project)
                 result.log_id = log_id
@@ -266,10 +325,11 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
                 printed += int(error is None)
             results.append(result)
         # Informational only: the counter changes no status, field or decision.
-        counter = _printer_counter(frozen_printer, counter_before, sent=True) if printable else None
+        counter = _printer_counter(leg_route[0], counter_before, sent=True) if legs_print else None
         return ApiBatchPrintResponse(ok=all(r.status == 'printed' for r in results), requested=len(results),
-                                     printed=printed, discipline=name, printer=frozen_printer.name, results=results,
-                                     printer_counter=counter)
+                                     printed=printed, discipline=name, printer=leg_route[0].name, results=results,
+                                     printer_counter=counter,
+                                     trunk_printer=trunk_route[0].name if trunk_jobs else None)
 
     def audited_operation():
         try:

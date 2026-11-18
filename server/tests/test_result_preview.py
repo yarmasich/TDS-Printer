@@ -26,8 +26,8 @@ def test_preview_uses_label_text_and_bound_printer_without_sending(scene):
         result=label_preview(l.id,session=s)
     assert result['image']=='data:image/png;base64,cG5n'
     assert result['material']['width_mm']==50.8
-    # Panduit's Turn-Tell R200X150 is 2.000" x 2.250"; 38.1 mm came from the SKU name.
-    assert result['material']['height_mm']==pytest.approx(57.15)
+    # 2.00" x 1.50": EasyMark's prose says 2.250", which cannot fit its 2.125" row.
+    assert result['material']['height_mm']==pytest.approx(38.1)
     assert result['width']==1280
     assert result['areas'][0]['x']==pytest.approx(1280-t.right_right)
     assert result['areas'][0]['y']==pytest.approx(t.right_top)

@@ -21,6 +21,7 @@ import Button from "primevue/button";
 import { useToast } from "primevue/usetoast";
 
 import ResultCard from "@/components/print/ResultCard.vue";
+import { offersTrunk, operatorDisciplines, type TrunkMode } from "@/data/trunks";
 import StickyCart from "@/components/print/StickyCart.vue";
 import QuickPickChip from "@/components/print/QuickPickChip.vue";
 import PingPill from "@/components/PingPill.vue";
@@ -83,6 +84,20 @@ const pendingAddIds = computed(() => {
     .map((h) => h.label_id)
     .filter((id) => !cartLabelIds.value.has(id));
 });
+
+// Linked trunk disciplines are reached through their legs, so they are not
+// listed separately; the leg discipline's search covers them.
+const disciplineChoices = computed(() => operatorDisciplines(projects.disciplines, selectedDiscipline.value));
+const linksTrunks = computed(() => !!currentDiscipline.value?.trunk_discipline_id);
+
+// Whether a hit can be added with its trunk: its own discipline (search may
+// span a project) must link a trunk discipline and the row carry Trunk#.
+const disciplineById = computed(() => new Map(projects.disciplines.map((d) => [d.id, d])));
+function hitOffersTrunk(hit: { discipline_id: number; trunk_no?: string | null }) {
+  return offersTrunk(hit, disciplineById.value.get(hit.discipline_id));
+}
+const pendingTrunkIds = computed(() => (searchResults.value?.hits ?? [])
+  .filter((h) => hitOffersTrunk(h) && !cartLabelIds.value.has(h.label_id)).map((h) => h.label_id));
 
 const showAddAll = computed(
   () => (searchResults.value?.hits.length ?? 0) > 1,
@@ -220,10 +235,11 @@ function onPrinted() {
   clearQuery();
 }
 
-async function onAddToCart(labelId: number) {
+const ADDED: Record<TrunkMode, string> = { none: "Added to cart", with: "Added with its trunk", only: "Trunk added to cart" };
+async function onAddToCart(labelId: number, trunk: TrunkMode = "none") {
   try {
-    await cart.add(labelId);
-    toast.add({ severity: "info", summary: "Added to cart", life: 1500 });
+    await cart.add(labelId, trunk);
+    toast.add({ severity: "info", summary: ADDED[trunk], life: 1500 });
   } catch (e: unknown) {
     toast.add({
       severity: "error",
@@ -233,8 +249,8 @@ async function onAddToCart(labelId: number) {
   }
 }
 
-async function onAddAllToCart() {
-  const ids = pendingAddIds.value;
+async function onAddAllToCart(trunk: TrunkMode = "none") {
+  const ids = trunk === "none" ? pendingAddIds.value : pendingTrunkIds.value;
   if (!ids.length) {
     toast.add({
       severity: "info",
@@ -245,10 +261,11 @@ async function onAddAllToCart() {
   }
   addingAll.value = true;
   try {
-    await cart.addMany(ids);
+    await cart.addMany(ids, trunk);
     toast.add({
       severity: "success",
-      summary: `Added ${ids.length} to cart`,
+      // Each trunk is queued once however many of its legs were added.
+      summary: trunk === "none" ? `Added ${ids.length} to cart` : `Added ${ids.length} with their trunks`,
       life: 2500,
     });
   } catch (e: unknown) {
@@ -287,7 +304,11 @@ async function onAddAllToCart() {
         <Select
           v-model="selectedDiscipline"
           aria-label="Discipline"
-          :options="projects.disciplines"
+          :options="disciplineChoices"
+          filter
+          :filter-fields="['name', 'data_hall_name']"
+          filter-placeholder="Find discipline"
+          reset-filter-on-hide
           option-label="name"
           option-value="id"
           :disabled="!selectedProject || projects.loadingDisciplines"
@@ -404,7 +425,8 @@ async function onAddAllToCart() {
         />
       </div>
 
-      <p id="search-help" class="text-sm text-ink-2 mt-3">Search by cable ID or text. Range: <b>45.5-7</b> · List: <b>45.5,6,7</b> · Whole group: <b>20.*</b></p>
+      <p v-if="linksTrunks" id="search-help" class="text-sm text-ink-2 mt-3">Trunk: <b>7</b> · Leg: <b>7.12</b> · Legs: <b>7.1-12</b> · Whole trunk with its legs: <b>7.*</b></p>
+      <p v-else id="search-help" class="text-sm text-ink-2 mt-3">Search by cable ID or text. Range: <b>45.5-7</b> · List: <b>45.5,6,7</b> · Whole group: <b>20.*</b></p>
       <p v-if="searchError" role="alert" class="text-danger mt-3">Search failed: {{ searchError }}. Try Find again.</p>
       <p v-if="setupError || projects.disciplineError" role="alert" class="text-danger mt-3">Could not load setup: {{ setupError || projects.disciplineError }}. Reload to retry.</p>
       <p v-if="bundleResource.error.value" role="alert" class="text-danger mt-3">Could not load bundles: {{ bundleResource.error.value }}. Choose the discipline again to retry.</p>
@@ -462,7 +484,16 @@ async function onAddAllToCart() {
           :size="kiosk ? 'large' : undefined"
           :loading="addingAll"
           :disabled="!pendingAddIds.length"
-          @click="onAddAllToCart"
+          @click="onAddAllToCart()"
+        />
+        <Button
+          v-if="showAddAll && pendingTrunkIds.length > 0"
+          :label="`${searchResults.truncated ? 'Add displayed' : 'Add all'} + trunks (${pendingTrunkIds.length})`"
+          icon="pi pi-plus"
+          severity="secondary"
+          :size="kiosk ? 'large' : undefined"
+          :loading="addingAll"
+          @click="onAddAllToCart('with')"
         />
       </div>
       <p v-if="searchResults.truncated" class="text-sm text-warn mb-3">Only the displayed labels will be added. Narrow your search to find the remaining matches.</p>
@@ -490,6 +521,7 @@ async function onAddAllToCart() {
           :key="h.label_id"
           :hit="h"
           :kiosk="kiosk"
+          :trunks="hitOffersTrunk(h)"
           @cart="onAddToCart"
         />
       </div>

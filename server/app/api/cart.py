@@ -23,7 +23,8 @@ from ..db import get_session
 from ..models import CartItem, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..station_routing import allowed_printers, select_printer
 from ..printer import PrintError, render_and_send
-from .. import printer_device_status, rfid
+from .. import printer_device_status, rfid, trunks
+from ..trunks import TrunkMode
 
 logger = logging.getLogger("tds.cart")
 router = APIRouter(prefix="/api/cart", tags=["cart"])
@@ -48,6 +49,10 @@ class CartItemDTO(BaseModel):
 class AddRequest(BaseModel):
     sid: str
     label_id: int
+    # "with" also queues the leg's trunk label, "only" just the trunk. A trunk
+    # already in this cart is not queued again, so adding all 36 legs of a
+    # trunk "with trunk" prints that trunk once.
+    trunk: TrunkMode = "none"
 
 
 class PrintAllRequest(BaseModel):
@@ -122,17 +127,26 @@ def add_to_cart(req: AddRequest, db: Session = Depends(get_session), credentials
     label = db.get(Label, req.label_id)
     if not label:
         raise HTTPException(404, "Label not found")
-    # snapshot current text so cart still works if the label is later edited
-    item = CartItem(
-        session_id=sid,
-        label_id=label.id,
-        left_text=label.left_text,
-        right_text=label.right_text,
-    )
-    db.add(item)
+    try:
+        wanted = trunks.labels_for(db, label, req.trunk)
+    except trunks.TrunkLookupError as exc:
+        raise HTTPException(exc.status, exc.message) from exc  # nothing queued
+    first = None
+    for target in wanted:
+        if target.id != label.id:
+            queued = db.exec(select(CartItem).where(
+                CartItem.session_id == sid, CartItem.label_id == target.id)).first()
+            if queued is not None:
+                first = first or queued
+                continue
+        # snapshot current text so cart still works if the label is later edited
+        item = CartItem(session_id=sid, label_id=target.id,
+                        left_text=target.left_text, right_text=target.right_text)
+        db.add(item)
+        first = first or item
     db.commit()
-    db.refresh(item)
-    return _item_to_dto(item, db)
+    db.refresh(first)
+    return _item_to_dto(first, db)
 
 
 def _expire_claims(db: Session, sid: str) -> None:

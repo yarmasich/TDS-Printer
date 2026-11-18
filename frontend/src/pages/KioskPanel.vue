@@ -9,6 +9,7 @@ import PrintPanel from "@/pages/PrintPanel.vue";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import PingPill from "@/components/PingPill.vue";
+import { operatorDisciplines } from "@/data/trunks";
 import { PILL_REFRESH_MS } from "@/data/printerPill";
 import { startVisibleInterval } from "@/data/visibleInterval";
 import ThemeToggle from "@/components/ThemeToggle.vue";
@@ -38,6 +39,8 @@ onUnmounted(() => { mounted = false; pingRevision++; stopPingPolling(); });
 /** PrimeVue Select binds full option objects, not raw ids. */
 const setupProject = ref<Project | null>(null);
 const setupDiscipline = ref<Discipline | null>(null);
+// Linked trunk disciplines are reached through their legs (see PrintPanel).
+const disciplineChoices = computed(() => operatorDisciplines(projects.disciplines, setupDiscipline.value?.id));
 const printerPing = ref<PingResult | null | undefined>(undefined);
 
 /** Skip discipline reset while restoring saved kiosk context. */
@@ -329,7 +332,11 @@ async function tryFullscreen() {
         <Select
           input-id="kiosk-discipline"
           v-model="setupDiscipline"
-          :options="projects.disciplines"
+          :options="disciplineChoices"
+          filter
+          :filter-fields="['name', 'data_hall_name']"
+          filter-placeholder="Find discipline"
+          reset-filter-on-hide
           option-label="name"
           :disabled="!setupProject || projects.loadingDisciplines || setupLoading"
           :loading="projects.loadingDisciplines"
