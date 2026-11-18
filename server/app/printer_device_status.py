@@ -41,6 +41,8 @@ _HEADER = bytes.fromhex('802042344430')
 _MODELS = {'QL-1110NWB', 'QL-1110NWBc'}
 _TIMEOUT = 0.5
 _CACHE_TTL = 5.0
+# A concurrent caller may reuse the previous reading this long while a probe is in flight.
+_STALE_LIMIT = 60.0
 _CACHE_LIMIT = 1024
 _REQUEST_LIMIT = 32
 _cache = OrderedDict()
@@ -348,6 +350,11 @@ def device_status(printer_id, ip, model, *, enabled=True, port=161, community_ov
             _cache.move_to_end(key)
             return _copy(cached[1])
         if key in _inflight:
+            # Another caller is probing this printer right now. Hand out the previous reading
+            # (it keeps its own checked_at, so callers can age it) instead of a fabricated
+            # unknown; only a reading older than _STALE_LIMIT, or none at all, is unknown.
+            if cached is not None and monotonic() - cached[0] < _STALE_LIMIT:
+                return _copy(cached[1])
             return _unknown()
         _inflight.add(key)
     result = _unknown()
