@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, delete, func, select
+from sqlmodel import Session, delete, func, select, update
 
 from ..auth_admin import require_admin
 from ..auth_station import require_reader
@@ -156,6 +156,8 @@ class DisciplinePatch(NamedInput):
     template_id: Optional[int] = None
     color: Optional[str] = None
     bundle_mode: Optional[bool] = None
+    # An explicit null unlinks.
+    trunk_discipline_id: Optional[int] = None
 
     @field_validator("color", "bundle_mode")
     @classmethod
@@ -178,6 +180,8 @@ class DisciplineDTO(BaseModel):
     color: str
     label_count: int
     bundle_mode: bool = False
+    trunk_discipline_id: Optional[int] = None
+    trunk_discipline_name: Optional[str] = None
 
 
 @router.get("/disciplines", response_model=List[DisciplineDTO], dependencies=[Depends(require_reader)])
@@ -220,6 +224,9 @@ def list_disciplines(
             printer_ids=(tmpl.printer_ids or [tmpl.printer_id]) if tmpl else [],
             printer_name=printer.name if printer else None,
             color=d.color, label_count=n, bundle_mode=d.bundle_mode,
+            trunk_discipline_id=d.trunk_discipline_id,
+            trunk_discipline_name=trunk.name if (trunk := session.get(Discipline, d.trunk_discipline_id)
+                                                 if d.trunk_discipline_id else None) else None,
         ))
     # Group by hall, then by discipline name — keeps the two halls' identical
     # names apart in the dropdown instead of interleaving them.
@@ -257,6 +264,8 @@ def update_discipline(
         raise HTTPException(404, "Discipline not found")
     if patch.template_id is not None and not session.get(Template, patch.template_id):
         raise HTTPException(400, "Template not found")
+    if patch.trunk_discipline_id is not None:
+        _check_trunk_link(session, d, patch.trunk_discipline_id)
     for k, v in patch.model_dump(exclude_unset=True).items():
         setattr(d, k, v)
     session.add(d)
@@ -290,7 +299,26 @@ def delete_discipline(
         raise
 
 
+def _check_trunk_link(session: Session, legs: Discipline, trunk_id: int) -> None:
+    """Trunks live one level deep in the same project, so "leg + trunk" has
+    exactly one answer."""
+    trunks = session.get(Discipline, trunk_id)
+    if trunks is None:
+        raise HTTPException(400, "Trunk discipline not found")
+    if trunks.id == legs.id:
+        raise HTTPException(400, "A discipline cannot hold its own trunk labels; pick the trunk discipline instead of itself")
+    project = lambda d: session.get(DataHall, d.data_hall_id).project_id
+    if project(trunks) != project(legs):
+        raise HTTPException(400, "Trunk labels must come from a discipline in the same project")
+    if trunks.trunk_discipline_id is not None:
+        raise HTTPException(400, f"'{trunks.name}' already links its own trunk labels and cannot hold trunks")
+    if session.exec(select(Discipline.id).where(Discipline.trunk_discipline_id == legs.id)).first() is not None:
+        raise HTTPException(400, f"'{legs.name}' holds trunk labels for another discipline and cannot link trunks itself")
+
+
 def _delete_discipline(session: Session, d: Discipline, *, force: bool = False) -> None:
+    # Leg disciplines lose their trunks with it; their own labels stay.
+    session.exec(update(Discipline).where(Discipline.trunk_discipline_id == d.id).values(trunk_discipline_id=None))
     delete_labels(session, Label.discipline_id == d.id, force=force)
     session.exec(delete(Import).where(Import.discipline_id == d.id))
     session.delete(d)

@@ -22,6 +22,12 @@ class Material(BaseModel):
     column_pitch_mm: float
     pitch_mm: float
     gap_mm: float
+    # The die-cut label itself, from EasyMark's description; None when unknown.
+    label_width_mm: float | None = None
+    label_length_mm: float | None = None
+    print_on_height_mm: float | None = None
+    label_kind: str | None = None
+    corner_radius_mm: float = 0
     supported: bool = False
     limitation: str = ''
 

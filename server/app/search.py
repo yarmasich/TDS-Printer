@@ -145,3 +145,25 @@ def validate_query(query: str) -> Tuple[bool, str]:
     if len(query) >= 2:
         return True, query
     return False, query
+
+
+def trunk_leg_key(query: str) -> tuple[str, str | None] | None:
+    """Structured key of a normalised numeric token, for workbooks that carry
+    `Trunk#` / `Leg #` columns: ``(trunk, leg)`` for "1.5", ``(trunk, "*")``
+    for the whole trunk "1.*" / "1.", and ``(trunk, None)`` for the trunk
+    label itself — as a bare "20" finds #20 and not #20.1. None for text."""
+    q = query.strip()
+    if m := re.fullmatch(r"(\d+)\.(\d+)", q):
+        return str(int(m[1])), str(int(m[2]))
+    if m := re.fullmatch(r"(\d+)\.\*?", q):
+        return str(int(m[1])), "*"
+    if re.fullmatch(r"\d+", q):
+        return str(int(q)), None
+    return None
+
+
+def structured_hit(key: tuple[str, str | None] | None, trunk_no: str | None, leg_no: str | None) -> bool:
+    """Whether a label's Trunk# / Leg # columns answer a `trunk_leg_key`."""
+    if key is None or trunk_no is None or trunk_no != key[0]:
+        return False
+    return key[1] == "*" or leg_no == key[1]

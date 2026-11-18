@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import type { TrunkMode } from "@/data/trunks";
 import { api, STATION_TOKEN_KEY } from "@/api/client";
 import type { CartItem, PrintAllResult, PrintPolicy } from "@/api/types";
 import { useSession, type CartScope } from "./session";
@@ -40,20 +41,21 @@ const createCart = (scope: CartScope) => defineStore(`cart-${scope}`, {
         if (account === identity() && revision === this.revision) this.loading = false;
       }
     },
-    async add(labelId: number) {
+    async add(labelId: number, trunk: TrunkMode = "none") {
       const account = identity();
       const sid = useSession().ensure(scope);
-      await api.post<CartItem>("/api/cart", { sid, label_id: labelId });
+      await api.post<CartItem>("/api/cart", { sid, label_id: labelId, trunk });
       if (account === identity()) await this.fetch();
     },
-    async addMany(labelIds: number[]) {
+    // With "with", the server queues each trunk once however many legs share it.
+    async addMany(labelIds: number[], trunk: TrunkMode = "none") {
       if (!labelIds.length) return;
       const account = identity();
       const sid = useSession().ensure(scope);
       try {
         for (const label_id of labelIds) {
           if (account !== identity()) break;
-          await api.post<CartItem>("/api/cart", { sid, label_id });
+          await api.post<CartItem>("/api/cart", { sid, label_id, trunk });
         }
       } finally { if (account === identity()) await this.fetch(); }
     },

@@ -47,7 +47,8 @@ Content-Type: application/json
 | `project`       | string | —        | Project name — to disambiguate a discipline by name. |
 | `data_hall`     | string | —        | Data hall name — an extra disambiguator. |
 | `reason`        | string | —        | Print reason for the history (defaults to `"API"`). |
-| `copies`        | int    | —        | Number of copies, 1–50 (defaults to 1). |
+| `copies`        | int    | —        | Number of copies, 1–50 (defaults to 1). Applies to each label printed. |
+| `trunk`         | string | —        | `none` (default) · `with` · `only` — print the leg, the leg **and** its trunk label, or only the trunk. See [Legs and trunks](#legs-and-trunks). |
 | `printer_id`    | string | —        | Logical printer **code** = printer name, e.g. `"WS1"` (see [§7 Printer routing](#7-printer-routing-per-workstation)). Overrides the template's printer. Omit → template default. Unknown code → `404`. |
 
 **Scope**: provide either `discipline_id`, or `discipline` (plus `project` /
@@ -177,6 +178,7 @@ Content-Type: application/json
 | `reason`        | string   | —        | History reason (defaults to `"API batch"`). |
 | `printer_id`    | string   | —        | Logical printer **code** = printer name, e.g. `"WS1"` (see [§7 Printer routing](#7-printer-routing-per-workstation)). Whole batch prints to it. Omit → template default. Unknown → `404`. |
 | `stop_on_error` | bool     | —        | Stop on the first **printer/send** error (default `false` = keep going). |
+| `trunk`         | string   | —        | `none` (default) · `with` · `only`. With `with`/`only` each trunk prints **once**, however many of its legs are in the batch. See [Legs and trunks](#legs-and-trunks). |
 
 Provide `cables` and/or `cable` (at least one), or an explicit `bundle` for a
 bundle-mode discipline. Up to **500 distinct labels** per call, including group
@@ -253,6 +255,46 @@ curl -X POST http://10.0.0.5:8000/api/v1/print-batch \
 
 > Prints are sent **serially** to one printer, so a 50-label batch is one long
 > request — set a generous client timeout.
+
+---
+
+### Legs and trunks
+
+A discipline of leg labels can be linked (Admin → Projects → the discipline's
+**trunk labels** picker) to the discipline holding their trunk labels. A leg
+and its trunk share the workbook's `Trunk#` column; legs are also addressable
+by the `Trunk#` / `Leg #` columns, so `"cable": "7.12"` finds leg 12 of trunk
+7 even when the label text carries no number, and `"7.*"` is the whole trunk.
+
+| `trunk` | Prints |
+|---------|--------|
+| `none`  | the leg — unchanged behaviour |
+| `with`  | the leg, then its trunk label |
+| `only`  | only the trunk label |
+
+Legs and trunks are different label stock, so a **trunk always prints on its
+own discipline's printer**; `printer_id` picks the leg printer only.
+
+Before anything is sent, every trunk must resolve: if the discipline has no
+trunk labels linked, the leg's row has no `Trunk#`, or the trunk label is
+missing or duplicated, the request fails (`409` / `404`) and **nothing
+prints**. A printer that reports a fault holds only its own labels
+([`502` — printer not ready](#502--printer-not-ready)).
+
+`/print` responses keep their fields — they describe the first label printed
+(the leg, or the trunk for `only`) — and add `printed`, one entry per label:
+
+```json
+"printed": [
+  {"role": "leg",   "label_id": 812, "left_text": "...", "right_text": "...", "template_name": "R150x150",     "printer": "10.0.0.21:9100", "log_ids": [901]},
+  {"role": "trunk", "label_id": 77,  "left_text": "...", "right_text": "...", "template_name": "S200X400VATY", "printer": "10.0.0.22:9100", "log_ids": [902]}
+]
+```
+
+`/print-batch` results gain `role` (`leg` · `trunk`) and `trunk_no`; trunk
+rows follow the legs, with `cable` set to `"trunk N"`. With `only`, results
+list the trunks plus any selector that matched nothing. `trunk_printer` and
+`trunk_printer_state` describe the trunks' printer. Statuses are unchanged.
 
 ---
 
@@ -482,6 +524,26 @@ above (`ok`, `requested`, `printed`, `discipline`, `printer`, `results`) plus
 (`ok: false`, per-cable `error`) — the same `200` as before. When the
 pre-send check finds a fault, nothing is sent and the response is still
 `400 {"detail": {"code": "printer_fault", "printer_state": "cover_open" | "no_media" | "error", "message": "..."}}`.
+
+An optional `trunk` field (`none` default · `with` · `only`) works as in
+[Legs and trunks](#legs-and-trunks): each trunk prints once, after the legs,
+with `role: "trunk"` rows and `trunk_printer` in the response. The trunk
+printer is the trunk discipline's template printer, and the project policy must
+allow it for `cable_labels`. Both printers are checked before the first send;
+a trunk printer fault adds `"printer_role": "trunk"` to the `printer_fault`
+detail. Nothing prints when a trunk does not resolve:
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `trunk_not_linked` | 409 | the discipline has no trunk labels linked |
+| `trunk_template_not_found` | 404 | the trunk discipline has no template |
+| `trunk_printer_not_allowed` | 403 | the trunk template's printer is not in the policy, or prints no cable labels |
+| `trunk_number_missing` | 409 | a leg has no `Trunk#` |
+| `trunk_label_not_found` | 404 | no trunk label for that `Trunk#` |
+| `trunk_label_ambiguous` | 409 | that trunk appears more than once |
+
+`trunk: "none"` is left out of the idempotency hash, so keys sent before this
+field existed replay unchanged.
 
 ## Safe HTTP retries with `Idempotency-Key`
 

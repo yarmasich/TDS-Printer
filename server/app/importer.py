@@ -103,6 +103,22 @@ class InvalidWorkbookError(ValueError):
     """The supplied workbook cannot be parsed as label input."""
 
 
+# Header names are matched case-insensitively, ignoring spaces.
+_TRUNK_HEADER = "trunk#"
+_LEG_HEADER = "leg#"
+# Columns are bounded like rows: a sheet's dimensions are user-controlled.
+MAX_COLUMNS = 32
+
+
+def _cell_text(value) -> Optional[str]:
+    """Excel hands back 7 or 7.0 for the same typed number."""
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip() or None
+
+
 def import_workbook_into_discipline(
     session: Session, path: Path, discipline: Discipline, *,
     display_filename: Optional[str] = None,
@@ -148,15 +164,30 @@ def _import_workbook_into_discipline(
             imp.sheets += 1
             ws = wb[sheet_name]
             # Dimensions are user-controlled and may claim millions of empty
-            # rows/columns. Read actual rows and only the two label columns.
+            # rows/columns. Read actual rows and a bounded set of columns.
             ws.reset_dimensions()
             current_bundle: Optional[str] = None
-            for idx, row in enumerate(ws.iter_rows(max_col=2, values_only=True), start=1):
+            trunk_col: Optional[int] = None
+            leg_col: Optional[int] = None
+            header_seen = False
+            for idx, row in enumerate(ws.iter_rows(max_col=MAX_COLUMNS, values_only=True), start=1):
                 visited_rows += 1
                 if visited_rows > limits.rows:
                     raise ImportLimitError(f"XLSX rows exceed {limits.rows} (including blank/header rows)")
                 left = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
                 right = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+
+                # The first non-empty row may be a header naming `Trunk#` /
+                # `Leg #`. It is not a label; it says where the link columns are.
+                if not header_seen and any(cell is not None for cell in row):
+                    header_seen = True
+                    names = [str(cell).replace(" ", "").casefold() if cell is not None else "" for cell in row]
+                    if _TRUNK_HEADER in names:
+                        trunk_col = names.index(_TRUNK_HEADER)
+                        leg_col = names.index(_LEG_HEADER) if _LEG_HEADER in names else None
+                        stats.skipped += 1
+                        imp.skipped += 1
+                        continue
 
                 # In bundle mode a "BUNDLE #N" / "BDL #N" header row is not a
                 # label — it starts a new bundle that tags the labels below it.
@@ -181,6 +212,8 @@ def _import_workbook_into_discipline(
                     left_text=left,
                     right_text=right,
                     bundle=current_bundle if discipline.bundle_mode else None,
+                    trunk_no=_cell_text(row[trunk_col]) if trunk_col is not None and trunk_col < len(row) else None,
+                    leg_no=_cell_text(row[leg_col]) if leg_col is not None and leg_col < len(row) else None,
                 ))
                 stats.rows += 1
                 imp.rows += 1

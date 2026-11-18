@@ -18,12 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_legacy_print, require_legacy_catalog
-from .. import printer_device_status, rfid
+from .. import printer_device_status, rfid, trunks
+from ..trunks import TrunkMode
 from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..print_idempotency import run_print_request
 from ..printer import PrintError, ping_printer, render_and_send
-from ..search import cable_query_pattern, parse_batch_query, validate_query
+from ..search import cable_query_pattern, parse_batch_query, structured_hit, trunk_leg_key, validate_query
 
 # Cap on how many labels one batch request may print, to keep a single call
 # from monopolising the printer (each send is synchronous).
@@ -48,6 +49,9 @@ class ApiPrintRequest(BaseModel):
     rfid_code: Optional[str] = Field(default=None, max_length=256, deprecated=True,
                                      description="Ignored for API-key printing; retained for compatibility.")
     copies: int = Field(1, ge=1, le=50)
+    trunk: TrunkMode = Field(
+        "none", description="'with' also prints each leg's trunk label (once per trunk), "
+        "'only' prints just the trunk labels. Trunks print on their own discipline's printer.")
     printer: Optional[str] = Field(
         None,
         alias="printer_id",
@@ -67,6 +71,16 @@ class PrinterCounter(BaseModel):
     after: Optional[int] = None
 
 
+class PrintedLabel(BaseModel):
+    role: Literal["leg", "trunk"]
+    label_id: int
+    left_text: str
+    right_text: str
+    template_name: str
+    printer: str
+    log_ids: List[int]
+
+
 class ApiPrintResponse(BaseModel):
     ok: bool
     log_ids: List[int]
@@ -77,6 +91,8 @@ class ApiPrintResponse(BaseModel):
     printer: str
     copies: int
     printer_counter: Optional[PrinterCounter] = None
+    # Every label sent, leg first. The fields above describe the first one.
+    printed: List[PrintedLabel] = []
 
 
 class CandidateDTO(BaseModel):
@@ -212,11 +228,14 @@ def _match_cable(labels: List[Label], cable: str) -> tuple[str, List[Label]]:
     if not ok:
         return "invalid", []
     pat = cable_query_pattern(normalised)
+    # Leg text may carry no number; the Trunk# / Leg # columns still answer.
+    key = trunk_leg_key(normalised)
     hits = [
         lb
         for lb in labels
         if (lb.left_text and pat.search(lb.left_text))
         or (lb.right_text and pat.search(lb.right_text))
+        or structured_hit(key, lb.trunk_no, lb.leg_no)
     ]
     return "ok", hits
 
@@ -377,43 +396,77 @@ def _api_print(
     template, printer = _discipline_printer(disc, session, req.printer)
 
     label = _resolve_label(disc, req.cable, session)
-    left, right = label.left_text, label.right_text
-    rfid.project_for_label(session, label)
+    jobs = _trunk_jobs(session, label, req.trunk, template, printer)
     identity = rfid.OperatorIdentity(f"api:{key.name}", "api")
     operator = identity.name
     reason = req.reason or "API"
 
-    # One fresh read for all copies; a held job stops at its first copy.
-    fault, counter_before = printer_device_status.print_preflight(printer)
+    # One fresh read per printer for all copies, before anything is sent.
+    checks = _preflight({p.id: p for _, _, _, p in jobs})
     log_ids: List[int] = []
-    for _ in range(req.copies):
-        log_id, err = _print_label(label, template, printer, operator, reason, session, identity,
-                                   held=fault[1] if fault else None)
-        if err:
-            counter = _printer_counter(printer, counter_before, sent=fault is None)
-            raise HTTPException(
-                502,
-                {
-                    "message": f"Print failed: {err}",
-                    "log_ids": log_ids + ([log_id] if log_id else []),
-                    "printed": len(log_ids),
-                    "printer_state": fault[0] if fault else None,
-                    "printer_counter": counter.model_dump() if counter else None,
-                },
-            )
-        log_ids.append(log_id)
+    printed: List[PrintedLabel] = []
+    for role, target, tmpl, target_printer in jobs:
+        fault, counter_before = checks[target_printer.id]
+        sent_here: List[int] = []
+        for _ in range(req.copies):
+            log_id, err = _print_label(target, tmpl, target_printer, operator, reason, session, identity,
+                                       held=fault[1] if fault else None)
+            if err:
+                counter = _printer_counter(target_printer, counter_before, sent=fault is None)
+                raise HTTPException(
+                    502,
+                    {
+                        "message": f"Print failed: {err}",
+                        "log_ids": log_ids + ([log_id] if log_id else []),
+                        "printed": len(log_ids),
+                        "printer_state": fault[0] if fault else None,
+                        "printer_counter": counter.model_dump() if counter else None,
+                    },
+                )
+            log_ids.append(log_id)
+            sent_here.append(log_id)
+        printed.append(PrintedLabel(role=role, label_id=target.id, left_text=target.left_text,
+                                    right_text=target.right_text, template_name=tmpl.name,
+                                    printer=f"{target_printer.ip}:{target_printer.port}", log_ids=sent_here))
 
+    _, first, first_template, first_printer = jobs[0]
     return ApiPrintResponse(
         ok=True,
         log_ids=log_ids,
-        label_id=label.id,
-        left_text=left,
-        right_text=right,
-        template_name=template.name,
-        printer=f"{printer.ip}:{printer.port}",
+        label_id=first.id,
+        left_text=first.left_text,
+        right_text=first.right_text,
+        template_name=first_template.name,
+        printer=f"{first_printer.ip}:{first_printer.port}",
         copies=req.copies,
-        printer_counter=_printer_counter(printer, counter_before, sent=True),
+        printer_counter=_printer_counter(first_printer, checks[first_printer.id][1], sent=True),
+        printed=printed,
     )
+
+
+def _trunk_jobs(session: Session, leg: Label, mode: TrunkMode, template: Template, printer: Printer):
+    """``(role, label, template, printer)`` per label to print, leg first.
+
+    Legs and trunks are different stock, so a trunk prints on its own
+    discipline's template and default printer; the request's printer code
+    only ever picks the leg printer. Resolves everything before any send.
+    """
+    try:
+        wanted = trunks.labels_for(session, leg, mode)
+    except trunks.TrunkLookupError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    jobs = []
+    for target in wanted:
+        rfid.project_for_label(session, target)
+        if target.id == leg.id:
+            jobs.append(("leg", target, template, printer))
+        else:
+            jobs.append(("trunk", target, *_discipline_printer(session.get(Discipline, target.discipline_id), session)))
+    return jobs
+
+
+def _preflight(printers: dict) -> dict:
+    return {pid: printer_device_status.print_preflight(p) for pid, p in printers.items()}
 
 
 # ──────────────────────────── batch print ────────────────────────────
@@ -451,6 +504,9 @@ class ApiBatchPrintRequest(BaseModel):
     stop_on_error: bool = Field(
         False, description="Stop the batch on the first printer/send error (default: continue)"
     )
+    trunk: TrunkMode = Field(
+        "none", description="'with' also prints each leg's trunk label (once per trunk), "
+        "'only' prints just the trunk labels. Trunks print on their own discipline's printer.")
 
 
 class BatchItemResult(BaseModel):
@@ -461,6 +517,8 @@ class BatchItemResult(BaseModel):
     log_id: Optional[int] = None
     error: str = ""
     candidates: Optional[List[dict]] = None
+    role: Literal["leg", "trunk"] = "leg"
+    trunk_no: Optional[str] = None
 
 
 class ApiBatchPrintResponse(BaseModel):
@@ -474,6 +532,9 @@ class ApiBatchPrintResponse(BaseModel):
     printer_state: Optional[str] = None
     # Panduit with SNMP only, and only when a label was due to print.
     printer_counter: Optional[PrinterCounter] = None
+    # The trunk labels' printer and its fault, when the batch printed trunks.
+    trunk_printer: Optional[str] = None
+    trunk_printer_state: Optional[str] = None
 
 
 def _expand_cables(req: ApiBatchPrintRequest) -> List[str]:
@@ -559,16 +620,38 @@ def _api_print_batch(
     identity = rfid.OperatorIdentity(f"api:{key.name}", "api")
     operator = identity.name
     reason = req.reason or ("API bundle" if req.bundle else "API batch")
-    # One fresh read for the batch, skipped when nothing in it can print.
-    printable = any(label is not None for _, label in plan)
-    fault, counter_before = printer_device_status.print_preflight(printer) if printable else (None, None)
-    results, printed, aborted = [], 0, False
     for result, label in plan:
+        result.trunk_no = label.trunk_no if label is not None else None
+    # Every trunk once, in the order its first leg appears; all resolved before
+    # any send. "only" still reports selectors that matched nothing.
+    trunk_plan: list = []
+    if req.trunk != "none":
+        seen: set[int] = set()
+        for _, label in plan:
+            if label is None:
+                continue
+            _, trunk, trunk_template, trunk_printer = _trunk_jobs(session, label, "only", template, printer)[0]
+            if trunk.id not in seen:
+                seen.add(trunk.id)
+                trunk_plan.append((BatchItemResult(cable=f"trunk {trunk.trunk_no}", status="pending", label_id=trunk.id,
+                                                   role="trunk", trunk_no=trunk.trunk_no),
+                                   trunk, trunk_template, trunk_printer))
+    leg_plan = [(r, l, template, printer) for r, l in plan if req.trunk != "only" or l is None]
+    jobs = leg_plan + trunk_plan
+    # One fresh read per printer, skipped for a printer with nothing to print.
+    checks = _preflight({p.id: p for _, label, _, p in jobs if label is not None})
+    no_check = (None, None)
+    fault, counter_before = checks.get(printer.id, no_check)
+    trunk_target = trunk_plan[0][3] if trunk_plan else None
+    trunk_fault = checks.get(trunk_target.id, no_check)[0] if trunk_target else None
+    results, printed, aborted = [], 0, False
+    for result, label, tmpl, target_printer in jobs:
         if aborted:
             result.status = "skipped"
         elif label is not None:
-            log_id, err = _print_label(label, template, printer, operator, reason, session, identity,
-                                       held=fault[1] if fault else None)
+            held = checks[target_printer.id][0]
+            log_id, err = _print_label(label, tmpl, target_printer, operator, reason, session, identity,
+                                       held=held[1] if held else None)
             result.log_id = log_id
             if err:
                 result.status, result.error = "error", err
@@ -577,12 +660,15 @@ def _api_print_batch(
                 result.status = "printed"
                 printed += 1
         results.append(result)
+    legs_printed = printer.id in checks
     return ApiBatchPrintResponse(
         ok=all(r.status == "printed" for r in results),
         requested=len(results), printed=printed, discipline=disc.name,
         printer=f"{printer.ip}:{printer.port}", results=results,
         printer_state=fault[0] if fault else None,
-        printer_counter=_printer_counter(printer, counter_before, sent=fault is None) if printable else None,
+        printer_counter=_printer_counter(printer, counter_before, sent=fault is None) if legs_printed else None,
+        trunk_printer=f"{trunk_target.ip}:{trunk_target.port}" if trunk_target else None,
+        trunk_printer_state=trunk_fault[0] if trunk_fault else None,
     )
 
 

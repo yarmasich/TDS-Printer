@@ -67,6 +67,7 @@ import { computed, onMounted, ref } from "vue";
 import { useAdminRequests } from "@/composables/adminRequests";
 import { api } from "@/api/client";
 import type { DataHall, Discipline, Project, Template } from "@/api/types";
+import { trunkTargets } from "@/data/trunks";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
 
@@ -243,6 +244,28 @@ async function toggleRfid(project: Project, event: Event) {
   } finally {
     savingRfid.value.delete(project.id);
   }
+}
+
+// The discipline holding this one's trunk labels; a leg and its trunk share
+// the workbook's Trunk# column.
+function trunkOptions(d: Discipline) {
+  return trunkTargets(d, disciplines.value, halls.value);
+}
+// A trunk discipline says whose trunks it holds, since it shows no picker.
+function trunksFor(d: Discipline) {
+  return disciplines.value.filter((o) => o.trunk_discipline_id === d.id).map((o) => o.name).join(", ");
+}
+async function linkTrunks(d: Discipline, trunkId: number | null) {
+  await requests.run("linkTrunks", async () => {
+    try {
+      await api.put(`/api/disciplines/${d.id}`, { trunk_discipline_id: trunkId ?? null });
+      await refresh();  // both ends of the link change what the other may pick
+      toast.add({ severity: "success", summary: trunkId ? "Trunk labels linked" : "Trunk labels unlinked", life: 2500 });
+    } catch (e: unknown) {
+      requestError.value = e instanceof Error ? e.message : String(e);
+      toast.add({ severity: "error", summary: "Link failed", detail: e instanceof Error ? e.message : String(e) });
+    }
+  });
 }
 
 async function toggleBundle(d: Discipline) {
@@ -455,6 +478,7 @@ function del(url: string, label: string) {
             <span class="text-xs text-ink-4">
               {{ d.label_count }} labels
             </span>
+            <span v-if="trunksFor(d)" class="text-xs text-ink-3">· trunk labels for {{ trunksFor(d) }}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <label
@@ -470,6 +494,18 @@ function del(url: string, label: string) {
               />
               <span>Bundle</span>
             </label>
+            <Select
+              v-if="trunkOptions(d).length || d.trunk_discipline_id"
+              :model-value="d.trunk_discipline_id ?? null"
+              :options="trunkOptions(d)"
+              option-label="name"
+              option-value="id"
+              show-clear
+              placeholder="— trunk labels —"
+              aria-label="Trunk labels discipline"
+              class="w-full sm:w-auto sm:min-w-[180px]" :disabled="requests.busy('linkTrunks')"
+              @update:model-value="(v) => linkTrunks(d, v)"
+            />
             <Select
               :model-value="d.template_id"
               :options="templates"

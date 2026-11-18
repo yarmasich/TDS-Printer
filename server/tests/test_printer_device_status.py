@@ -132,3 +132,28 @@ def test_singleflight(monkeypatch):
         try: assert pool.submit(device.device_status,1,'192.0.2.1','QL-1110NWBc').result(1)['state']=='unknown'
         finally: release.set()
         assert first.result(1)['state']=='ready'
+
+
+def test_concurrent_caller_gets_the_previous_reading_while_a_probe_runs(monkeypatch):
+    """Several FloorHub workers poll at once: the one that loses the race must not see a
+    fabricated unknown while the previous reading is recent; it keeps that reading's checked_at."""
+    from threading import Event
+    clock=[0.0];monkeypatch.setattr(device,'monotonic',lambda:clock[0])
+    monkeypatch.setattr(device,'_probe',MagicMock(return_value=device.parse_status(status())))
+    previous=device.device_status(1,'192.0.2.1','QL-1110NWBc')
+    started,release=Event(),Event()
+    def slow(*args):
+        started.set();assert release.wait(2)
+        return device.parse_status(status(**{'9':16}))
+    monkeypatch.setattr(device,'_probe',slow)
+    clock[0]=device._CACHE_TTL+1   # the cached reading has expired, so the next call probes
+    with ThreadPoolExecutor(2) as pool:
+        first=pool.submit(device.device_status,1,'192.0.2.1','QL-1110NWBc')
+        assert started.wait(1)
+        try:
+            second=pool.submit(device.device_status,1,'192.0.2.1','QL-1110NWBc').result(1)
+            assert second['state']=='ready' and second['checked_at']==previous['checked_at']
+            clock[0]=device._STALE_LIMIT+1   # too old to hand out: unknown again
+            assert pool.submit(device.device_status,1,'192.0.2.1','QL-1110NWBc').result(1)['state']=='unknown'
+        finally: release.set()
+        assert first.result(1)['state']=='cover_open'

@@ -147,6 +147,9 @@ export interface Discipline {
   /** When on, imports parse "BUNDLE #N" headers and tag labels; Print shows a
    *  bundle picker. */
   bundle_mode: boolean;
+  /** The discipline holding this discipline's trunk labels, if linked. */
+  trunk_discipline_id?: number | null;
+  trunk_discipline_name?: string | null;
 }
 
 /** One bundle within a discipline (GET /api/labels/bundles). */
@@ -167,6 +170,9 @@ export interface SearchHit {
   right_text: string;
   matched_left: boolean;
   matched_right: boolean;
+  /** From the workbook's Trunk# / Leg # columns; null for files without them. */
+  trunk_no?: string | null;
+  leg_no?: string | null;
 }
 
 export interface SearchResponse {

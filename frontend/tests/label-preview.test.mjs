@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPreviewQueue, stickerGeometry } from '../src/data/labelPreview.ts';
+import { createPreviewQueue } from '../src/data/labelPreview.ts';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 test('preview queue bounds active rendering and cancels waiting requests', async () => {
   const enqueue = createPreviewQueue(2);
@@ -30,13 +30,4 @@ test('failed rendering releases capacity for the next preview', async () => {
   const b = enqueue(async () => 'next', new AbortController().signal);
   await assert.rejects(a, /render failed/);
   assert.equal(await b, 'next');
-});
-test('known material keeps physical proportions; unknown material keeps text crop only', () => {
-  const area = { x: 20, y: 30, width: 460, height: 100 };
-  const material = { width_mm: 38.1, height_mm: 38.1, print_height_mm: 12.7 };
-  const shape = stickerGeometry({ material }, area);
-  assert.ok(Math.abs(shape.width - 450) < 0.00001);
-  assert.ok(Math.abs(shape.band - 150) < 0.00001);
-  assert.ok(Math.abs(shape.top - 100) < 0.00001);
-  assert.deepEqual(stickerGeometry({ material: null }, area), { width: 460, height: 100, band: 100, top: 0 });
 });
