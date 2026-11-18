@@ -25,12 +25,14 @@ import PingPill from "@/components/PingPill.vue";
 const store = usePrinters();
 const printerGroups = computed(() => groupPrinters(store.printers));
 const printerTableStyle = { width: "100%", tableLayout: "fixed", minWidth: "1200px" } as const;
+// Fixed layout: Notes takes whatever is left, so every other column is sized
+// to its content — a printer's name must fit on one line.
 const printerColumnStyles = {
-  name: { width: "160px" },
-  address: { width: "220px" },
-  protocol: { width: "240px" },
-  status: { width: "180px" },
-  actions: { width: "260px" },
+  name: { width: "260px" },
+  address: { width: "200px" },
+  protocol: { width: "180px" },
+  status: { width: "170px" },
+  actions: { width: "180px" },
 };
 const toast = useToast();
 const confirm = useConfirm();
@@ -300,7 +302,9 @@ async function remove(p: Printer) {
           size="small"
         >
           <template #empty>{{ group.emptyMessage }}</template>
-          <Column field="name" header="Name" :style="printerColumnStyles.name" :header-style="printerColumnStyles.name" />
+          <Column field="name" header="Name" :style="printerColumnStyles.name" :header-style="printerColumnStyles.name">
+            <template #body="{ data }"><span class="printer-one-line" :title="data.name">{{ data.name }}</span></template>
+          </Column>
           <Column header="Address" :style="printerColumnStyles.address" :header-style="printerColumnStyles.address">
             <template #body="{ data }">{{ data.ip }}:{{ data.port }}</template>
           </Column>
@@ -326,7 +330,9 @@ async function remove(p: Printer) {
               </div>
             </template>
           </Column>
-          <Column field="notes" header="Notes" />
+          <Column field="notes" header="Notes">
+            <template #body="{ data }"><span class="printer-one-line text-ink-3" :title="data.notes || undefined">{{ data.notes }}</span></template>
+          </Column>
           <Column header="Status" :style="printerColumnStyles.status" :header-style="printerColumnStyles.status">
             <template #body="{ data }">
               <PingPill :ping="store.pingByPrinter[data.id]" />
@@ -535,6 +541,8 @@ async function remove(p: Printer) {
   overflow-wrap: anywhere;
   vertical-align: middle;
 }
+/* Names and notes stay on one line; the full text is in the tooltip. */
+.printer-one-line { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 
 @media (pointer: coarse) { .admin-touch :deep(.p-button), .admin-touch :deep(.p-select), .admin-touch :deep(.p-inputtext) { min-height:44px; } .admin-touch :deep(.p-button-icon-only) { min-width:44px; } }
 </style>
