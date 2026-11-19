@@ -94,11 +94,13 @@ def test_trunk_rows_in_a_leg_workbook_are_left_out(session, tmp_path):
         # Still a label: a leg row whose link cells are blank, or that names a leg.
         leg('CBL# | 2.1', 'CBL# | 2.1', None, None),
         leg('no number here', 'Z', None, None),
+        # A trunk row cleared in a formula sheet reads back as "0" / "0".
+        [0, 0] + [None] * 11,
     ])
     stats = import_workbook_into_discipline(session, path, d); session.commit()
     assert [r.left_text for r in labels(session, d)] == [
         'EH1A-R01 | swp1s2\nCBL# | 1.1', 'SU1 | 16K-EW-HL |', 'CBL# | 2.1', 'no number here']
-    assert (stats.rows, stats.trunk_rows, stats.skipped) == (4, 1, 2)
+    assert (stats.rows, stats.trunk_rows, stats.skipped) == (4, 1, 3)
 
 
 def test_a_trunk_workbook_keeps_its_trunk_rows(session, tmp_path):
