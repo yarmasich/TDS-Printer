@@ -53,6 +53,8 @@ class ImportStats:
     rows: int = 0
     skipped: int = 0
     disciplines_created: int = 0
+    # Trunk labels found in a leg workbook (counted in ``skipped`` too).
+    trunk_rows: int = 0
 
 
 def _color_for(name: str) -> str:
@@ -108,6 +110,20 @@ _TRUNK_HEADER = "trunk#"
 _LEG_HEADER = "leg#"
 # Columns are bounded like rows: a sheet's dimensions are user-controlled.
 MAX_COLUMNS = 32
+
+# A cable number in label text: "CBL# | 324" (a trunk) or "CBL# | 324.5" (a leg).
+_CABLE_NO_RE = re.compile(r"(?<!\w)(?:CBL|CAT6|LC|MPO)\s*#\s*\|?\s*(\d+)(\.\d+)?(?![\w.-])", re.IGNORECASE)
+
+
+def _is_trunk_row(left: str, right: str, trunk_no: Optional[str], leg_no: Optional[str]) -> bool:
+    """A trunk label inside a leg workbook: no Trunk# / Leg #, and its text names
+    a trunk number with no leg. Such rows belong in the trunk discipline; kept
+    here, a whole-trunk query ("324.*") picks them up with the legs and the trunk
+    lookup refuses the job, since they carry no Trunk#."""
+    if trunk_no or leg_no:
+        return False
+    numbers = _CABLE_NO_RE.findall(f"{left}\n{right}")
+    return bool(numbers) and all(not leg for _, leg in numbers)
 
 
 def _cell_text(value) -> Optional[str]:
@@ -203,6 +219,14 @@ def _import_workbook_into_discipline(
                     stats.skipped += 1
                     imp.skipped += 1
                     continue
+                trunk_no = _cell_text(row[trunk_col]) if trunk_col is not None and trunk_col < len(row) else None
+                leg_no = _cell_text(row[leg_col]) if leg_col is not None and leg_col < len(row) else None
+                # Only a leg workbook (both link columns) can hold stray trunk rows.
+                if leg_col is not None and _is_trunk_row(left, right, trunk_no, leg_no):
+                    stats.skipped += 1
+                    stats.trunk_rows += 1
+                    imp.skipped += 1
+                    continue
                 session.add(Label(
                     discipline_id=discipline.id,
                     import_id=imp.id,
@@ -212,8 +236,8 @@ def _import_workbook_into_discipline(
                     left_text=left,
                     right_text=right,
                     bundle=current_bundle if discipline.bundle_mode else None,
-                    trunk_no=_cell_text(row[trunk_col]) if trunk_col is not None and trunk_col < len(row) else None,
-                    leg_no=_cell_text(row[leg_col]) if leg_col is not None and leg_col < len(row) else None,
+                    trunk_no=trunk_no,
+                    leg_no=leg_no,
                 ))
                 stats.rows += 1
                 imp.rows += 1
