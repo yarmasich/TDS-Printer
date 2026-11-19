@@ -81,6 +81,36 @@ def test_the_header_row_is_not_a_label(session, tmp_path):
     assert stats.rows == 1 and stats.skipped == 1
 
 
+def test_trunk_rows_in_a_leg_workbook_are_left_out(session, tmp_path):
+    # The 16K-EW-HL leg file puts each trunk's own label above its legs, with no
+    # Trunk# / Leg #; "324.*" then matched it too and the trunk lookup refused.
+    d = discipline(session, '16K-EW-HL')
+    trunk = 'EH1A-R01 - EH1A-R08\nSU1 | 16K-EW-HL | CBL# | 1 | 46ft'
+    path = workbook(tmp_path / 'legs.xlsx', [
+        LEG_HEADER,
+        [trunk, 'EH1A-R08 - EH1A-R01\nSU1 | 16K-EW-HL | CBL# | 1 | 46ft'] + [None] * 11,
+        leg('EH1A-R01 | swp1s2\nCBL# | 1.1', 'EH1A-R08 | swp1s1\nCBL# | 1.1', 1, 1),
+        leg('SU1 | 16K-EW-HL |', 'SU1 | 16K-EW-HL |', 1, 2),
+        # Still a label: a leg row whose link cells are blank, or that names a leg.
+        leg('CBL# | 2.1', 'CBL# | 2.1', None, None),
+        leg('no number here', 'Z', None, None),
+    ])
+    stats = import_workbook_into_discipline(session, path, d); session.commit()
+    assert [r.left_text for r in labels(session, d)] == [
+        'EH1A-R01 | swp1s2\nCBL# | 1.1', 'SU1 | 16K-EW-HL |', 'CBL# | 2.1', 'no number here']
+    assert (stats.rows, stats.trunk_rows, stats.skipped) == (4, 1, 2)
+
+
+def test_a_trunk_workbook_keeps_its_trunk_rows(session, tmp_path):
+    # Without a Leg # column the workbook is a trunk book; a blank Trunk# stays a label.
+    d = discipline(session, '16K-EW-HL-Trunk')
+    path = workbook(tmp_path / 'trunks.xlsx', [
+        TRUNK_HEADER, ['SU1 | CBL# | 1 | 46ft', 'Z', 'D', 1, 1], ['SU1 | CBL# | 2 | 46ft', 'Z', 'D', None, 1]])
+    stats = import_workbook_into_discipline(session, path, d); session.commit()
+    assert [r.trunk_no for r in labels(session, d)] == ['1', None]
+    assert stats.trunk_rows == 0
+
+
 def test_excel_numbers_read_as_plain_text(session, tmp_path):
     # openpyxl hands back 7 or 7.0 depending on how the cell was typed.
     d = discipline(session, 'D')

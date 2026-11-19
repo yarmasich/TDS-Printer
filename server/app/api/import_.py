@@ -86,5 +86,6 @@ def _stats_dict(s: ImportStats) -> dict:
         "sheets": s.sheets,
         "rows": s.rows,
         "skipped": s.skipped,
+        "trunk_rows": s.trunk_rows,
         "disciplines_created": s.disciplines_created,
     }

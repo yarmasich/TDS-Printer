@@ -82,7 +82,11 @@ async function uploadRequest() {
     if (!res.ok) throw new Error(data.detail || "upload failed");
     toast.add({
       severity: "success",
-      summary: `Imported ${data.rows} rows · ${data.sheets} sheets`,
+      summary: `Imported ${data.rows} rows · ${data.sheets} sheets`
+        + (data.trunk_rows ? ` · ${data.trunk_rows} trunk labels left out` : ""),
+      detail: data.trunk_rows
+        ? "Trunk labels in a leg workbook are not imported. They print from the trunk discipline."
+        : undefined,
       life: 3000,
     });
     file.value = null;
