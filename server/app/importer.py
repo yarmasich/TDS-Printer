@@ -126,6 +126,12 @@ def _is_trunk_row(left: str, right: str, trunk_no: Optional[str], leg_no: Option
     return bool(numbers) and all(not leg for _, leg in numbers)
 
 
+def _is_formula_blank(left: str, right: str, trunk_no: Optional[str], leg_no: Optional[str]) -> bool:
+    """A blanked-out row of a formula sheet: Excel shows "0" for a formula over an
+    empty cell, so deleting a row's source leaves a "0" / "0" label behind."""
+    return not trunk_no and not leg_no and left in ("", "0") and right in ("", "0")
+
+
 def _cell_text(value) -> Optional[str]:
     """Excel hands back 7 or 7.0 for the same typed number."""
     if value is None:
@@ -225,6 +231,10 @@ def _import_workbook_into_discipline(
                 if leg_col is not None and _is_trunk_row(left, right, trunk_no, leg_no):
                     stats.skipped += 1
                     stats.trunk_rows += 1
+                    imp.skipped += 1
+                    continue
+                if leg_col is not None and _is_formula_blank(left, right, trunk_no, leg_no):
+                    stats.skipped += 1
                     imp.skipped += 1
                     continue
                 session.add(Label(
