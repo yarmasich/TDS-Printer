@@ -7,6 +7,7 @@ import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
 import { api, apiUrl } from "@/api/client";
 import type { ApiKey, ApiKeyCreated } from "@/api/types";
+import { createdLabel, lastUsedLabel } from "@/data/integrationKeys";
 
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
@@ -44,7 +45,8 @@ async function refresh() {
   await requests.run("refresh", () => refreshRequest());
 }
 async function refreshRequest() {
-  keys.value = await api.get<ApiKey[]>("/api/api-keys");
+  // Integration keys are managed on the Integrations page.
+  keys.value = await api.get<ApiKey[]>("/api/api-keys?kind=legacy");
 }
 
 async function create() {
@@ -102,11 +104,6 @@ async function copy(text: string) {
     toast.add({ severity: "warn", summary: "Copy failed — select manually", life: 2000 });
   }
 }
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString();
-}
 </script>
 
 <template>
@@ -117,13 +114,19 @@ function fmt(ts: string | null): string {
 
     <div class="flex items-center justify-between mb-1">
       <h2 class="text-lg font-bold">
-        API keys <span class="text-ink-4">({{ keys.length }})</span>
+        Legacy API keys <span class="text-ink-4">({{ keys.length }})</span>
       </h2>
     </div>
-    <p class="text-sm text-ink-3 mb-3">
-      For external apps to print over <code class="text-xs">POST /api/v1/print</code>
-      with an <code class="text-xs">X-API-Key</code> header. Prints land in History
+    <p class="text-sm text-ink-2 mb-1">
+      Print to any printer without project checks. Used when FloorHub project routing is off.
+    </p>
+    <p class="text-sm text-ink-3 mb-1">
+      Apps send an <code class="text-xs">X-API-Key</code> header to
+      <code class="text-xs">POST /api/v1/print</code>. Prints land in History
       as <code class="text-xs">api:&lt;name&gt;</code>.
+    </p>
+    <p class="text-sm text-ink-3 mb-3">
+      FloorHub project routing keys are on the <a href="#integrations" class="text-accent-ink underline">Integrations</a> page.
     </p>
 
     <div class="flex flex-wrap gap-2 mb-4">
@@ -138,7 +141,7 @@ function fmt(ts: string | null): string {
     </div>
 
     <p v-if="!keys.length" class="text-sm text-ink-4 italic">
-      No API keys yet.
+      No legacy API keys.
     </p>
 
     <ul v-else class="space-y-1.5">
@@ -158,9 +161,9 @@ function fmt(ts: string | null): string {
             {{ k.prefix }}••••••
           </div>
         </div>
-        <div class="text-xs text-ink-4 text-right hidden sm:block">
-          <div>created {{ fmt(k.created_at) }}</div>
-          <div>last used {{ fmt(k.last_used_at) }}</div>
+        <div class="text-xs text-ink-4 text-right">
+          <div class="hidden sm:block">{{ createdLabel(k.created_at) }}</div>
+          <div>{{ lastUsedLabel(k.last_used_at) }}</div>
         </div>
         <Button :disabled="requests.pending.value.size > 0"
           :label="k.enabled ? 'Disable' : 'Enable'"

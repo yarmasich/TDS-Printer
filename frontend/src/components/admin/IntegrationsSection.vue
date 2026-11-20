@@ -3,12 +3,13 @@ import { computed, onMounted, ref } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Dialog from 'primevue/dialog';
+import { useConfirm } from 'primevue/useconfirm';
 import { api } from '@/api/client';
-import { keyRequest, purposeLabel, type IntegrationScope } from '@/data/integrationKeys';
+import { createdLabel, keyRequest, lastUsedLabel, projectTitle, purposeLabel, scopeSummary, type IntegrationScope } from '@/data/integrationKeys';
 
 type Rule = {printer_ids: number[]; default_printer_id: number | null};
-type Policy = {external_project_id: string; revision: number; tds_project_id: number | null; cable_labels: Rule; qr_labels: Rule};
-type Key = {id: number; name: string; prefix: string; enabled: boolean; scopes: string[]};
+type Policy = {external_project_id: string; external_project_name?: string | null; revision: number; tds_project_id: number | null; cable_labels: Rule; qr_labels: Rule};
+type Key = {id: number; name: string; prefix: string; enabled: boolean; scopes: string[]; created_at: string; last_used_at: string | null};
 type Integration = {id: string; name: string; keys: Key[]; policies: Policy[]; printers: {id: number; name: string; purposes: string[]}[]};
 const integrations = ref<Integration[]>([]);
 const selectedId = ref('');
@@ -25,6 +26,7 @@ const busy = ref(false);
 const error = ref('');
 const created = ref<{key: string; name: string} | null>(null);
 const copied = ref(false);
+const confirm = useConfirm();
 
 async function load() {
   integrations.value = await api.get<Integration[]>('/api/integrations');
@@ -62,6 +64,27 @@ async function createKey() {
     await load();
   });
 }
+async function toggleKey(key: Key) {
+  // Scoped and legacy keys share one admin key store; only the listing is split.
+  await run(async () => {
+    await api.put(`/api/api-keys/${key.id}`, {enabled: !key.enabled});
+    await load();
+  });
+}
+function revokeKey(key: Key) {
+  confirm.require({
+    message: `Revoke key "${key.name}"? FloorHub stops printing through this key immediately. Project assignments stay in place.`,
+    header: 'Revoke integration key',
+    icon: 'pi pi-exclamation-triangle',
+    acceptLabel: 'Revoke',
+    rejectLabel: 'Cancel',
+    acceptProps: {severity: 'danger'},
+    accept: () => run(async () => {
+      await api.delete(`/api/api-keys/${key.id}`);
+      await load();
+    }),
+  });
+}
 async function copyKey() {
   if (!created.value) return;
   try { await navigator.clipboard.writeText(created.value.key); copied.value = true; }
@@ -79,7 +102,7 @@ function defaultName(rule: Rule) {
 <template>
   <section class="space-y-5">
     <header>
-      <h2 class="text-lg font-bold text-ink">Project printer routing</h2>
+      <h2 class="text-lg font-bold text-ink">Integrations</h2>
       <p class="mt-1 text-sm text-ink-3">FloorHub assigns printers to projects for cable labels and QR labels. TDS-Printer checks each scoped cable print against those assignments.</p>
     </header>
     <p v-if="error" role="alert" class="rounded-lg border border-danger-edge bg-danger-soft p-3 text-sm text-danger">{{ error }}</p>
@@ -99,7 +122,7 @@ function defaultName(rule: Rule) {
     </div>
     <template v-if="selected">
       <div class="rounded-xl border border-edge bg-surface p-5">
-        <h3 class="font-semibold">Scoped API keys</h3>
+        <h3 class="font-semibold">Integration keys</h3>
         <p class="mt-1 text-sm text-ink-3">Use a scoped key in FloorHub's backend. Existing legacy keys keep their existing access. A scoped key cannot use legacy print endpoints.</p>
         <form class="mt-4 space-y-3" @submit.prevent="createKey">
           <InputText v-model="credentialName" aria-label="Scoped key name" placeholder="Key name" :disabled="busy" class="w-full" />
@@ -110,13 +133,22 @@ function defaultName(rule: Rule) {
           </div>
           <Button type="submit" label="Create scoped key" :disabled="busy || !credentialName.trim() || !permissions.length" />
         </form>
-        <ul class="mt-4 space-y-2">
-          <li v-for="key in selected.keys" :key="key.id" class="rounded-lg bg-sunken p-3 text-sm">
-            <span class="font-medium">{{ key.name }}</span> · {{ key.enabled ? 'Enabled' : 'Disabled' }}
-            <p class="mt-1 text-xs text-ink-3">{{ key.prefix }}•••• · {{ key.scopes.join(', ') }}</p>
+        <p v-if="!selected.keys.length" class="mt-4 text-sm text-ink-3">No keys for this integration yet.</p>
+        <ul v-else class="mt-4 space-y-2">
+          <li v-for="key in selected.keys" :key="key.id" class="flex flex-wrap items-center gap-3 rounded-lg border border-edge bg-sunken px-3 py-2 text-sm">
+            <span class="inline-block h-2 w-2 shrink-0 rounded-full" :class="key.enabled ? 'bg-ok-solid' : 'bg-edge-strong'" aria-hidden="true" />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-baseline gap-x-2">
+                <span class="truncate font-medium">{{ key.name }}</span>
+                <span class="text-xs" :class="key.enabled ? 'text-ok' : 'text-ink-4'">{{ key.enabled ? 'Enabled' : 'Disabled' }}</span>
+              </div>
+              <p class="mt-0.5 text-xs text-ink-3"><span class="font-mono">{{ key.prefix }}••••••</span> · {{ scopeSummary(key.scopes) }}</p>
+              <p class="mt-0.5 text-xs text-ink-4">{{ createdLabel(key.created_at) }} · {{ lastUsedLabel(key.last_used_at) }}</p>
+            </div>
+            <Button :label="key.enabled ? 'Disable' : 'Enable'" text size="small" :disabled="busy" @click="toggleKey(key)" />
+            <Button icon="pi pi-trash" text severity="danger" size="small" :aria-label="`Revoke ${key.name}`" :disabled="busy" @click="revokeKey(key)" />
           </li>
         </ul>
-        <p class="mt-3 text-xs text-ink-3">Disable or revoke credentials in Admin → API keys.</p>
       </div>
       <div class="rounded-xl border border-edge bg-surface p-5">
         <h3 class="font-semibold">Supported print types</h3>
@@ -131,7 +163,8 @@ function defaultName(rule: Rule) {
         <p class="mt-1 text-sm text-ink-3">Edit assignments in FloorHub → Label printers. QR assignments are configuration only; Inventory printing is a separate step.</p>
         <p v-if="!selected.policies.length" class="mt-4 text-sm text-ink-3">No projects assigned. Scoped printing is unavailable until a project has an allowed printer.</p>
         <article v-for="policy in selected.policies" :key="policy.external_project_id" class="mt-4 border-t border-edge pt-4 text-sm">
-          <div class="break-all font-medium">FloorHub project {{ policy.external_project_id }}</div>
+          <div class="break-words font-medium">{{ projectTitle(policy).title }}</div>
+          <div v-if="projectTitle(policy).id" class="break-all text-xs text-ink-4">{{ projectTitle(policy).id }}</div>
           <p class="mt-1 text-xs text-ink-4">Revision {{ policy.revision }} · TDS project: {{ policy.tds_project_id ?? 'Not linked' }}</p>
           <p class="mt-2">Cable labels: {{ printerNames(policy.cable_labels) }}</p>
           <p class="text-xs text-ink-3">Default: {{ defaultName(policy.cable_labels) }}</p>

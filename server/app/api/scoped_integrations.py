@@ -23,6 +23,10 @@ from .integrations import (_catalog_entry, ApiBatchPrintRequest, ApiBatchPrintRe
 
 PURPOSES = ('cable_labels', 'qr_labels')
 SCOPES = {'policy.read', 'policy.write', 'print'}
+# Advertised in /configuration so a caller sends optional request fields only
+# to a server that accepts them (request bodies forbid unknown fields).
+CAPABILITIES = ('policy.external_project_name',)
+MAX_PROJECT_NAME = 200
 router = APIRouter(prefix='/api/v1/integrations', tags=['project-routing'])
 admin_router = APIRouter(prefix='/api/integrations', tags=['integration-admin'])
 PositiveID = Annotated[StrictInt, Field(gt=0)]
@@ -72,6 +76,8 @@ class PolicyBody(StrictBody):
     tds_project_id: PositiveID | None = None
     cable_labels: PurposePolicy
     qr_labels: PurposePolicy
+    # Display only. Left out: the stored name is kept; null or blank clears it.
+    external_project_name: str | None = Field(default=None, max_length=MAX_PROJECT_NAME)
 
 
 def find_policy(session, integration_id, external_id):
@@ -100,6 +106,7 @@ def configuration(session: Session = Depends(get_session), key: ApiKey = Securit
     check_scope(key, 'policy.read'); require_integration(session, key)
     integration = session.get(Integration, key.integration_id)
     return dict(integration_id=integration.id, name=integration.name, scopes=key.scopes,
+                capabilities=list(CAPABILITIES),
                 printers=[catalog(p, network=True) for p in session.exec(select(Printer).order_by(Printer.name)).all()],
                 projects=[{'id': p.id, 'name': p.name} for p in session.exec(select(Project).order_by(Project.name)).all()])
 
@@ -131,6 +138,9 @@ def put_policy(external_project_id: UUID, req: PolicyBody,
     values = dict(revision=req.revision + 1, tds_project_id=req.tds_project_id,
                   cable_default_printer_id=req.cable_labels.default_printer_id,
                   qr_default_printer_id=req.qr_labels.default_printer_id)
+    name_sent = 'external_project_name' in req.model_fields_set
+    if name_sent:
+        values['external_project_name'] = (req.external_project_name or '').strip() or None
     try:
         if row is None:
             row = ProjectPrintPolicy(id=str(uuid4()), integration_id=key.integration_id,
@@ -145,7 +155,10 @@ def put_policy(external_project_id: UUID, req: PolicyBody,
         for purpose in PURPOSES:
             for printer_id in getattr(req, purpose).printer_ids:
                 session.add(ProjectPrinterAssignment(policy_id=row.id, purpose=purpose, printer_id=printer_id))
-        after = req.model_dump(mode='json'); after['revision'] += 1
+        after = req.model_dump(mode='json', exclude={'external_project_name'})
+        after['revision'] += 1
+        if name_sent:
+            after['external_project_name'] = values['external_project_name']
         session.add(PolicyAudit(integration_id=key.integration_id, external_project_id=str(external_project_id),
                                actor=actor, before=before, after=after))
         session.commit()
@@ -371,11 +384,14 @@ def inspect_integrations(session: Session = Depends(get_session)):
     out = []
     printers = [{'id': p.id, 'name': p.name, 'purposes': capability(p)} for p in session.exec(select(Printer).order_by(Printer.name)).all()]
     for integration in session.exec(select(Integration).order_by(Integration.name)).all():
-        keys = session.exec(select(ApiKey).where(ApiKey.integration_id == integration.id)).all()
+        keys = session.exec(select(ApiKey).where(ApiKey.integration_id == integration.id)
+                            .order_by(ApiKey.created_at.desc())).all()
         policies = session.exec(select(ProjectPrintPolicy).where(ProjectPrintPolicy.integration_id == integration.id)).all()
+        # The display name stays out of policy_dto: the machine policy contract is unchanged.
         out.append(dict(id=integration.id, name=integration.name,
                         keys=[{**_dto(k).model_dump(), 'scopes': k.scopes} for k in keys], printers=printers,
-                        policies=[policy_dto(session, p.external_project_id, p) for p in policies]))
+                        policies=[{**policy_dto(session, p.external_project_id, p),
+                                   'external_project_name': p.external_project_name} for p in policies]))
     return out
 
 
