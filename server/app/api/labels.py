@@ -152,7 +152,7 @@ def search(
         stmt = stmt.where(or_(*(
             column.ilike(term, escape="\\")
             for term in terms for column in (Label.left_text, Label.right_text)
-        ), *_structured_prefilter(keys)))
+        ), *structured_prefilter(keys)))
 
     candidates = session.exec(stmt.order_by(Label.id)).all()
 
@@ -217,7 +217,7 @@ def _structured_hit(key, label: Label) -> bool:
     return structured_hit(key, label.trunk_no, label.leg_no)
 
 
-def _structured_prefilter(keys) -> list:
+def structured_prefilter(keys) -> list:
     """At most three clauses however long the batch, so a 256-cable range
     stays well inside SQLite's expression depth limit."""
     whole = sorted({k[0] for k in keys if k and k[1] == "*"})

@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlmodel import Session
@@ -20,6 +21,7 @@ from ..importer import (
     ImportStats,
     InvalidWorkbookError,
     import_workbook_into_discipline,
+    remove_discipline_imports,
     scan_labels_dir,
 )
 from ..import_limits import ImportLimitError, ImportLimits, copy_upload
@@ -50,6 +52,9 @@ async def upload(
     discipline_id: int = Form(...),
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
+    replace: Annotated[bool, Form(
+        description="Remove the discipline's earlier imports and their labels in the same "
+        "transaction. A file that fails to import leaves them in place.")] = False,
 ) -> dict:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400, "Expected an .xlsx file")
@@ -62,9 +67,11 @@ async def upload(
         tmp_path = tmp_dir / "upload.xlsx"
         with tmp_path.open("wb") as out:
             copy_upload(file.file, out, ImportLimits.from_env())
+        replaced = remove_discipline_imports(session, d) if replace else (0, 0)
         stats = import_workbook_into_discipline(
             session, tmp_path, d, display_filename=file.filename,
         )
+        stats.replaced_imports, stats.labels_removed = replaced
         session.commit()
         return _stats_dict(stats)
     except ImportLimitError as exc:
@@ -87,5 +94,8 @@ def _stats_dict(s: ImportStats) -> dict:
         "rows": s.rows,
         "skipped": s.skipped,
         "trunk_rows": s.trunk_rows,
+        "duplicate_legs": s.duplicate_legs,
+        "replaced_imports": s.replaced_imports,
+        "labels_removed": s.labels_removed,
         "disciplines_created": s.disciplines_created,
     }

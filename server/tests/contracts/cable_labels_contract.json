@@ -1,0 +1,561 @@
+{
+  "_contract": "TDS-Printer <-> FloorHub cable-label print response contract.",
+  "_copies": [
+    "TDS-Printer/server/tests/contracts/cable_labels_contract.json",
+    "FloorHub/backend/tests/contracts/cable_labels_contract.json"
+  ],
+  "_rule": "Both copies must stay byte-identical. TDS regenerates examples (TDS_CONTRACT_REGENERATE=1 pytest tests/test_cable_labels_contract.py); copy the file to FloorHub and update its expectations in the same change.",
+  "endpoint": "POST /api/v1/integrations/projects/{external_project_id}/cable-labels",
+  "compared_exactly": [
+    "code",
+    "ok",
+    "printed",
+    "printer_role",
+    "printer_state",
+    "requested",
+    "role",
+    "status"
+  ],
+  "error_codes": [
+    "binding_missing",
+    "binding_not_found",
+    "default_missing",
+    "idempotency_key_required",
+    "in_progress_or_unknown",
+    "key_conflict",
+    "policy_missing",
+    "printer_fault",
+    "printer_not_allowed",
+    "scope_forbidden",
+    "template_not_found",
+    "trunk_label_ambiguous",
+    "trunk_label_not_found",
+    "trunk_not_linked",
+    "trunk_number_missing",
+    "trunk_printer_not_allowed",
+    "trunk_template_not_found"
+  ],
+  "examples": {
+    "full_success": {
+      "description": "Every requested leg label printed (Panduit printer with SNMP counter).",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": true,
+        "requested": 2,
+        "printed": 2,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "printed",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "7.2",
+            "status": "printed",
+            "label_id": 3,
+            "log_id": 2,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": {
+          "before": 500,
+          "after": 502
+        },
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "partial": {
+      "description": "One cable printed, one selector matched no label (status not_found).",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": false,
+        "requested": 2,
+        "printed": 1,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "printed",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "99.1",
+            "status": "not_found",
+            "label_id": null,
+            "log_id": null,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": null
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "partial_send_error": {
+      "description": "One label printed, the second send failed with an uncertain outcome (status error).",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": false,
+        "requested": 2,
+        "printed": 1,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "printed",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "7.2",
+            "status": "error",
+            "label_id": 3,
+            "log_id": 2,
+            "error": "Print outcome requires operator inspection",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "nothing_printed": {
+      "description": "No selector matched a label: 200 with printed 0 and nothing sent.",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "ok": false,
+        "requested": 1,
+        "printed": 0,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "99.1",
+            "status": "not_found",
+            "label_id": null,
+            "log_id": null,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": null
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "send_error_nothing_printed": {
+      "description": "Every send failed with an uncertain outcome: 200 with printed 0, but sends were attempted.",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": false,
+        "requested": 2,
+        "printed": 0,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "error",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "Print outcome requires operator inspection",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "7.2",
+            "status": "error",
+            "label_id": 3,
+            "log_id": 2,
+            "error": "Print outcome requires operator inspection",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "trunk_with": {
+      "description": "trunk='with': leg labels, then each trunk once on the trunk discipline's printer.",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": true,
+        "requested": 3,
+        "printed": 3,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "printed",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "7.2",
+            "status": "printed",
+            "label_id": 3,
+            "log_id": 2,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "trunk 7",
+            "status": "printed",
+            "label_id": 1,
+            "log_id": 3,
+            "error": "",
+            "candidates": null,
+            "role": "trunk",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": "Trunks",
+        "trunk_printer_state": null
+      }
+    },
+    "trunk_only": {
+      "description": "trunk='only': just the trunk label.",
+      "status": 200,
+      "headers": {},
+      "sends_attempted": true,
+      "body": {
+        "ok": true,
+        "requested": 1,
+        "printed": 1,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "trunk 7",
+            "status": "printed",
+            "label_id": 1,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "trunk",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": "Trunks",
+        "trunk_printer_state": null
+      }
+    },
+    "printer_fault_leg": {
+      "description": "Pre-send fault on the leg printer; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "printer_fault",
+          "printer_state": "cover_open",
+          "message": "Printer Cable cover is open. Close it, then print again."
+        }
+      }
+    },
+    "printer_fault_trunk": {
+      "description": "Pre-send fault on the trunk printer; printer_role 'trunk'; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "printer_fault",
+          "printer_state": "no_media",
+          "message": "Printer Trunks has no labels loaded.",
+          "printer_role": "trunk"
+        }
+      }
+    },
+    "trunk_not_linked": {
+      "description": "Leg discipline has no trunk discipline linked; nothing sent.",
+      "status": 409,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_not_linked"
+        }
+      }
+    },
+    "trunk_template_not_found": {
+      "description": "Trunk discipline has no template; nothing sent.",
+      "status": 404,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_template_not_found"
+        }
+      }
+    },
+    "trunk_printer_not_allowed": {
+      "description": "Trunk template's printer is not in the project policy; nothing sent.",
+      "status": 403,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_printer_not_allowed"
+        }
+      }
+    },
+    "trunk_number_missing": {
+      "description": "A leg label has no trunk number; nothing sent.",
+      "status": 409,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_number_missing"
+        }
+      }
+    },
+    "trunk_label_not_found": {
+      "description": "No trunk label for the leg trunk number; nothing sent.",
+      "status": 404,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_label_not_found"
+        }
+      }
+    },
+    "trunk_label_ambiguous": {
+      "description": "The trunk label appears more than once; nothing sent.",
+      "status": 409,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "trunk_label_ambiguous"
+        }
+      }
+    },
+    "policy_missing": {
+      "description": "No printer policy for the external project; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "policy_missing"
+        }
+      }
+    },
+    "default_missing": {
+      "description": "No printer_id requested and the policy has no default; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "default_missing"
+        }
+      }
+    },
+    "printer_not_allowed": {
+      "description": "Requested printer is not allowed for cable labels; nothing sent.",
+      "status": 403,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "printer_not_allowed"
+        }
+      }
+    },
+    "binding_missing": {
+      "description": "Policy is not bound to a TDS project; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "binding_missing"
+        }
+      }
+    },
+    "binding_not_found": {
+      "description": "Data hall/discipline not found in the bound TDS project; nothing sent.",
+      "status": 404,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "binding_not_found"
+        }
+      }
+    },
+    "template_not_found": {
+      "description": "Discipline has no template; nothing sent.",
+      "status": 404,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "template_not_found"
+        }
+      }
+    },
+    "scope_forbidden": {
+      "description": "Credential lacks the 'print' scope; nothing sent.",
+      "status": 403,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "scope_forbidden"
+        }
+      }
+    },
+    "idempotency_key_required": {
+      "description": "Idempotency-Key header missing; nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "idempotency_key_required"
+        }
+      }
+    },
+    "idempotency_key_invalid": {
+      "description": "Malformed Idempotency-Key: 400 with a plain string detail (no machine code); nothing sent.",
+      "status": 400,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": "Idempotency-Key must be 1\u2013200 visible ASCII characters without spaces"
+      }
+    },
+    "idempotency_replay": {
+      "description": "Same Idempotency-Key and body again: the stored response with X-Idempotent-Replay true; nothing sent by this request.",
+      "status": 200,
+      "headers": {
+        "X-Idempotent-Replay": "true"
+      },
+      "sends_attempted": false,
+      "body": {
+        "ok": true,
+        "requested": 2,
+        "printed": 2,
+        "discipline": "NET",
+        "printer": "Cable",
+        "results": [
+          {
+            "cable": "7.1",
+            "status": "printed",
+            "label_id": 2,
+            "log_id": 1,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          },
+          {
+            "cable": "7.2",
+            "status": "printed",
+            "label_id": 3,
+            "log_id": 2,
+            "error": "",
+            "candidates": null,
+            "role": "leg",
+            "trunk_no": "7"
+          }
+        ],
+        "printer_state": null,
+        "printer_counter": null,
+        "trunk_printer": null,
+        "trunk_printer_state": null
+      }
+    },
+    "idempotency_conflict": {
+      "description": "Same Idempotency-Key, different body; nothing sent by this request.",
+      "status": 409,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "key_conflict",
+          "message": "Idempotency-Key was already used for a different request"
+        }
+      }
+    },
+    "idempotency_in_progress": {
+      "description": "Same Idempotency-Key while the first attempt is unresolved (in progress or interrupted); nothing sent by this request.",
+      "status": 409,
+      "headers": {},
+      "sends_attempted": false,
+      "body": {
+        "detail": {
+          "code": "in_progress_or_unknown",
+          "message": "Print attempt is in progress or its outcome is unknown; inspect printer/history before any new attempt"
+        }
+      }
+    }
+  }
+}
