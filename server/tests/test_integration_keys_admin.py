@@ -220,7 +220,7 @@ def test_migration_is_idempotent_when_column_already_exists(monkeypatch, tmp_pat
     command.upgrade(cfg, 'head')
     # Re-running this revision against a table that already has the column is a no-op.
     command.stamp(cfg, '8c41f0a2d7e5')
-    command.upgrade(cfg, 'head')
+    command.upgrade(cfg, 'f3b9e2c71a58')
     assert 'external_project_name' in _columns(engine)
     with engine.connect() as c:
         assert c.exec_driver_sql('SELECT version_num FROM alembic_version').scalar() == 'f3b9e2c71a58'

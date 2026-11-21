@@ -546,6 +546,27 @@ detail. Nothing prints when a trunk does not resolve:
 `trunk: "none"` is left out of the idempotency hash, so keys sent before this
 field existed replay unchanged.
 
+#### Progress of a running request
+
+While the cable-labels request is still sending, another call with the same
+key can ask how far it has got (capability `print.progress` in
+`/configuration`; scope `print`):
+
+`GET /api/v1/integrations/print-requests/{Idempotency-Key}/progress`
+
+```json
+{"state": "running", "total": 37, "sent": 12}
+```
+
+- `state`: `unknown` (this integration sent no request with that key),
+  `running`, or `completed`.
+- `total`: labels due, legs and trunks together; `sent`: labels already handed
+  to the printer, whatever their outcome. Both are `null` until the send starts,
+  and stay `null` when nothing was due or the request was refused.
+- `sent` counts labels handed to the printer, not labels out of it: a printer
+  with a buffer may still be printing the last few when `sent` equals `total`.
+  The final outcome is always the cable-labels response.
+
 ## Safe HTTP retries with `Idempotency-Key`
 
 For both `POST /api/v1/print` and `POST /api/v1/print-batch`, send an optional

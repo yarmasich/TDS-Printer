@@ -12,6 +12,28 @@ from sqlmodel import Session
 from .models import ApiKey, IntegrationPrintRequest
 
 
+def request_scope(key: ApiKey, token: str, *, stable_integration: bool = False) -> tuple[str, str]:
+    """Primary key of the reservation a request with this key and Idempotency-Key holds."""
+    return (("integration:" + key.integration_id) if stable_integration else key.key_hash, token)
+
+
+def record_progress(session: Session, scope: tuple[str, str], *, total: int, sent: int) -> None:
+    """Publish a running send's progress. Committed at once so other workers can read it.
+
+    Informational only: a failure here never interrupts the labels still to send.
+    """
+    try:
+        reservation = session.get(IntegrationPrintRequest, scope)
+        if reservation is None or reservation.state == "completed":
+            return
+        reservation.progress_total = total
+        reservation.progress_sent = sent
+        session.add(reservation)
+        session.commit()
+    except Exception:  # noqa: BLE001 -- progress must not break an in-flight send
+        session.rollback()
+
+
 def run_print_request(
     endpoint: str, request: BaseModel, key: ApiKey, token: str | None,
     session: Session, operation: Callable, *, machine_codes: bool = False, stable_integration: bool = False,
@@ -25,7 +47,7 @@ def run_print_request(
         sort_keys=True, separators=(",", ":"), ensure_ascii=True,
     )
     digest = hashlib.sha256(canonical.encode()).hexdigest()
-    scope = (("integration:" + key.integration_id) if stable_integration else key.key_hash, token)
+    scope = request_scope(key, token, stable_integration=stable_integration)
     reservation = IntegrationPrintRequest(
         credential_hash=scope[0], idempotency_key=token, request_hash=digest,
     )

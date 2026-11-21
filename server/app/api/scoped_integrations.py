@@ -14,9 +14,9 @@ from sqlmodel import Session, select
 
 from ..auth_apikey import check_scope, generate_key, require_api_key
 from ..db import get_session
-from ..models import (ApiKey, Integration, ProjectPrintPolicy, ProjectPrinterAssignment,
+from ..models import (ApiKey, Integration, IntegrationPrintRequest, ProjectPrintPolicy, ProjectPrinterAssignment,
                       PolicyAudit, Printer, Project, DataHall, Discipline, Template, PrintLog)
-from ..print_idempotency import run_print_request
+from ..print_idempotency import record_progress, request_scope, run_print_request
 from .. import rfid, printer_reachability, printer_device_status, trunks
 from .integrations import (_catalog_entry, ApiBatchPrintRequest, ApiBatchPrintResponse, BatchItemResult,
                           _plan_batch, _print_label, _printer_counter)
@@ -25,7 +25,7 @@ PURPOSES = ('cable_labels', 'qr_labels')
 SCOPES = {'policy.read', 'policy.write', 'print'}
 # Advertised in /configuration so a caller sends optional request fields only
 # to a server that accepts them (request bodies forbid unknown fields).
-CAPABILITIES = ('policy.external_project_name',)
+CAPABILITIES = ('policy.external_project_name', 'print.progress')
 MAX_PROJECT_NAME = 200
 router = APIRouter(prefix='/api/v1/integrations', tags=['project-routing'])
 admin_router = APIRouter(prefix='/api/integrations', tags=['integration-admin'])
@@ -327,6 +327,11 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
             # Only a trunk printer fault says so, leaving the leg reply unchanged.
             detail = {'code': 'printer_fault', 'printer_state': fault[0], 'message': fault[1]}
             raise HTTPException(400, {**detail, 'printer_role': 'trunk'} if role == 'trunk' else detail)
+        progress_scope = request_scope(key, token, stable_integration=True)
+        due = sum(label is not None for _, label, _ in jobs)
+        handed = 0
+        if due:
+            record_progress(session, progress_scope, total=due, sent=0)
         for result, label, (target_printer, target_template) in jobs:
             if label is not None:
                 log_id, error = _print_label(label, target_template, target_printer,
@@ -336,6 +341,8 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
                 result.status = 'error' if error else 'printed'
                 result.error = 'Print outcome requires operator inspection' if error else ''
                 printed += int(error is None)
+                handed += 1
+                record_progress(session, progress_scope, total=due, sent=handed)
             results.append(result)
         # Informational only: the counter changes no status, field or decision.
         counter = _printer_counter(leg_route[0], counter_before, sent=True) if legs_print else None
@@ -362,6 +369,22 @@ def cable_labels(external_project_id: UUID, req: CableRequest,
 
     return run_print_request(f'/integrations/projects/{external_project_id}/cable-labels', req, key, token,
                              session, audited_operation, machine_codes=True, stable_integration=True)
+
+
+@router.get('/print-requests/{idempotency_key}/progress')
+def print_request_progress(idempotency_key: str, session: Session = Depends(get_session),
+                           key: ApiKey = Security(require_api_key)):
+    """How far a cable-label request with this Idempotency-Key has got (capability print.progress).
+
+    state: unknown (no such request for this integration), running, or completed. total and
+    sent count labels due and labels handed to the printer; null until the send starts.
+    """
+    check_scope(key, 'print'); require_integration(session, key)
+    row = session.get(IntegrationPrintRequest, request_scope(key, idempotency_key, stable_integration=True))
+    if row is None:
+        return dict(state='unknown', total=None, sent=None)
+    return dict(state='completed' if row.state == 'completed' else 'running',
+                total=row.progress_total, sent=row.progress_sent)
 
 
 class CreateIntegration(StrictBody):
