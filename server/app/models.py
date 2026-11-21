@@ -317,6 +317,10 @@ class IntegrationPrintRequest(SQLModel, table=True):
     status_code: Optional[int] = None
     response_body: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     response_headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # Live progress of a multi-label send, read by the caller while the request runs: labels
+    # due and labels already handed to the printer (sent or failed). Informational only.
+    progress_total: Optional[int] = None
+    progress_sent: Optional[int] = None
 
 
 class Integration(SQLModel, table=True):
