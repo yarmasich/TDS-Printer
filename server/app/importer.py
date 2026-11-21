@@ -55,6 +55,12 @@ class ImportStats:
     disciplines_created: int = 0
     # Trunk labels found in a leg workbook (counted in ``skipped`` too).
     trunk_rows: int = 0
+    # Imported rows repeating a Trunk# / Leg # pair already seen in the same
+    # workbook. They are still imported; a query for that leg finds both.
+    duplicate_legs: int = 0
+    # Set by an upload that replaced the discipline's earlier imports.
+    replaced_imports: int = 0
+    labels_removed: int = 0
 
 
 def _color_for(name: str) -> str:
@@ -181,6 +187,7 @@ def _import_workbook_into_discipline(
         if len(wb.sheetnames) > limits.sheets:
             raise ImportLimitError(f"XLSX sheets exceed {limits.sheets}")
         visited_rows = 0
+        legs_seen: set[tuple[str, str]] = set()
         for sheet_name in wb.sheetnames:
             stats.sheets += 1
             imp.sheets += 1
@@ -237,6 +244,10 @@ def _import_workbook_into_discipline(
                     stats.skipped += 1
                     imp.skipped += 1
                     continue
+                if trunk_no and leg_no:
+                    if (trunk_no, leg_no) in legs_seen:
+                        stats.duplicate_legs += 1
+                    legs_seen.add((trunk_no, leg_no))
                 session.add(Label(
                     discipline_id=discipline.id,
                     import_id=imp.id,
@@ -316,6 +327,23 @@ def delete_labels(session: Session, condition=None, *, force: bool = False) -> i
     return session.exec(statement.execution_options(synchronize_session="fetch")).rowcount or 0
 
 
+def remove_discipline_imports(session: Session, discipline: Discipline) -> tuple[int, int]:
+    """Stage removal of every import of a discipline and its labels.
+
+    Runs in the caller's transaction, so a re-import that fails afterwards
+    rolls the old labels back. Print history keeps its own copy of the label
+    text; carts lose only items that are not printing, as on delete.
+    Returns ``(imports, labels)`` removed.
+    """
+    begin_label_mutation(session)
+    ids = session.exec(select(Import.id).where(Import.discipline_id == discipline.id)).all()
+    if not ids:
+        return 0, 0
+    labels = delete_labels(session, Label.import_id.in_(ids))
+    session.exec(delete(Import).where(Import.id.in_(ids)))
+    return len(ids), labels
+
+
 def scan_labels_dir(
     session: Session, root: Path, *, wipe: bool = False
 ) -> ImportStats:
@@ -363,6 +391,8 @@ def _scan_labels_dir(
                     total.sheets += s.sheets
                     total.rows += s.rows
                     total.skipped += s.skipped
+                    total.trunk_rows += s.trunk_rows
+                    total.duplicate_legs += s.duplicate_legs
 
     log.info(
         "Imported %d files, %d sheets, %d rows (%d skipped, %d new disciplines)",

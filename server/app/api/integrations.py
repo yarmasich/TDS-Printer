@@ -15,6 +15,7 @@ from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Security
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from ..auth_apikey import require_legacy_print, require_legacy_catalog
@@ -24,7 +25,9 @@ from ..db import get_session
 from ..models import ApiKey, DataHall, Discipline, Label, PrintLog, Printer, Project, Template
 from ..print_idempotency import run_print_request
 from ..printer import PrintError, ping_printer, render_and_send
-from ..search import cable_query_pattern, parse_batch_query, structured_hit, trunk_leg_key, validate_query
+from ..search import (MAX_PREFILTER_TERMS, cable_query_pattern, like_prefilter, parse_batch_query,
+                      structured_hit, trunk_leg_key, validate_query)
+from .labels import structured_prefilter
 
 # Cap on how many labels one batch request may print, to keep a single call
 # from monopolising the printer (each send is synchronous).
@@ -240,6 +243,56 @@ def _match_cable(labels: List[Label], cable: str) -> tuple[str, List[Label]]:
     return "ok", hits
 
 
+def _candidate_labels(session: Session, disc: Discipline, queries: List[str],
+                      bundles: frozenset = frozenset()) -> List[Label]:
+    """The discipline's labels that a query or bundle could match, by label ID.
+
+    A superset of what ``_match_cable`` and the bundle lookup accept, which
+    still decide every hit: LIKE terms for the label text, the Trunk# / Leg #
+    columns and the bundle. So the hits equal a scan of the whole discipline
+    without loading tens of thousands of rows per request.
+    """
+    stmt = select(Label).where(Label.discipline_id == disc.id).order_by(Label.id)
+    valid = [(normalised, trunk_leg_key(normalised))
+             for ok, normalised in map(validate_query, queries) if ok]  # invalid: no hits
+    text = _text_prefilter(valid)
+    if text is None:
+        # SQLite's expression depth limit; scan the discipline as before.
+        return list(session.exec(stmt).all())
+    clauses = text + structured_prefilter([key for _, key in valid])
+    if bundles:
+        clauses.append(Label.bundle.in_(sorted(bundles)))
+    if not clauses:
+        return []
+    return list(session.exec(stmt.where(or_(*clauses))).all())
+
+
+def _text_prefilter(valid: list) -> Optional[list]:
+    """LIKE clauses every label text matching a query's pattern satisfies.
+
+    A numeric pattern matches only after a ``#`` marker, so its term keeps
+    the ``#``: leg text without a cable number ("SU1 | 16K-EW-LS |") is never
+    read just because it contains the trunk's digits. Legs of one trunk share
+    a ``#…trunk`` term that SQLite checks first, so a range of legs costs one
+    LIKE per row plus one per leg on the few rows that pass it. Past the term
+    limit a trunk keeps only that shared term; None when even that is too many.
+    """
+    groups: dict[str, set[str]] = {}
+    for normalised, key in valid:
+        term = ("%#" if key else "") + like_prefilter(normalised)
+        outer = "%#" + like_prefilter(re.match(r"\d+", normalised)[0]) if key else term
+        groups.setdefault(outer, set()).add(term)
+    # The shared term alone already admits every row of a whole-trunk query.
+    narrow = {outer: [] if outer in terms else sorted(terms) for outer, terms in groups.items()}
+    if len(narrow) + sum(map(len, narrow.values())) > MAX_PREFILTER_TERMS:
+        narrow = dict.fromkeys(narrow, [])
+    if len(narrow) > MAX_PREFILTER_TERMS:
+        return None
+    like = lambda column, term: column.ilike(term, escape="\\")
+    return [and_(like(column, outer), or_(*(like(column, t) for t in terms))) if terms else like(column, outer)
+            for outer, terms in narrow.items() for column in (Label.left_text, Label.right_text)]
+
+
 def _candidates(hits: List[Label], limit: int = 20) -> List[dict]:
     return [
         CandidateDTO(
@@ -255,10 +308,7 @@ def _candidates(hits: List[Label], limit: int = 20) -> List[dict]:
 
 def _resolve_label(disc: Discipline, cable: str, session: Session) -> Label:
     """Find the single label in this discipline matching the cable query."""
-    labels = session.exec(
-        select(Label).where(Label.discipline_id == disc.id)
-    ).all()
-    status, hits = _match_cable(labels, cable)
+    status, hits = _match_cable(_candidate_labels(session, disc, [cable]), cable)
     if status == "invalid":
         raise HTTPException(400, f"Invalid cable query: {cable!r}")
     if not hits:
@@ -574,12 +624,16 @@ def _plan_batch(req: ApiBatchPrintRequest, disc: Discipline, session: Session):
         queries = _expand_cables(req)
     if not queries:
         raise HTTPException(400, "Provide 'cables', 'cable' or 'bundle'")
-    labels = session.exec(select(Label).where(Label.discipline_id == disc.id).order_by(Label.id)).all()
-    seen, plan = set(), []
+    resolved = []
     for q in queries:
         valid, normalised = validate_query(q)
         group = re.fullmatch(r"(\d+)(?:\.\*?)?", normalised) if disc.bundle_mode else None
         bundle = req.bundle.strip() if req.bundle is not None else (group.group(1) if group else None)
+        resolved.append((q, normalised, bundle))
+    labels = _candidate_labels(session, disc, [q for q, _, bundle in resolved if bundle is None],
+                               frozenset(bundle for _, _, bundle in resolved if bundle is not None))
+    seen, plan = set(), []
+    for q, normalised, bundle in resolved:
         if bundle is not None:
             hits = [lb for lb in labels if lb.bundle == bundle]
             is_group = True

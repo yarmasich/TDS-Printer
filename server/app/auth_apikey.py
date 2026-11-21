@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional, Tuple
 
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 from .db import get_session
@@ -21,6 +22,8 @@ from .models import ApiKey
 
 PREFIX = "tdsk"          # token namespace, e.g. ``tdsk_ab12cd34_<secret>``
 PREFIX_LEN = 13          # stored display prefix: ``tdsk_ab12cd34``
+# ``last_used_at`` is refreshed only when older than this, not on every request.
+LAST_USED_RESOLUTION = timedelta(minutes=5)
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -48,7 +51,8 @@ async def require_api_key(
 ) -> ApiKey:
     """Validate ``X-API-Key`` and return the matching enabled ``ApiKey``.
 
-    Touches ``last_used_at`` on success so the admin UI can show liveness.
+    Touches ``last_used_at`` on success (throttled, see ``touch_last_used``)
+    so the admin UI can show liveness.
     """
     if not presented:
         raise HTTPException(401, "Missing X-API-Key header")
@@ -69,10 +73,35 @@ async def require_api_key(
     if match is None:
         raise HTTPException(401, "Invalid or revoked API key")
 
-    match.last_used_at = datetime.now(timezone.utc)
-    session.add(match)
-    session.commit()
+    touch_last_used(session, match)
     return match
+
+
+def _as_utc(value: datetime) -> datetime:
+    # SQLite returns naive datetimes; every stored value was written in UTC.
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def touch_last_used(session: Session, key: ApiKey, now: Optional[datetime] = None) -> bool:
+    """Record liveness at most once per ``LAST_USED_RESOLUTION``.
+
+    A write per request would serialize every print on SQLite's single writer
+    for a value the admin UI shows only as relative time. Liveness is best
+    effort: a failed write never fails the authenticated request.
+    Returns True when a new timestamp was committed.
+    """
+    now = now or datetime.now(timezone.utc)
+    last = key.last_used_at
+    if last is not None and now - _as_utc(last) < LAST_USED_RESOLUTION:
+        return False
+    key.last_used_at = now
+    session.add(key)
+    try:
+        session.commit()
+    except OperationalError:
+        session.rollback()
+        return False
+    return True
 
 
 def check_scope(key: ApiKey, scope: str) -> ApiKey:

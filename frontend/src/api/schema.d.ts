@@ -1204,6 +1204,12 @@ export interface components {
             discipline_id: number;
             /** File */
             file: string;
+            /**
+             * Replace
+             * @description Remove the discipline's earlier imports and their labels in the same transaction. A file that fails to import leaves them in place.
+             * @default false
+             */
+            replace: boolean;
         };
         /** BundleDTO */
         BundleDTO: {

@@ -14,7 +14,8 @@ Interactive spec: `GET /docs` (Swagger) and `GET /openapi.json`.
 
 ## 1. Get a key
 
-Keys are issued by an administrator in the web admin → **API keys** section:
+Keys are issued by an administrator in the web admin → **Legacy API keys** section
+(FloorHub project routing keys live under **Integrations** instead):
 
 1. Enter the app name (e.g. `FloorHub`) → **Create key**.
 2. Copy the key that is shown. **It is shown only once** — the server stores

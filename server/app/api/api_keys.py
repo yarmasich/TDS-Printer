@@ -7,9 +7,9 @@ admin-only (mounted with ``require_admin`` in ``main.py``).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -29,6 +29,8 @@ class ApiKeyDTO(BaseModel):
     enabled: bool
     created_at: datetime
     last_used_at: Optional[datetime]
+    # Set for scoped integration keys; null for legacy keys.
+    integration_id: Optional[str] = None
 
 
 class ApiKeyCreated(ApiKeyDTO):
@@ -52,13 +54,23 @@ def _dto(k: ApiKey) -> ApiKeyDTO:
         enabled=k.enabled,
         created_at=k.created_at,
         last_used_at=k.last_used_at,
+        integration_id=k.integration_id,
     )
 
 
 @router.get("", response_model=List[ApiKeyDTO])
-def list_keys(session: Session = Depends(get_session)) -> List[ApiKeyDTO]:
-    keys = session.exec(select(ApiKey).order_by(ApiKey.created_at.desc())).all()
-    return [_dto(k) for k in keys]
+def list_keys(
+    kind: Literal["all", "legacy", "scoped"] = Query(
+        "all", description="'legacy': keys without an integration; 'scoped': integration keys"),
+    session: Session = Depends(get_session),
+) -> List[ApiKeyDTO]:
+    # Listing only: which keys authenticate where is decided by auth_apikey.
+    stmt = select(ApiKey).order_by(ApiKey.created_at.desc())
+    if kind == "legacy":
+        stmt = stmt.where(ApiKey.integration_id.is_(None))
+    elif kind == "scoped":
+        stmt = stmt.where(ApiKey.integration_id.is_not(None))
+    return [_dto(k) for k in session.exec(stmt).all()]
 
 
 @router.post("", response_model=ApiKeyCreated)

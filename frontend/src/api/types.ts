@@ -271,6 +271,8 @@ export interface ApiKey {
   enabled: boolean;
   created_at: string;
   last_used_at: string | null;
+  /** Set for FloorHub integration keys; null for legacy keys. */
+  integration_id?: string | null;
 }
 
 /** POST /api/api-keys returns the plaintext key exactly once. */

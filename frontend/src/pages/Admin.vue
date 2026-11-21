@@ -26,8 +26,8 @@ const sections: NavItem[] = [
   { key: "projects", label: "Projects · Halls · Disciplines", icon: "pi pi-sitemap", component: ProjectsTree },
   { key: "import", label: "Import labels", icon: "pi pi-upload", component: ImportsSection },
   { key: "lists", label: "Reasons & Operators", icon: "pi pi-list", component: ListsSection },
-  { key: "integrations", label: "Project printer routing", icon: "pi pi-share-alt", component: IntegrationsSection },
-  { key: "api-keys", label: "API keys", icon: "pi pi-key", component: ApiKeysSection },
+  { key: "integrations", label: "Integrations", icon: "pi pi-share-alt", component: IntegrationsSection },
+  { key: "api-keys", label: "Legacy API keys", icon: "pi pi-key", component: ApiKeysSection },
   { key: "history", label: "Print history", icon: "pi pi-history", component: HistorySection },
 ];
 

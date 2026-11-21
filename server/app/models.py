@@ -331,6 +331,9 @@ class ProjectPrintPolicy(SQLModel, table=True):
     id: str = Field(primary_key=True)
     integration_id: str = Field(foreign_key='integration.id', index=True)
     external_project_id: str
+    # Display only: the caller's own project name, sent with each policy save.
+    # Never used for routing or authorization.
+    external_project_name: Optional[str] = Field(default=None, max_length=200)
     revision: int = 1
     tds_project_id: Optional[int] = Field(default=None, foreign_key='project.id')
     cable_default_printer_id: Optional[int] = Field(default=None, foreign_key='printer.id')

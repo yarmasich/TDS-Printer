@@ -5,6 +5,7 @@ const requestError = requests.error;
 import { computed, onMounted, ref, watch } from "vue";
 import { adminAuthHeader, api, apiUrl } from "@/api/client";
 import type { Discipline, ImportDTO, Project } from "@/api/types";
+import { importResultToast, replaceHint, type ImportStats } from "@/data/importResult";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
 
@@ -28,6 +29,9 @@ const projectId = ref<number | null>(null);
 const disciplineId = ref<number | null>(null);
 const file = ref<File | null>(null);
 const filePickerKey = ref(0);
+// A re-uploaded workbook replaces the discipline's labels unless the admin
+// deliberately adds a second file to it.
+const replaceExisting = ref(true);
 
 onMounted(refresh);
 
@@ -56,6 +60,11 @@ const disciplineOptions = computed(() =>
   })),
 );
 
+const earlierImports = computed(() =>
+  imports.value.filter((imp) => imp.discipline_id === disciplineId.value),
+);
+watch(disciplineId, () => { replaceExisting.value = true; });
+
 const canUpload = computed(
   () => destination.valid(disciplineId.value) && file.value != null,
 );
@@ -72,6 +81,7 @@ async function uploadRequest() {
   const fd = new FormData();
   fd.append("discipline_id", String(disciplineId.value));
   fd.append("file", file.value);
+  fd.append("replace", String(earlierImports.value.length > 0 && replaceExisting.value));
   try {
     const res = await fetch(apiUrl("/api/import/upload"), {
       method: "POST",
@@ -80,15 +90,8 @@ async function uploadRequest() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "upload failed");
-    toast.add({
-      severity: "success",
-      summary: `Imported ${data.rows} rows · ${data.sheets} sheets`
-        + (data.trunk_rows ? ` · ${data.trunk_rows} trunk labels left out` : ""),
-      detail: data.trunk_rows
-        ? "Trunk labels in a leg workbook are not imported. They print from the trunk discipline."
-        : undefined,
-      life: 3000,
-    });
+    const message = importResultToast(data as ImportStats);
+    toast.add({ severity: "success", ...message, life: message.detail ? 6000 : 3000 });
     file.value = null;
     filePickerKey.value++;
     await refresh();
@@ -173,6 +176,15 @@ function remove(imp: ImportDTO) {
       </div>
       <p v-if="destinationError" role="alert" class="text-danger mt-3">{{ destinationError }} <Button label="Retry disciplines" @click="destination.load(projectId)" /></p>
       <p v-if="projectId && !destinationLoading && !destinationError && !disciplines.length" class="mt-3">No disciplines in this project. Add one in Projects · Halls · Disciplines first.</p>
+      <div v-if="earlierImports.length" class="mt-3">
+        <label class="flex items-center gap-2 min-h-11 font-bold">
+          <input v-model="replaceExisting" type="checkbox" :disabled="requests.busy('upload')" aria-describedby="importssection-replace-hint" />
+          Replace existing labels
+        </label>
+        <p id="importssection-replace-hint" class="text-xs text-ink-2">
+          {{ replaceExisting ? replaceHint(earlierImports) : "The new file is added next to the earlier imports, so labels in both files appear twice." }}
+        </p>
+      </div>
       <div class="mt-3 flex justify-end">
         <Button :disabled="!canUpload || requests.pending.value.size > 0"
           label="Upload"
