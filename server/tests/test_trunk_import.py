@@ -155,3 +155,26 @@ def test_migration_adds_the_link_and_keeps_existing_rows(monkeypatch, tmp_path):
         assert c.exec_driver_sql('SELECT left_text FROM label').scalar() == 'L'
         assert c.exec_driver_sql('SELECT count(*) FROM discipline').scalar() == 2
     engine.dispose()
+
+
+def test_blank_link_cells_are_read_from_the_cable_number(session, tmp_path):
+    # The 16K-NS-SC leg file has Trunk# / Leg # headers but no values; each
+    # label prints its own "CBL# | trunk.leg" on both ends.
+    d = discipline(session, '16K-NS-SC')
+    path = workbook(tmp_path / 'legs.xlsx', [
+        LEG_HEADER,
+        leg('EH1A-R10 | swp53s1\nSU1 | 16K-NS-SC | CBL# | 1.1 | 386ft',
+            'CNR-N2F-R01 | swp1s1\nSU1 | 16K-NS-SC | CBL# | 1.1 | 386ft', None, None),
+        leg('SU1 | CBL# | 1.10 | 386ft', 'SU1 | CBL# | 1.10 | 386ft', None, None),
+        # The cells win over the text.
+        leg('SU1 | CBL# | 3.4', 'SU1 | CBL# | 3.4', 5, 6),
+        # No guess when the ends disagree, a label names two cables, or none.
+        leg('SU1 | CBL# | 2.1', 'SU1 | CBL# | 2.2', None, None),
+        leg('CBL# | 2.3 / CBL# | 2.4', 'CBL# | 2.3 / CBL# | 2.4', None, None),
+        leg('no number here', 'Z', None, None),
+        # One link cell filled: the row is not blank, so nothing is read.
+        leg('SU1 | CBL# | 4.1', 'SU1 | CBL# | 4.1', 4, None),
+    ])
+    import_workbook_into_discipline(session, path, d); session.commit()
+    assert [(r.trunk_no, r.leg_no) for r in labels(session, d)] == [
+        ('1', '1'), ('1', '10'), ('5', '6'), (None, None), (None, None), (None, None), ('4', None)]

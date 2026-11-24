@@ -132,6 +132,17 @@ def _is_trunk_row(left: str, right: str, trunk_no: Optional[str], leg_no: Option
     return bool(numbers) and all(not leg for _, leg in numbers)
 
 
+def _link_from_text(left: str, right: str) -> tuple[Optional[str], Optional[str]]:
+    """Trunk and leg from the label's own "CBL# | 1.1", for a leg row whose
+    Trunk# / Leg # cells were left blank (the 16K-NS-SC leg file). Both ends
+    must name the same single leg; anything else is not guessed at."""
+    numbers_left, numbers_right = _CABLE_NO_RE.findall(left), _CABLE_NO_RE.findall(right)
+    if len(numbers_left) != 1 or numbers_left != numbers_right:
+        return None, None
+    trunk, leg = numbers_left[0]
+    return (trunk, leg[1:]) if leg else (None, None)
+
+
 def _is_formula_blank(left: str, right: str, trunk_no: Optional[str], leg_no: Optional[str]) -> bool:
     """A blanked-out row of a formula sheet: Excel shows "0" for a formula over an
     empty cell, so deleting a row's source leaves a "0" / "0" label behind."""
@@ -234,6 +245,8 @@ def _import_workbook_into_discipline(
                     continue
                 trunk_no = _cell_text(row[trunk_col]) if trunk_col is not None and trunk_col < len(row) else None
                 leg_no = _cell_text(row[leg_col]) if leg_col is not None and leg_col < len(row) else None
+                if leg_col is not None and not trunk_no and not leg_no:
+                    trunk_no, leg_no = _link_from_text(left, right)
                 # Only a leg workbook (both link columns) can hold stray trunk rows.
                 if leg_col is not None and _is_trunk_row(left, right, trunk_no, leg_no):
                     stats.skipped += 1
