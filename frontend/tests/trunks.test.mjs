@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPinia, setActivePinia } from 'pinia';
-import { offersTrunk, operatorDisciplines, trunkCaption, trunkTargets } from '../src/data/trunks.ts';
+import { offersTrunk, operatorDisciplines, trunkCaption, trunkGroups, trunkTargets } from '../src/data/trunks.ts';
 import { useCart } from '../src/stores/cart.ts';
 
 const halls = [{ id: 1, project_id: 1, name: '8k&16k' }, { id: 2, project_id: 2, name: 'DH26' }];
@@ -60,4 +60,19 @@ test('a trunk discipline already chosen stays listed until the choice changes', 
   // A kiosk may have remembered it from before it was linked.
   const legs = d(1, '16K-EW-LS', 1, 2), trunks = d(2, '16K-EW-LS-Trunk');
   assert.deepEqual(operatorDisciplines([legs, trunks], 2).map((x) => x.name), ['16K-EW-LS', '16K-EW-LS-Trunk']);
+});
+
+test('admin groups each trunk discipline under the legs that link it, where the first leg stands', () => {
+  const legs = d(1, '16K-NS-SC', 1, 3), plain = d(2, '8K-IBLFSP'), trunks = d(3, '16K-NS-SC-Trunk');
+  const names = (groups) => groups.map((g) => [g.rows.map((x) => x.name), g.trunk?.name ?? null]);
+  assert.deepEqual(names(trunkGroups([legs, plain, trunks])),
+    [[['16K-NS-SC'], '16K-NS-SC-Trunk'], [['8K-IBLFSP'], null]]);
+  // Listed before its legs, the trunk still comes last, and only once.
+  const a = d(4, 'A', 1, 6), b = d(5, 'B', 1, 6), shared = d(6, 'Shared trunks');
+  assert.deepEqual(names(trunkGroups([shared, a, b])), [[['A', 'B'], 'Shared trunks']]);
+});
+
+test('a leg whose trunk discipline is in another hall is not grouped', () => {
+  const legs = d(1, 'Legs', 1, 9);
+  assert.deepEqual(trunkGroups([legs]), [{ rows: [legs], trunk: null }]);
 });

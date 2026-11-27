@@ -67,7 +67,7 @@ import { computed, onMounted, ref } from "vue";
 import { useAdminRequests } from "@/composables/adminRequests";
 import { api } from "@/api/client";
 import type { DataHall, Discipline, Project, Template } from "@/api/types";
-import { trunkTargets } from "@/data/trunks";
+import { trunkGroups, trunkTargets } from "@/data/trunks";
 import { useToast } from "primevue/usetoast";
 import { useConfirm } from "primevue/useconfirm";
 
@@ -510,12 +510,23 @@ function del(url: string, label: string) {
 
         <div v-if="expandedHalls.has(h.id)" :id="`hall-content-${h.id}`" class="space-y-2">
         <p v-if="!discByHall.get(h.id)?.length" class="text-sm text-ink-3 px-3 py-2">No disciplines yet.</p>
+        <!-- A trunk discipline is framed with the legs that link it, trunks last. -->
         <div
-          v-for="d in discByHall.get(h.id) ?? []"
+          v-for="g in trunkGroups(discByHall.get(h.id) ?? [])"
+          :key="g.trunk ? `group-${g.trunk.id}` : g.rows[0]?.id"
+          class="sm:ml-5"
+          :class="g.trunk ? 'rounded-xl border border-edge p-1.5 space-y-1.5' : ''"
+          :role="g.trunk ? 'group' : undefined"
+          :aria-label="g.trunk ? `${g.rows.map((r) => r.name).join(', ')} and ${g.trunk.name}` : undefined"
+        >
+        <div
+          v-for="d in g.trunk ? [...g.rows, g.trunk] : g.rows"
           :key="d.id"
-          class="sm:ml-5 bg-sunken border border-edge rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2"
+          class="bg-sunken border border-edge rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2"
+          :class="{ 'ml-6': d === g.trunk }"
         >
           <div class="flex items-center gap-2 min-w-0">
+            <span v-if="d === g.trunk" aria-hidden="true" class="text-ink-4">└</span>
             <ColorPicker
               :model-value="d.color"
               format="hex"
@@ -534,7 +545,7 @@ function del(url: string, label: string) {
             <span class="text-xs text-ink-4">
               {{ d.label_count }} labels
             </span>
-            <span v-if="trunksFor(d)" class="text-xs text-ink-3">· for {{ trunksFor(d) }}</span>
+            <span v-if="trunksFor(d) && d !== g.trunk" class="text-xs text-ink-3">· for {{ trunksFor(d) }}</span>
             <span v-if="d.missing_trunk_count" class="text-xs text-warn"
               title="These leg labels have no Trunk#, so their trunk label cannot print. Re-import the workbook with the Trunk# column.">
               · {{ d.missing_trunk_count === d.label_count ? 'No label has a Trunk#' : `${d.missing_trunk_count} labels have no Trunk#` }}. Re-import with the Trunk# column.
@@ -587,6 +598,7 @@ function del(url: string, label: string) {
             />
           </div>
           <p v-if="d.bundle_mode" class="w-full text-sm text-ink-2">Re-import this discipline’s files after enabling Bundle so labels are grouped by bundle.</p>
+        </div>
         </div>
       </div>
       </div>

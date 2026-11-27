@@ -39,3 +39,30 @@ export function operatorDisciplines<T extends Pick<Discipline, 'id' | 'trunk_dis
   const linked = new Set(all.map((d) => d.trunk_discipline_id).filter((id) => id != null));
   return all.filter((d) => !linked.has(d.id) || d.id === keepId);
 }
+
+/** Admin's view of a hall: each trunk discipline framed with the leg
+ * disciplines that link it, trunks last, placed where the first leg stands.
+ * A leg whose trunks live in another hall, and anything unlinked, stays a
+ * plain row (`trunk: null`). */
+export function trunkGroups<T extends Pick<Discipline, 'id' | 'trunk_discipline_id'>>(
+  list: T[],
+): { rows: T[]; trunk: T | null }[] {
+  const byId = new Map(list.map((d) => [d.id, d]));
+  const grouped = new Map<number, { rows: T[]; trunk: T | null }>();
+  const out: { rows: T[]; trunk: T | null }[] = [];
+  for (const d of list) {
+    const trunk = d.trunk_discipline_id != null ? byId.get(d.trunk_discipline_id) : undefined;
+    if (trunk) {
+      const group = grouped.get(trunk.id);
+      if (group) group.rows.push(d);
+      else {
+        const created = { rows: [d], trunk };
+        grouped.set(trunk.id, created);
+        out.push(created);
+      }
+    } else if (!list.some((o) => o.trunk_discipline_id === d.id)) {
+      out.push({ rows: [d], trunk: null });
+    }
+  }
+  return out;
+}
